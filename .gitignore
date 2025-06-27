@@ -76,3 +76,4 @@ tests/testthat/_snaps/*.md
 
 # Shiny specific
 shiny_bookmarks/
+.Rproj.user
