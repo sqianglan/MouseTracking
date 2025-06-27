@@ -97,6 +97,9 @@ server <- function(input, output, session) {
   # Initialize all_mice_table reactive value
   all_mice_table <- reactiveVal(NULL)
   
+  # Global refresh trigger for cross-module data updates
+  global_refresh_trigger <- reactiveVal(Sys.time())
+  
   # Global lock system for deletion protection
   global_lock_state <- reactiveValues(
     is_locked = TRUE  # Start locked by default
@@ -188,9 +191,9 @@ server <- function(input, output, session) {
     all_mice_table(all_data)
   })
   
-  all_mice_tab_server(input, output, session, all_mice_table, is_system_locked)
+  all_mice_tab_server(input, output, session, all_mice_table, is_system_locked, global_refresh_trigger)
   #breeding_tab_server(input, output, session)
-  plugging_tab_server(input, output, session, is_system_locked)
+  plugging_tab_server(input, output, session, is_system_locked, global_refresh_trigger, all_mice_table)
   #deceased_tab_server(input, output, session)
   #deleted_tab_server(input, output, session)
 

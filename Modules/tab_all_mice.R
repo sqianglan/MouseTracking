@@ -47,10 +47,15 @@ all_mice_tab_ui <- function() {
   )
 }
 
-all_mice_tab_server <- function(input, output, session, all_mice_table, is_system_locked = NULL) {
+all_mice_tab_server <- function(input, output, session, all_mice_table, is_system_locked = NULL, global_refresh_trigger = NULL) {
   # Default lock function if not provided
   if (is.null(is_system_locked)) {
     is_system_locked <- function() FALSE
+  }
+  
+  # Default refresh trigger if not provided
+  if (is.null(global_refresh_trigger)) {
+    global_refresh_trigger <- reactiveVal(Sys.time())
   }
 
   # Create reactive value to store filtered data
@@ -65,6 +70,66 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     DBI::dbDisconnect(con)
     filtered_data(filtered)
     all_mice_table(filtered)
+  })
+  
+  # React to global refresh trigger for automatic updates
+  observe({
+    global_refresh_trigger()
+    
+    # Get current search status to maintain filter
+    current_status_filter <- input$all_mice_search_status
+    if (is.null(current_status_filter)) current_status_filter <- "Live"
+    
+    # Rebuild query based on current filters
+    where_conditions <- c()
+    
+    # Add status filter
+    if (current_status_filter != "Both") {
+      if (current_status_filter == "Live") {
+        where_conditions <- c(where_conditions, "status == 'Alive'")
+      } else if (current_status_filter == "Deceased") {
+        where_conditions <- c(where_conditions, "status == 'Deceased'")
+      }
+    }
+    
+    # Add other current filters if they exist
+    if (!is.null(input$all_mice_search_asu_id) && input$all_mice_search_asu_id != "") {
+      asu_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_asu_id))
+      where_conditions <- c(where_conditions, paste0("asu_id LIKE '", asu_pattern, "'"))
+    }
+    if (!is.null(input$all_mice_search_animal_id) && input$all_mice_search_animal_id != "") {
+      animal_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_animal_id))
+      where_conditions <- c(where_conditions, paste0("animal_id LIKE '", animal_pattern, "'"))
+    }
+    if (!is.null(input$all_mice_search_gender) && input$all_mice_search_gender != "") {
+      where_conditions <- c(where_conditions, paste0("gender = '", input$all_mice_search_gender, "'"))
+    }
+    if (!is.null(input$all_mice_search_breeding_line) && input$all_mice_search_breeding_line != "") {
+      breeding_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_breeding_line))
+      where_conditions <- c(where_conditions, paste0("breeding_line LIKE '", breeding_pattern, "'"))
+    }
+    if (!is.null(input$all_mice_search_responsible_person) && input$all_mice_search_responsible_person != "") {
+      where_conditions <- c(where_conditions, paste0("responsible_person = '", input$all_mice_search_responsible_person, "'"))
+    }
+    if (!is.null(input$all_mice_search_stock_category) && input$all_mice_search_stock_category != "") {
+      where_conditions <- c(where_conditions, paste0("stock_category = '", input$all_mice_search_stock_category, "'"))
+    }
+    
+    # Build and execute query
+    if (length(where_conditions) == 0) {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
+    } else {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
+    }
+    
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    tryCatch({
+      refreshed_data <- DBI::dbGetQuery(con, query)
+      filtered_data(refreshed_data)
+      all_mice_table(refreshed_data)
+    }, finally = {
+      DBI::dbDisconnect(con)
+    })
   })
 
   # Render all mice table

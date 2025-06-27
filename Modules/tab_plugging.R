@@ -33,11 +33,21 @@ plugging_tab_ui <- function() {
 }
 
 # Server Function
-plugging_tab_server <- function(input, output, session, is_system_locked = NULL) {
+plugging_tab_server <- function(input, output, session, is_system_locked = NULL, global_refresh_trigger = NULL, all_mice_table = NULL) {
   
   # Default lock function if not provided
   if (is.null(is_system_locked)) {
     is_system_locked <- function() FALSE
+  }
+  
+  # Default refresh trigger if not provided
+  if (is.null(global_refresh_trigger)) {
+    global_refresh_trigger <- reactiveVal(Sys.time())
+  }
+  
+  # Default all_mice_table if not provided
+  if (is.null(all_mice_table)) {
+    all_mice_table <- reactiveVal(NULL)
   }
   
   # Reactive values for state management
@@ -83,6 +93,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
   
   # Get live mice for selection (cached)
   get_live_mice <- reactive({
+    # Add dependency on global refresh trigger
+    global_refresh_trigger()
+    
     con <- db_connect()
     tryCatch({
       mice <- DBI::dbGetQuery(con, 
@@ -945,6 +958,20 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
         removeModal()
         plugging_state$viewing_id <- NULL
         plugging_state$reload <- Sys.time()
+        
+        # Trigger global refresh for cross-module updates
+        global_refresh_trigger(Sys.time())
+        
+        # Refresh all_mice_table if available
+        if (!is.null(all_mice_table)) {
+          con_refresh <- db_connect()
+          tryCatch({
+            all_data <- DBI::dbGetQuery(con_refresh, "SELECT * FROM mice_stock ORDER BY asu_id")
+            all_mice_table(all_data)
+          }, finally = {
+            db_disconnect(con_refresh)
+          })
+        }
       } else {
         showNotification("Failed to update plugging event", type = "error")
       }
@@ -1175,6 +1202,20 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
           removeModal()
           plugging_state$viewing_id <- NULL
           plugging_state$reload <- Sys.time()
+          
+          # Trigger global refresh for cross-module updates
+          global_refresh_trigger(Sys.time())
+          
+          # Refresh all_mice_table if available
+          if (!is.null(all_mice_table)) {
+            con_refresh <- db_connect()
+            tryCatch({
+              all_data <- DBI::dbGetQuery(con_refresh, "SELECT * FROM mice_stock ORDER BY asu_id")
+              all_mice_table(all_data)
+            }, finally = {
+              db_disconnect(con_refresh)
+            })
+          }
         } else {
           showNotification("Failed to update female mouse status", type = "error")
         }
@@ -1248,6 +1289,20 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
           removeModal()
           plugging_state$viewing_id <- NULL
           plugging_state$reload <- Sys.time()
+          
+          # Trigger global refresh for cross-module updates
+          global_refresh_trigger(Sys.time())
+          
+          # Refresh all_mice_table if available
+          if (!is.null(all_mice_table)) {
+            con_refresh <- db_connect()
+            tryCatch({
+              all_data <- DBI::dbGetQuery(con_refresh, "SELECT * FROM mice_stock ORDER BY asu_id")
+              all_mice_table(all_data)
+            }, finally = {
+              db_disconnect(con_refresh)
+            })
+          }
         } else {
           showNotification("Failed to update female mouse status", type = "error")
         }
