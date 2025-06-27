@@ -422,7 +422,32 @@ get_plugging_modification_history <- function(plugging_id, db_path = DB_PATH, li
   on.exit(DBI::dbDisconnect(con), add = TRUE)
   
   tryCatch({
-    history <- DBI::dbGetQuery(con, "SELECT * FROM audit_trail WHERE table_name = 'plugging_history' AND record_id = ? ORDER BY timestamp DESC LIMIT ?", params = list(plugging_id, limit))
+    # First, get the female_id from the plugging record
+    female_id <- DBI::dbGetQuery(con, "SELECT female_id FROM plugging_history WHERE id = ?", params = list(plugging_id))
+    
+    if (nrow(female_id) == 0) {
+      return(data.frame(
+        id = integer(0),
+        table_name = character(0),
+        record_id = character(0),
+        action = character(0),
+        old_values = character(0),
+        new_values = character(0),
+        timestamp = character(0),
+        user_id = character(0),
+        formatted_time = character(0),
+        old_values_parsed = character(0),
+        new_values_parsed = character(0),
+        stringsAsFactors = FALSE
+      ))
+    }
+    
+    female_id <- female_id$female_id[1]
+    
+    # Get audit trail records for both plugging_history and mice_stock (for the female mouse)
+    history <- DBI::dbGetQuery(con, 
+      "SELECT * FROM audit_trail WHERE (table_name = 'plugging_history' AND record_id = ?) OR (table_name = 'mice_stock' AND record_id = ?) ORDER BY timestamp DESC LIMIT ?", 
+      params = list(plugging_id, female_id, limit))
     
     if (nrow(history) > 0) {
       # Get timezone

@@ -8,7 +8,7 @@ library(DT)
 library(jsonlite)
 
 # Constants
-PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)", "Unknown", "Empty", "Not Observed (Confirmed)")
+PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)", "Empty", "Not Observed (Confirmed)")
 
 # UI Function
 plugging_tab_ui <- function() {
@@ -403,12 +403,12 @@ plugging_tab_server <- function(input, output, session) {
   
   # Helper to check if status is Plugged
   is_plugged_status <- function(status) {
-    is.null(status) || status %in% c("Plugged", "Confirmed", "Not Observed (Waiting for confirmation)", "Unknown")
+    is.null(status) || status %in% c("Plugged", "Confirmed", "Not Observed (Waiting for confirmation)")
   }
   
   # Helper to check if status allows further actions (not final states)
   is_active_status <- function(status) {
-    status %in% c("Ongoing", "Unknown", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)")
+    status %in% c("Ongoing", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)")
   }
   
   # Helper to check if status is Not Observed (Confirmed)
@@ -418,7 +418,7 @@ plugging_tab_server <- function(input, output, session) {
   
   # Helper to check if status allows "Plug is Empty" action
   can_mark_empty <- function(status) {
-    status %in% c("Plugged", "Confirmed", "Unknown", "Not Observed (Waiting for confirmation)")
+    status %in% c("Plugged", "Confirmed", "Not Observed (Waiting for confirmation)")
   }
   
   # Helper to check if plug observed date is valid (not NA, empty, or "Unknown")
@@ -497,6 +497,13 @@ plugging_tab_server <- function(input, output, session) {
             list(user = row$user_id, date = row$timestamp, action = "Euthanized")
           } else {
             list(user = row$user_id, date = row$timestamp, action = paste0("Mouse Status: ", old$status, "  →  ", new$status))
+          }
+        } else if (row$table_name == "mice_stock" && row$action == "UPDATE") {
+          # Check if this is an euthanasia action based on operation details
+          if (!is.null(row$operation_details) && grepl("Euthanasia", row$operation_details, ignore.case = TRUE)) {
+            list(user = row$user_id, date = row$timestamp, action = "Euthanized")
+          } else {
+            list(user = row$user_id, date = row$timestamp, action = paste0("Mouse Update: ", ifelse(is.null(row$operation_details) || row$operation_details == "", "Status change", row$operation_details)))
           }
         } else {
           NULL
@@ -638,8 +645,8 @@ plugging_tab_server <- function(input, output, session) {
                 NULL
               } else if (row$female_status != "Deceased" && row$plugging_status != "Deleted" && is_active_status(row$plugging_status)) {
                 tagList(
-                  # Show "Mark as Plugged" for Ongoing or Unknown status
-                  if (row$plugging_status %in% c("Ongoing", "Unknown")) {
+                  # Show "Mark as Plugged" for Ongoing status
+                  if (row$plugging_status == "Ongoing") {
                     actionButton("mark_plug_observed_btn", "Plugged", class = "btn-success")
                   },
                   # Show "Euthanized" for all active statuses
@@ -1103,57 +1110,103 @@ plugging_tab_server <- function(input, output, session) {
       if (nrow(plugging) == 0) return()
       row <- plugging[1, ]
       
-      # Update female mouse status to Deceased
-      result <- DBI::dbExecute(con, 
-        "UPDATE mice_stock SET 
-         status = 'Deceased',
-         date_of_death = ?,
-         deceased_timestamp = DATETIME('now'),
-         last_updated = DATETIME('now')
-         WHERE asu_id = ?",
-        params = list(
-          as.character(input$euthanasia_date_input),
-          row$female_id
+      # If Plug is Empty is checked, handle plugging status first, then mouse status
+      if (isTRUE(input$euthanasia_plug_empty)) {
+        # First: Update plugging status to Empty
+        con2 <- db_connect()
+        old_plug <- DBI::dbGetQuery(con2, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+        DBI::dbExecute(con2, 
+          "UPDATE plugging_history SET plugging_status = 'Empty', plug_observed_date = NULL WHERE id = ?",
+          params = list(plugging_id)
         )
-      )
-      
-      if (result > 0) {
-        # Log to audit trail for female mouse
-        log_audit_trail(
-          "mice_stock",
-          row$female_id,
+        # Log to audit trail for plugging_history change
+        plug_audit_result <- log_audit_trail(
+          "plugging_history",
+          plugging_id,
           "UPDATE",
-          list(status = "Alive"),
+          old_plug[1, ],
           list(
-            status = "Deceased",
-            date_of_death = as.character(input$euthanasia_date_input),
-            notes = input$euthanasia_notes_input,
-            source = "Plugging Tab"
+            plugging_status = "Empty",
+            plug_observed_date = NA
+          ),
+          note = "Plug marked as Empty due to euthanasia"
+        )
+        db_disconnect(con2)
+        
+        # Wait 1 second before updating mouse status
+        Sys.sleep(1)
+        
+        # Then: Update female mouse status to Deceased
+        mouse_result <- DBI::dbExecute(con, 
+          "UPDATE mice_stock SET 
+           status = 'Deceased',
+           date_of_death = ?,
+           deceased_timestamp = DATETIME('now'),
+           last_updated = DATETIME('now')
+           WHERE asu_id = ?",
+          params = list(
+            as.character(input$euthanasia_date_input),
+            row$female_id
           )
         )
         
-        # If Plug is Empty is checked, also update plugging_history as in Plug is Empty action
-        if (isTRUE(input$euthanasia_plug_empty)) {
-          con2 <- db_connect()
-          old_plug <- DBI::dbGetQuery(con2, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
-          DBI::dbExecute(con2, 
-            "UPDATE plugging_history SET plugging_status = 'Empty', plug_observed_date = NULL WHERE id = ?",
-            params = list(plugging_id)
-          )
-          # Log to audit trail for plugging_history change
-          log_audit_trail(
-            "plugging_history",
-            plugging_id,
+        if (mouse_result > 0) {
+          # Log to audit trail for female mouse
+          audit_result <- log_audit_trail(
+            "mice_stock",
+            row$female_id,
             "UPDATE",
-            old_plug[1, ],
+            list(status = "Alive"),
             list(
-              plugging_status = "Empty",
-              plug_observed_date = NA
-            )
+              status = "Deceased",
+              date_of_death = as.character(input$euthanasia_date_input),
+              notes = input$euthanasia_notes_input,
+              source = "Plugging Tab"
+            ),
+            note = "Euthanasia from Plugging Tab"
           )
-          db_disconnect(con2)
+          
+          showNotification("Female mouse marked as deceased successfully!", type = "message")
+          removeModal()
+          plugging_state$viewing_id <- NULL
+          plugging_state$reload <- Sys.time()
         } else {
-          # If Plug is Empty is NOT checked, update plugging_status to 'Not Observed (Waiting for confirmation)'
+          showNotification("Failed to update female mouse status", type = "error")
+        }
+        
+      } else {
+        # If Plug is Empty is NOT checked, update mouse status first, then plugging status
+        # Update female mouse status to Deceased
+        result <- DBI::dbExecute(con, 
+          "UPDATE mice_stock SET 
+           status = 'Deceased',
+           date_of_death = ?,
+           deceased_timestamp = DATETIME('now'),
+           last_updated = DATETIME('now')
+           WHERE asu_id = ?",
+          params = list(
+            as.character(input$euthanasia_date_input),
+            row$female_id
+          )
+        )
+        
+        if (result > 0) {
+          # Log to audit trail for female mouse
+          audit_result <- log_audit_trail(
+            "mice_stock",
+            row$female_id,
+            "UPDATE",
+            list(status = "Alive"),
+            list(
+              status = "Deceased",
+              date_of_death = as.character(input$euthanasia_date_input),
+              notes = input$euthanasia_notes_input,
+              source = "Plugging Tab"
+            ),
+            note = "Euthanasia from Plugging Tab"
+          )
+          
+          # Update plugging_status to 'Not Observed (Waiting for confirmation)'
           con2 <- db_connect()
           old_plug <- DBI::dbGetQuery(con2, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
           DBI::dbExecute(con2, 
@@ -1172,7 +1225,7 @@ plugging_tab_server <- function(input, output, session) {
             )
           )
           # Log to audit trail for plugging_history change
-          log_audit_trail(
+          plug_audit_result <- log_audit_trail(
             "plugging_history",
             plugging_id,
             "UPDATE",
@@ -1181,17 +1234,18 @@ plugging_tab_server <- function(input, output, session) {
               plugging_status = "Not Observed (Waiting for confirmation)",
               completion_date = as.character(input$euthanasia_date_input),
               notes = paste0("Euthanasia completed on ", as.character(input$euthanasia_date_input))
-            )
+            ),
+            note = "Plug marked as Not Observed due to euthanasia"
           )
           db_disconnect(con2)
+          
+          showNotification("Female mouse marked as deceased successfully!", type = "message")
+          removeModal()
+          plugging_state$viewing_id <- NULL
+          plugging_state$reload <- Sys.time()
+        } else {
+          showNotification("Failed to update female mouse status", type = "error")
         }
-        
-        showNotification("Female mouse marked as deceased successfully!", type = "message")
-        removeModal()
-        plugging_state$viewing_id <- NULL
-        plugging_state$reload <- Sys.time()
-      } else {
-        showNotification("Failed to update female mouse status", type = "error")
       }
       
     }, error = function(e) {
@@ -1392,17 +1446,17 @@ plugging_tab_server <- function(input, output, session) {
     })
   })
 
-  # Function to auto-update plugging_status to 'Unknown' if pairing period is over and status is still 'Ongoing'
+  # Function to auto-update plugging_status to 'Not Observed (Waiting for confirmation)' if pairing period is over and status is still 'Ongoing'
   auto_update_plugging_status_to_unknown <- function() {
     con <- db_connect()
     tryCatch({
       today <- as.character(Sys.Date())
-      # Find all ongoing records where pairing_end_date is before or equal to today
-      records <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE plugging_status = 'Ongoing' AND pairing_end_date IS NOT NULL AND pairing_end_date <= ?", params = list(today))
+      # Find all ongoing records where pairing_end_date is before today (not equal to today)
+      records <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE plugging_status = 'Ongoing' AND pairing_end_date IS NOT NULL AND pairing_end_date < ?", params = list(today))
       for (i in seq_len(nrow(records))) {
         rec <- records[i, ]
-        # Update status to Unknown
-        DBI::dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Unknown', updated_at = DATETIME('now') WHERE id = ?", params = list(rec$id))
+        # Update status to Not Observed (Waiting for confirmation)
+        DBI::dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Not Observed (Waiting for confirmation)', updated_at = DATETIME('now') WHERE id = ?", params = list(rec$id))
         # Log to audit trail (use list for new_values, just like user actions, use user_id = 'system(auto)' )
         log_audit_trail(
           "plugging_history",
@@ -1410,9 +1464,9 @@ plugging_tab_server <- function(input, output, session) {
           "UPDATE",
           as.list(rec),
           list(
-            plugging_status = "Unknown",
+            plugging_status = "Not Observed (Waiting for confirmation)",
             confirmation_date = as.character(Sys.Date()),
-            notes = "Auto-update: pairing period ended, status set to Unknown"
+            notes = "Auto-update: pairing period ended, status set to Not Observed (Waiting for confirmation)"
           ),
           user_id = "system(auto)"
         )
