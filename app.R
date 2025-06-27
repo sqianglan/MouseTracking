@@ -19,10 +19,10 @@ source("Modules/audit_trail.R")
 source("Modules/db_check.R")
 source("Modules/modal_mice_history.R")
 source("Modules/tab_all_mice.R")
-source("Modules/tab_breeding.R")
-source("Modules/tab_calendar_events.R")
-source("Modules/tab_deceased.R")
-source("Modules/tab_deleted.R")
+#source("Modules/tab_breeding.R")
+#source("Modules/tab_calendar_events.R")
+#source("Modules/tab_deceased.R")
+#source("Modules/tab_deleted.R")
 source("Modules/tab_plugging.R")
 
 # Initialize audit trail
@@ -56,10 +56,10 @@ ui <- fluidPage(
         )
       ),
       tabPanel("All Mice", all_mice_tab_ui()),
-      tabPanel("Breeding", breeding_tab_ui()),
+      #tabPanel("Breeding", breeding_tab_ui()),
       tabPanel("Plugging", plugging_tab_ui()),
-      tabPanel("Deceased", deceased_tab_ui()),
-      tabPanel("Deleted", deleted_tab_ui())
+      #tabPanel("Deceased", deceased_tab_ui()),
+      #tabPanel("Deleted", deleted_tab_ui())
     ),
     div(
       HTML('Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #337ab7; text-decoration: underline;">Qiang Lan</a>, University of Bristol'),
@@ -77,13 +77,7 @@ server <- function(input, output, session) {
   # source("Modules/db_check.R", local = TRUE)
   # source("Modules/modal_mice_history.R", local = TRUE)
   # source("Modules/tab_all_mice.R", local = TRUE)
-  # source("Modules/tab_breeding.R", local = TRUE)
-  # source("Modules/tab_calendar_events.R", local = TRUE)
-  # source("Modules/tab_deceased.R", local = TRUE)
-  # source("Modules/tab_deleted.R", local = TRUE)
   # source("Modules/tab_plugging.R", local = TRUE)
-  # source("Modules/tab_plugging_backup.R", local = TRUE)
-  # source("Modules/tab_plugging_optimized.R", local = TRUE)
   # initialize_enhanced_audit_trail()
   
   # Initialize reactive values for import data
@@ -106,10 +100,10 @@ server <- function(input, output, session) {
   })
   
   all_mice_tab_server(input, output, session, all_mice_table)
-  breeding_tab_server(input, output, session)
+  #breeding_tab_server(input, output, session)
   plugging_tab_server(input, output, session)
-  deceased_tab_server(input, output, session)
-  deleted_tab_server(input, output, session)
+  #deceased_tab_server(input, output, session)
+  #deleted_tab_server(input, output, session)
 
   db_status <- reactiveVal(FALSE)
 
