@@ -8,7 +8,7 @@ library(DT)
 library(jsonlite)
 
 # Constants
-PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)", "Unknown", "Empty")
+PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)", "Unknown", "Empty", "Not Observed (Confirmed)")
 
 # UI Function
 plugging_tab_ui <- function() {
@@ -292,7 +292,7 @@ plugging_tab_server <- function(input, output, session) {
 
       ### Default values 
       filtered <- pluggings[
-          pluggings$plugging_status %in% c("Ongoing", "Plugged", "Unknown", "Not Observed (Waiting for confirmation)") &
+          pluggings$plugging_status %in% c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Confirmed") &
           (is.na(pluggings$female_status) | pluggings$female_status == "Alive"),
         ]
       
@@ -317,7 +317,7 @@ plugging_tab_server <- function(input, output, session) {
           })
           euthanized_ids <- unique(unlist(euthanized_ids))
         }
-        filtered <- rbind(filtered, pluggings[pluggings$plugging_status == 'Empty' | seq_len(nrow(pluggings)) %in% euthanized_ids, ])
+        filtered <- rbind(filtered, pluggings[pluggings$plugging_status == 'Empty' | pluggings$plugging_status == 'Not Observed (Confirmed)' | seq_len(nrow(pluggings)) %in% euthanized_ids, ])
       
       }
       
@@ -333,9 +333,11 @@ plugging_tab_server <- function(input, output, session) {
       filtered$female_age <- floor(as.numeric(Sys.Date() - as.Date(filtered$female_dob)) / 7)
       
       # Handle NULL dates
-      filtered$pairing_start_date[is.na(filtered$pairing_start_date) | filtered$pairing_start_date == ""] <- "Not set"
-      filtered$pairing_end_date[is.na(filtered$pairing_end_date) | filtered$pairing_end_date == ""] <- "Not set"
-      filtered$plug_observed_date[is.na(filtered$plug_observed_date) | filtered$plug_observed_date == ""] <- "Not set"
+      filtered$pairing_start_date[is.na(filtered$pairing_start_date) | filtered$pairing_start_date == ""] <- "Unknown"
+      filtered$pairing_end_date[is.na(filtered$pairing_end_date) | filtered$pairing_end_date == ""] <- "Unknown"
+      filtered$plug_observed_date[is.na(filtered$plug_observed_date) | filtered$plug_observed_date == ""] <- "Unknown"
+      
+      # All missing dates are now consistently shown as "Unknown"
       
       # Create display table - show only females (one animal per row)
       display_data <- filtered[, c("id", "female_id", "female_age", "female_breeding_line", "female_genotype", 
@@ -346,7 +348,7 @@ plugging_tab_server <- function(input, output, session) {
       display_data$actions <- sapply(seq_len(nrow(display_data)), function(i) {
         row <- display_data[i, ]
         btns <- c()
-        if (row$plugging_status %in% c("Unknown", "Plugged")) {
+        if (row$plugging_status %in% c("Not Observed (Waiting for confirmation)", "Plugged")) {
           btns <- c(btns, paste0('<button class="btn btn-sm btn-success quick-confirm-btn" data-id="', row$id, '">Confirm</button>'))
         }
         # Add Delete button for all except already deleted or done
@@ -409,9 +411,28 @@ plugging_tab_server <- function(input, output, session) {
     status %in% c("Ongoing", "Unknown", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)")
   }
   
+  # Helper to check if status is Not Observed (Confirmed)
+  is_not_observed_confirmed <- function(status) {
+    status == "Not Observed (Confirmed)"
+  }
+  
   # Helper to check if status allows "Plug is Empty" action
   can_mark_empty <- function(status) {
     status %in% c("Plugged", "Confirmed", "Unknown", "Not Observed (Waiting for confirmation)")
+  }
+  
+  # Helper to check if plug observed date is valid (not NA, empty, or "Unknown")
+  is_valid_plug_date <- function(date_value) {
+    if (is.na(date_value) || date_value == "" || date_value == "Unknown") {
+      return(FALSE)
+    }
+    # Try to parse as date, return FALSE if it fails
+    tryCatch({
+      as.Date(date_value)
+      return(TRUE)
+    }, error = function(e) {
+      return(FALSE)
+    })
   }
   
   # --- Modification History UI ---
@@ -586,13 +607,13 @@ plugging_tab_server <- function(input, output, session) {
                 tags$h4("Plugging Details"),
                 fluidRow(
                   column(6, tags$b("Pairing Start Date:"), br(), 
-                         if(!is.na(row$pairing_start_date) && row$pairing_start_date != "") row$pairing_start_date else "Not set"),
+                         if(!is.na(row$pairing_start_date) && row$pairing_start_date != "") row$pairing_start_date else "Unknown"),
                   column(6, tags$b("Pairing End Date:"), br(), 
-                         if(!is.na(row$pairing_end_date) && row$pairing_end_date != "") row$pairing_end_date else "Not set")
+                         if(!is.na(row$pairing_end_date) && row$pairing_end_date != "") row$pairing_end_date else "Unknown")
                 ),
                 fluidRow(
                   column(6, tags$b("Plug Observed Date:"), br(), 
-                         if(!is.na(row$plug_observed_date) && row$plug_observed_date != "") row$plug_observed_date else "Not set"),
+                         if(is_valid_plug_date(row$plug_observed_date)) row$plug_observed_date else "Unknown"),
                   column(6, tags$b("Status:"), br(), row$plugging_status)
                 ),
                 fluidRow(
@@ -613,7 +634,9 @@ plugging_tab_server <- function(input, output, session) {
             style = "display: flex; justify-content: space-between; align-items: center;",
             div(
               # Only show action buttons if female mouse is not deceased and plugging status allows actions
-              if (row$female_status != "Deceased" && row$plugging_status != "Deleted" && is_active_status(row$plugging_status)) {
+              if (is_not_observed_confirmed(row$plugging_status)) {
+                NULL
+              } else if (row$female_status != "Deceased" && row$plugging_status != "Deleted" && is_active_status(row$plugging_status)) {
                 tagList(
                   # Show "Mark as Plugged" for Ongoing or Unknown status
                   if (row$plugging_status %in% c("Ongoing", "Unknown")) {
@@ -622,20 +645,15 @@ plugging_tab_server <- function(input, output, session) {
                   # Show "Euthanized" for all active statuses
                   actionButton("euthanize_mice_btn", "Euthanized", class = "btn-warning"),
                   # Show "Empty Plug" for statuses that can be marked as empty
-                  if (row$plugging_status %in% c("Plugged", "Confirmed", "Unknown")) {
+                  if (can_mark_empty(row$plugging_status)) {
                     actionButton("set_status_empty_btn", "Empty Plug", class = "btn-info")
-                  },
-                  # Show "Mark as Done" only for Confirmed status
-                  #if (row$plugging_status == "Confirmed") {
-                  #  actionButton("mark_plug_done_btn", "Mark as Done", class = "btn-success")
-                  #}
+                  }
                 )
               }
             ),
             div(
               actionButton("edit_plugging_details_btn", "Edit", class = "btn-primary"),
-              # Only show delete button if female mouse is not deceased and plugging status is not deleted and not Done
-              if (row$female_status != "Deceased" && row$plugging_status != "Deleted" && row$plugging_status != "Not Observed (Waiting for confirmation)") {
+              if (!is_not_observed_confirmed(row$plugging_status) && row$female_status != "Deceased" && row$plugging_status != "Deleted" && row$plugging_status != "Not Observed (Waiting for confirmation)") {
                 actionButton("delete_plugging_btn", "Delete", class = "btn-danger")
               },
               modalButton("Close")
@@ -693,8 +711,16 @@ plugging_tab_server <- function(input, output, session) {
                                 value = if(!is.na(row$pairing_end_date) && row$pairing_end_date != "") as.Date(row$pairing_end_date) else Sys.Date()))
           ),
           fluidRow(
-            column(6, dateInput("edit_plug_observed_date", "Plug Observed Date", 
-                                value = if(!is.na(row$plug_observed_date) && row$plug_observed_date != "") as.Date(row$plug_observed_date) else Sys.Date())),
+            column(6, 
+              radioButtons("edit_plug_observed_type", "Plug Observed Date Type", 
+                          choices = c("Specific Date" = "date", "Unknown" = "unknown"),
+                          selected = if(is_valid_plug_date(row$plug_observed_date)) "date" else "unknown"),
+              conditionalPanel(
+                condition = "input.edit_plug_observed_type == 'date'",
+                dateInput("edit_plug_observed_date", "Plug Observed Date", 
+                          value = if(is_valid_plug_date(row$plug_observed_date)) as.Date(row$plug_observed_date) else Sys.Date())
+              )
+            ),
             column(6, selectInput("edit_plugging_status", "Plugging Status", 
                                  choices = PLUGGING_STATUSES, selected = row$plugging_status))
           ),
@@ -746,6 +772,13 @@ plugging_tab_server <- function(input, output, session) {
       
       old_values <- current[1, ]
       
+      # Determine plug observed date value based on radio button selection
+      plug_observed_date_value <- if(input$edit_plug_observed_type == "unknown") {
+        "Unknown"
+      } else {
+        as.character(input$edit_plug_observed_date)
+      }
+      
       # Update the plugging event
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET 
@@ -763,7 +796,7 @@ plugging_tab_server <- function(input, output, session) {
           input$edit_plugging_female,
           as.character(input$edit_pairing_start_date),
           as.character(input$edit_pairing_end_date),
-          as.character(input$edit_plug_observed_date),
+          plug_observed_date_value,
           input$edit_plugging_status,
           input$edit_plugging_notes,
           plugging_id
@@ -782,7 +815,7 @@ plugging_tab_server <- function(input, output, session) {
             female_id = input$edit_plugging_female,
             pairing_start_date = as.character(input$edit_pairing_start_date),
             pairing_end_date = as.character(input$edit_pairing_end_date),
-            plug_observed_date = as.character(input$edit_plug_observed_date),
+            plug_observed_date = plug_observed_date_value,
             plugging_status = input$edit_plugging_status,
             notes = input$edit_plugging_notes
           )
@@ -814,7 +847,13 @@ plugging_tab_server <- function(input, output, session) {
         div(
           style = "text-align: center; padding: 20px;",
           tags$h4("When was the plug observed?"),
-          dateInput("plug_observed_date_input", "", value = Sys.Date(), width = "100%"),
+          radioButtons("plug_observed_type", "Plug Observed Date Type", 
+                      choices = c("Specific Date" = "date", "Unknown" = "unknown"),
+                      selected = "date"),
+          conditionalPanel(
+            condition = "input.plug_observed_type == 'date'",
+            dateInput("plug_observed_date_input", "", value = Sys.Date(), width = "100%"),
+          ),
           br(),
           textInput("expected_age_for_harvesting_input", "Expected Age for Harvesting (weeks, e.g. 14)", value = "", width = "100%"),
           br(),
@@ -847,6 +886,13 @@ plugging_tab_server <- function(input, output, session) {
       
       old_values <- current[1, ]
       
+      # Determine plug observed date value based on radio button selection
+      plug_observed_date_value <- if(input$plug_observed_type == "unknown") {
+        "Unknown"
+      } else {
+        as.character(input$plug_observed_date_input)
+      }
+      
       # Update the plugging event
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET 
@@ -860,7 +906,7 @@ plugging_tab_server <- function(input, output, session) {
          updated_at = DATETIME('now')
          WHERE id = ?",
         params = list(
-          as.character(input$plug_observed_date_input),
+          plug_observed_date_value,
           input$expected_age_for_harvesting_input,
           input$plug_observed_notes_input,
           input$plug_observed_notes_input,
@@ -876,7 +922,7 @@ plugging_tab_server <- function(input, output, session) {
           "UPDATE",
           old_values,
           list(
-            plug_observed_date = as.character(input$plug_observed_date_input),
+            plug_observed_date = plug_observed_date_value,
             plugging_status = "Plugged",
             expected_age_for_harvesting = input$expected_age_for_harvesting_input,
             notes = input$plug_observed_notes_input
@@ -1216,7 +1262,7 @@ plugging_tab_server <- function(input, output, session) {
       }
       
       # Check if status is eligible for quick confirmation
-      if (!current$plugging_status[1] %in% c("Unknown", "Plugged")) {
+      if (!current$plugging_status[1] %in% c("Not Observed (Waiting for confirmation)", "Plugged")) {
         showNotification("This record is not eligible for quick confirmation", type = "error")
         return()
       }

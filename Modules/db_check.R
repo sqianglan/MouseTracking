@@ -199,8 +199,8 @@ add_plugging_tables <- function() {
     "cage_id TEXT,",
     "pairing_start_date DATE,",
     "pairing_end_date DATE,",
-    "plug_observed_date DATE,",
-    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Unknown', 'Empty', 'Deleted', 'Not Observed (Waiting for confirmation)')),",
+    "plug_observed_date TEXT,",
+    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Confirmed', 'Not Observed (Confirmed)')),",
     "notes TEXT,",
     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
     "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
@@ -224,7 +224,7 @@ add_plugging_tables <- function() {
   
   # Migrate old status values to new ones
   dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Plugged' WHERE plugging_status = 'Plugged'")
-  dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Unknown' WHERE plugging_status = 'Not Plugged'")
+  dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Not Observed (Waiting for confirmation)' WHERE plugging_status = 'Not Plugged'")
   dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Ongoing' WHERE plugging_status IS NULL")
   dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Empty' WHERE plugging_status = ''")
   
@@ -240,8 +240,8 @@ add_plugging_tables <- function() {
       "cage_id TEXT,",
       "pairing_start_date DATE,",
       "pairing_end_date DATE,",
-      "plug_observed_date DATE,",
-      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Unknown', 'Empty', 'Deleted', 'Not Observed (Waiting for confirmation)')),",
+      "plug_observed_date TEXT,",
+      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Confirmed', 'Not Observed (Confirmed)')),",
       "notes TEXT,",
       "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
       "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",

@@ -42,7 +42,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       result <- data.frame(female_id = character(0), plug_observed_date = as.Date(character(0)), expected_age_for_harvesting = character(0), asu_id = character(0), plugging_status = character(0), pairing_start_date = as.Date(character(0)), stringsAsFactors = FALSE)
       tryCatch({
         con <- dbConnect(SQLite(), db_path)
-        query <- "SELECT ph.female_id, ph.plug_observed_date, ph.expected_age_for_harvesting, ph.plugging_status, ph.pairing_start_date, ms.asu_id FROM plugging_history ph LEFT JOIN mice_stock ms ON ph.female_id = ms.asu_id WHERE (ph.plug_observed_date IS NOT NULL AND ph.plug_observed_date != '') OR (ph.plugging_status = 'Unknown' AND ph.pairing_start_date IS NOT NULL AND ph.pairing_start_date != '')"
+        query <- "SELECT ph.female_id, ph.plug_observed_date, ph.expected_age_for_harvesting, ph.plugging_status, ph.pairing_start_date, ms.asu_id FROM plugging_history ph LEFT JOIN mice_stock ms ON ph.female_id = ms.asu_id WHERE (ph.plug_observed_date IS NOT NULL AND ph.plug_observed_date != '') OR (ph.plugging_status = 'Not Observed (Waiting for confirmation)' AND ph.pairing_start_date IS NOT NULL AND ph.pairing_start_date != '')"
         result <- dbGetQuery(con, query)
         if (nrow(result) > 0) {
           result$plug_observed_date <- as.Date(result$plug_observed_date)
@@ -76,41 +76,84 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
         plug_date <- pluggings$plug_observed_date[i]
         pairing_date <- pluggings$pairing_start_date[i]
         
-        # Determine the base date based on status
-        if (status == "Plugged" && !is.na(plug_date)) {
-          base_date <- plug_date
-          color <- get_color_for_asu(asu)
-        } else if (status == "Unknown" && !is.na(pairing_date)) {
-          base_date <- pairing_date + 1  # Default to pairing start + 1 day
-          color <- "gray"
-        } else {
-          return(NULL)  # Skip other statuses
+        cat(sprintf("[DEBUG] Row %d: asu=%s, status=%s, plug_date=%s, pairing_date=%s, exp_ages=%s\n", i, as.character(asu), as.character(status), as.character(plug_date), as.character(pairing_date), as.character(exp_ages)))
+        
+        # Defensive: skip if any required field is missing or empty
+        if (is.null(asu) || length(asu) == 0 || is.na(asu) ||
+            is.null(status) || length(status) == 0 || is.na(status)) {
+          cat(sprintf("[DEBUG] Skipping row %d due to missing asu or status\n", i))
+          return(NULL)
         }
         
-        exp_ages_split <- unlist(strsplit(exp_ages, "[,; ]"))
-        exp_ages_split <- trimws(exp_ages_split)
-        # Filter out non-numeric entries like "or", "and", etc.
-        exp_ages_split <- exp_ages_split[grepl("[0-9]", exp_ages_split)]
+        # Defensive: ensure status is a single string
+        if (length(status) != 1) {
+          cat(sprintf("[DEBUG] Skipping row %d due to status length != 1\n", i))
+          return(NULL)
+        }
+        
+        # Defensive: ensure plug_date and pairing_date are either NA or length 1
+        if (!is.null(plug_date) && length(plug_date) > 1) plug_date <- plug_date[1]
+        if (!is.null(pairing_date) && length(pairing_date) > 1) pairing_date <- pairing_date[1]
+        
+        # Skip if plug_date is "Unknown"
+        if (is.null(plug_date) || plug_date == "Unknown") {
+          cat(sprintf("[DEBUG] Row %d: Skipping due to Unknown plug_date\n", i))
+          return(NULL)
+        }
+        
+        # Determine the base date based on status
+        if (!is.null(status) && status == "Plugged" && !is.null(plug_date) && length(plug_date) > 0 && !is.na(plug_date)) {
+          base_date <- plug_date
+          color <- get_color_for_asu(asu)
+          cat(sprintf("[DEBUG] Row %d: Using plug_date as base_date\n", i))
+        } else if (!is.null(status) && status == "Not Observed (Waiting for confirmation)" && !is.null(pairing_date) && length(pairing_date) > 0 && !is.na(pairing_date)) {
+          base_date <- pairing_date + 1
+          color <- "gray"
+          cat(sprintf("[DEBUG] Row %d: Using pairing_date as base_date\n", i))
+        } else {
+          cat(sprintf("[DEBUG] Skipping row %d due to status/base_date logic\n", i))
+          return(NULL)
+        }
+        
+        exp_ages_split <- character(0)
+        if (!is.null(exp_ages) && length(exp_ages) > 0 && !is.na(exp_ages)) {
+          exp_ages_split <- unlist(strsplit(exp_ages, "[,; ]"))
+          exp_ages_split <- trimws(exp_ages_split)
+          exp_ages_split <- exp_ages_split[grepl("[0-9]", exp_ages_split)]
+        }
         
         if (length(exp_ages_split) == 0 || (length(exp_ages_split) == 1 && (is.na(exp_ages_split) || exp_ages_split == ""))) {
           # Default to E13.5
           offset <- 13.5
           label <- paste0(asu, " @E13.5")
           new_date <- base_date + floor(offset)
-          data.frame(asu_id = asu, label = label, day = as.integer(format(new_date, "%d")), date = new_date, 
+          if (is.na(new_date) || is.null(new_date) || length(new_date) == 0) {
+            cat(sprintf("[DEBUG] Skipping row %d due to invalid new_date\n", i))
+            return(NULL)
+          }
+          cat(sprintf("[DEBUG] Row %d: Using default E13.5\n", i))
+          return(data.frame(asu_id = asu, label = label, day = as.integer(format(new_date, "%d")), date = new_date, 
                     target_month = as.integer(format(new_date, "%m")), target_year = as.integer(format(new_date, "%Y")), 
-                    color = color, status = status, stringsAsFactors = FALSE)
+                    color = color, status = status, stringsAsFactors = FALSE))
         } else {
-          do.call(rbind, lapply(exp_ages_split, function(ea) {
-            # Extract only numbers from the string, discard all other text
+          out <- lapply(exp_ages_split, function(ea) {
             num <- suppressWarnings(as.numeric(gsub("[^0-9.]", "", ea)))
-            if (is.na(num)) return(NULL)  # Skip if no number found
+            if (is.na(num) || is.null(num) || length(num) == 0) {
+              cat(sprintf("[DEBUG] Skipping row %d, exp_ages_split=%s due to invalid num\n", i, as.character(ea)))
+              return(NULL)
+            }
             label <- paste0(asu, " @E", as.character(floor(num)+0.5))
             new_date <- base_date + floor(num)
-            data.frame(asu_id = asu, label = label, day = as.integer(format(new_date, "%d")), date = new_date,
+            if (is.na(new_date) || is.null(new_date) || length(new_date) == 0) {
+              cat(sprintf("[DEBUG] Skipping row %d, exp_ages_split=%s due to invalid new_date\n", i, as.character(ea)))
+              return(NULL)
+            }
+            cat(sprintf("[DEBUG] Row %d: Using exp_ages_split=%s\n", i, as.character(ea)))
+            return(data.frame(asu_id = asu, label = label, day = as.integer(format(new_date, "%d")), date = new_date,
                       target_month = as.integer(format(new_date, "%m")), target_year = as.integer(format(new_date, "%Y")),
-                      color = color, status = status, stringsAsFactors = FALSE)
-          }))
+                      color = color, status = status, stringsAsFactors = FALSE))
+          })
+          return(do.call(rbind, out))
         }
       }))
       
@@ -172,41 +215,84 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
         plug_date <- pluggings$plug_observed_date[i]
         pairing_date <- pluggings$pairing_start_date[i]
         
-        # Determine the base date based on status
-        if (status == "Plugged" && !is.na(plug_date)) {
-          base_date <- plug_date
-          color <- get_color_for_asu(asu)
-        } else if (status == "Unknown" && !is.na(pairing_date)) {
-          base_date <- pairing_date + 1  # Default to pairing start + 1 day
-          color <- "gray"
-        } else {
-          return(NULL)  # Skip other statuses
+        cat(sprintf("[DEBUG] Row %d: asu=%s, status=%s, plug_date=%s, pairing_date=%s, exp_ages=%s\n", i, as.character(asu), as.character(status), as.character(plug_date), as.character(pairing_date), as.character(exp_ages)))
+        
+        # Defensive: skip if any required field is missing or empty
+        if (is.null(asu) || length(asu) == 0 || is.na(asu) ||
+            is.null(status) || length(status) == 0 || is.na(status)) {
+          cat(sprintf("[DEBUG] Skipping row %d due to missing asu or status\n", i))
+          return(NULL)
         }
         
-        exp_ages_split <- unlist(strsplit(exp_ages, "[,; ]"))
-        exp_ages_split <- trimws(exp_ages_split)
-        # Filter out non-numeric entries like "or", "and", etc.
-        exp_ages_split <- exp_ages_split[grepl("[0-9]", exp_ages_split)]
+        # Defensive: ensure status is a single string
+        if (length(status) != 1) {
+          cat(sprintf("[DEBUG] Skipping row %d due to status length != 1\n", i))
+          return(NULL)
+        }
+        
+        # Defensive: ensure plug_date and pairing_date are either NA or length 1
+        if (!is.null(plug_date) && length(plug_date) > 1) plug_date <- plug_date[1]
+        if (!is.null(pairing_date) && length(pairing_date) > 1) pairing_date <- pairing_date[1]
+        
+        # Skip if plug_date is "Unknown"
+        if (is.null(plug_date) || plug_date == "Unknown") {
+          cat(sprintf("[DEBUG] Row %d: Skipping due to Unknown plug_date\n", i))
+          return(NULL)
+        }
+        
+        # Determine the base date based on status
+        if (!is.null(status) && status == "Plugged" && !is.null(plug_date) && length(plug_date) > 0 && !is.na(plug_date)) {
+          base_date <- plug_date
+          color <- get_color_for_asu(asu)
+          cat(sprintf("[DEBUG] Row %d: Using plug_date as base_date\n", i))
+        } else if (!is.null(status) && status == "Not Observed (Waiting for confirmation)" && !is.null(pairing_date) && length(pairing_date) > 0 && !is.na(pairing_date)) {
+          base_date <- pairing_date + 1
+          color <- "gray"
+          cat(sprintf("[DEBUG] Row %d: Using pairing_date as base_date\n", i))
+        } else {
+          cat(sprintf("[DEBUG] Skipping row %d due to status/base_date logic\n", i))
+          return(NULL)
+        }
+        
+        exp_ages_split <- character(0)
+        if (!is.null(exp_ages) && length(exp_ages) > 0 && !is.na(exp_ages)) {
+          exp_ages_split <- unlist(strsplit(exp_ages, "[,; ]"))
+          exp_ages_split <- trimws(exp_ages_split)
+          exp_ages_split <- exp_ages_split[grepl("[0-9]", exp_ages_split)]
+        }
         
         if (length(exp_ages_split) == 0 || (length(exp_ages_split) == 1 && (is.na(exp_ages_split) || exp_ages_split == ""))) {
           # Default to E13.5
           offset <- 13.5
           label <- paste0(asu, " @E13.5")
           new_date <- base_date + floor(offset)
-          data.frame(asu_id = asu, label = label, date = new_date, 
+          if (is.na(new_date) || is.null(new_date) || length(new_date) == 0) {
+            cat(sprintf("[DEBUG] Skipping row %d due to invalid new_date\n", i))
+            return(NULL)
+          }
+          cat(sprintf("[DEBUG] Row %d: Using default E13.5\n", i))
+          return(data.frame(asu_id = asu, label = label, date = new_date, 
                     target_month = as.integer(format(new_date, "%m")), target_year = as.integer(format(new_date, "%Y")),
-                    color = color, status = status, stringsAsFactors = FALSE)
+                    color = color, status = status, stringsAsFactors = FALSE))
         } else {
-          do.call(rbind, lapply(exp_ages_split, function(ea) {
-            # Extract only numbers from the string, discard all other text
+          out <- lapply(exp_ages_split, function(ea) {
             num <- suppressWarnings(as.numeric(gsub("[^0-9.]", "", ea)))
-            if (is.na(num)) return(NULL)  # Skip if no number found
+            if (is.na(num) || is.null(num) || length(num) == 0) {
+              cat(sprintf("[DEBUG] Skipping row %d, exp_ages_split=%s due to invalid num\n", i, as.character(ea)))
+              return(NULL)
+            }
             label <- paste0(asu, " @E", as.character(floor(num)+0.5))
             new_date <- base_date + floor(num)
-            data.frame(asu_id = asu, label = label, date = new_date,
+            if (is.na(new_date) || is.null(new_date) || length(new_date) == 0) {
+              cat(sprintf("[DEBUG] Skipping row %d, exp_ages_split=%s due to invalid new_date\n", i, as.character(ea)))
+              return(NULL)
+            }
+            cat(sprintf("[DEBUG] Row %d: Using exp_ages_split=%s\n", i, as.character(ea)))
+            return(data.frame(asu_id = asu, label = label, date = new_date,
                       target_month = as.integer(format(new_date, "%m")), target_year = as.integer(format(new_date, "%Y")),
-                      color = color, status = status, stringsAsFactors = FALSE)
-          }))
+                      color = color, status = status, stringsAsFactors = FALSE))
+          })
+          return(do.call(rbind, out))
         }
       }))
       
@@ -256,7 +342,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
           },
           tags$p(
             style = "margin-top: 10px; font-size: 12px;",
-            tags$span(style = "color: gray;", "Gray: "), "Unknown status (estimated from pairing date + 1 day)"
+            tags$span(style = "color: gray;", "Gray: "), "Not Observed (Waiting for confirmation) status (estimated from pairing date + 1 day)"
           )
         )
       )

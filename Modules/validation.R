@@ -3,6 +3,9 @@
 library(stringr)
 library(lubridate)
 
+
+
+
 # Enhanced validation functions
 validate_asu_id <- function(asu_id) {
   if (is.null(asu_id) || asu_id == "") {
@@ -471,15 +474,20 @@ validate_plugging_data <- function(data) {
   }
   
   if (!is.null(data$plug_observed_date) && data$plug_observed_date != "") {
-    date_validation <- validate_date_of_birth(data$plug_observed_date)
-    if (!date_validation$valid) {
-      errors[["plug_observed_date"]] <- date_validation$message
+    # Allow "Unknown" as a valid value
+    if (data$plug_observed_date == "Unknown") {
+      # Skip date validation for "Unknown"
+    } else {
+      date_validation <- validate_date_of_birth(data$plug_observed_date)
+      if (!date_validation$valid) {
+        errors[["plug_observed_date"]] <- date_validation$message
+      }
     }
   }
   
   # Validate plugging status
   if (!is.null(data$plugging_status) && data$plugging_status != "") {
-    valid_statuses <- c("Ongoing", "Plugged", "Unknown", "Empty", "Deleted")
+    valid_statuses <- c("Ongoing", "Plugged", "Unknown", "Empty", "Deleted", "Confirmed", "Not Observed (Waiting for confirmation)", "Not Observed (Confirmed)")
     if (!data$plugging_status %in% valid_statuses) {
       errors[["plugging_status"]] <- "Invalid plugging status"
     }
