@@ -8,7 +8,7 @@ library(DT)
 library(jsonlite)
 
 # Constants
-PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Confirmed", "Done", "Unknown", "Empty")
+PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)", "Unknown", "Empty")
 
 # UI Function
 plugging_tab_ui <- function() {
@@ -263,7 +263,7 @@ plugging_tab_server <- function(input, output, session) {
   # Plugging history table
   output$plugging_history_controls <- renderUI({
     tagList(
-      checkboxInput("show_finished_plugging_history", "Show Finished Records (Empty Plugs or Euthanized)", value = FALSE),
+      checkboxInput("show_finished_plugging_history", "Show Empty Plugs and Euthanized Mice", value = FALSE),
       checkboxInput("show_deleted_plugging_history", "Show Deleted Records (Entries by mistake)", value = FALSE)
     )
   })
@@ -292,12 +292,12 @@ plugging_tab_server <- function(input, output, session) {
 
       ### Default values 
       filtered <- pluggings[
-          pluggings$plugging_status %in% c("Ongoing", "Plugged", "Unknown") &
+          pluggings$plugging_status %in% c("Ongoing", "Plugged", "Unknown", "Not Observed (Waiting for confirmation)") &
           (is.na(pluggings$female_status) | pluggings$female_status == "Alive"),
         ]
       
-      ###add finished plugs or enthanized mice if show_finished is true
-      ### potential problem if the mice has revivved for mistake, the record wil take both record. but reality is if the mice has been deceased, it will not shown anymore. 
+      ###add empty plugs or euthanized mice if show_finished is true
+      ### potential problem if the mice has revived for mistake, the record will take both record. but reality is if the mice has been deceased, it will not shown anymore.
       euthanized_ids <- c()
       if (show_finished) {
         audit_con <- db_connect()
@@ -317,7 +317,7 @@ plugging_tab_server <- function(input, output, session) {
           })
           euthanized_ids <- unique(unlist(euthanized_ids))
         }
-        filtered <- rbind(filtered, pluggings[pluggings$plugging_status == 'Empty' | pluggings$plugging_status == 'Done' | seq_len(nrow(pluggings)) %in% euthanized_ids, ])
+        filtered <- rbind(filtered, pluggings[pluggings$plugging_status == 'Empty' | seq_len(nrow(pluggings)) %in% euthanized_ids, ])
       
       }
       
@@ -350,7 +350,7 @@ plugging_tab_server <- function(input, output, session) {
           btns <- c(btns, paste0('<button class="btn btn-sm btn-success quick-confirm-btn" data-id="', row$id, '">Confirm</button>'))
         }
         # Add Delete button for all except already deleted or done
-        if (!row$plugging_status %in% c("Deleted", "Done")) {
+        if (!row$plugging_status %in% c("Deleted", "Not Observed (Waiting for confirmation)")) {
           btns <- c(btns, paste0('<button class="btn btn-sm btn-danger quick-delete-plugging-btn" data-id="', row$id, '">Delete</button>'))
         }
         paste(btns, collapse = ' ')
@@ -401,17 +401,17 @@ plugging_tab_server <- function(input, output, session) {
   
   # Helper to check if status is Plugged
   is_plugged_status <- function(status) {
-    is.null(status) || status %in% c("Plugged", "Confirmed", "Done", "Unknown")
+    is.null(status) || status %in% c("Plugged", "Confirmed", "Not Observed (Waiting for confirmation)", "Unknown")
   }
   
   # Helper to check if status allows further actions (not final states)
   is_active_status <- function(status) {
-    status %in% c("Ongoing", "Unknown", "Plugged", "Confirmed")
+    status %in% c("Ongoing", "Unknown", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)")
   }
   
   # Helper to check if status allows "Plug is Empty" action
   can_mark_empty <- function(status) {
-    status %in% c("Plugged", "Confirmed", "Unknown")
+    status %in% c("Plugged", "Confirmed", "Unknown", "Not Observed (Waiting for confirmation)")
   }
   
   # --- Modification History UI ---
@@ -635,7 +635,7 @@ plugging_tab_server <- function(input, output, session) {
             div(
               actionButton("edit_plugging_details_btn", "Edit", class = "btn-primary"),
               # Only show delete button if female mouse is not deceased and plugging status is not deleted and not Done
-              if (row$female_status != "Deceased" && row$plugging_status != "Deleted" && row$plugging_status != "Done") {
+              if (row$female_status != "Deceased" && row$plugging_status != "Deleted" && row$plugging_status != "Not Observed (Waiting for confirmation)") {
                 actionButton("delete_plugging_btn", "Delete", class = "btn-danger")
               },
               modalButton("Close")
@@ -911,7 +911,7 @@ plugging_tab_server <- function(input, output, session) {
           br(),
           textAreaInput("plug_done_notes_input", "Notes (optional)", value = "", rows = 3, width = "100%"),
           br(),
-          tags$p("This will update the plugging status to 'Done'.")
+          tags$p("This will update the plugging status to 'Not Observed (Waiting for confirmation)'.")
         )
       ),
       footer = tagList(
@@ -941,7 +941,7 @@ plugging_tab_server <- function(input, output, session) {
       # Update the plugging event
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET 
-         plugging_status = 'Done',
+         plugging_status = 'Not Observed (Waiting for confirmation)',
          updated_at = DATETIME('now'),
          notes = CASE 
            WHEN notes IS NULL OR notes = '' THEN ?
@@ -949,8 +949,8 @@ plugging_tab_server <- function(input, output, session) {
          END
          WHERE id = ?",
         params = list(
-          paste0("[Plug marked as Done on ", as.character(input$plug_done_date_input), "]"),
-          paste0("[Plug marked as Done on ", as.character(input$plug_done_date_input), "]"),
+          paste0("[Plug marked as Not Observed (Waiting for confirmation) on ", as.character(input$plug_done_date_input), "]"),
+          paste0("[Plug marked as Not Observed (Waiting for confirmation) on ", as.character(input$plug_done_date_input), "]"),
           plugging_id
         )
       )
@@ -963,13 +963,13 @@ plugging_tab_server <- function(input, output, session) {
           "UPDATE",
           old_values,
           list(
-            plugging_status = "Done",
+            plugging_status = "Not Observed (Waiting for confirmation)",
             completion_date = as.character(input$plug_done_date_input),
             notes = input$plug_done_notes_input
           )
         )
         
-        showNotification("Plug marked as done successfully!", type = "message")
+        showNotification("Plug marked as Not Observed (Waiting for confirmation) successfully!", type = "message")
         removeModal()
         Sys.sleep(1)
         auto_update_plugging_status_to_unknown()
@@ -1107,12 +1107,12 @@ plugging_tab_server <- function(input, output, session) {
           )
           db_disconnect(con2)
         } else {
-          # If Plug is Empty is NOT checked, update plugging_status to 'Done'
+          # If Plug is Empty is NOT checked, update plugging_status to 'Not Observed (Waiting for confirmation)'
           con2 <- db_connect()
           old_plug <- DBI::dbGetQuery(con2, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
           DBI::dbExecute(con2, 
             "UPDATE plugging_history SET 
-             plugging_status = 'Done',
+             plugging_status = 'Not Observed (Waiting for confirmation)',
              updated_at = DATETIME('now'),
              notes = CASE 
                WHEN notes IS NULL OR notes = '' THEN ?
@@ -1120,8 +1120,8 @@ plugging_tab_server <- function(input, output, session) {
              END
              WHERE id = ?",
             params = list(
-              paste0("[Plug marked as Done due to euthanasia on ", as.character(input$euthanasia_date_input), "]"),
-              paste0("[Plug marked as Done due to euthanasia on ", as.character(input$euthanasia_date_input), "]"),
+              paste0("[Plug marked as Not Observed (Waiting for confirmation) due to euthanasia on ", as.character(input$euthanasia_date_input), "]"),
+              paste0("[Plug marked as Not Observed (Waiting for confirmation) due to euthanasia on ", as.character(input$euthanasia_date_input), "]"),
               plugging_id
             )
           )
@@ -1132,7 +1132,7 @@ plugging_tab_server <- function(input, output, session) {
             "UPDATE",
             old_plug[1, ],
             list(
-              plugging_status = "Done",
+              plugging_status = "Not Observed (Waiting for confirmation)",
               completion_date = as.character(input$euthanasia_date_input),
               notes = paste0("Euthanasia completed on ", as.character(input$euthanasia_date_input))
             )

@@ -3,12 +3,26 @@ library(DBI)
 library(RSQLite)
 library(stringr)
 
-# Set default database name
-DEFAULT_DB_NAME <- "mice_colony.db"
+# Set default database path and name
+DB_DIR <- file.path(Sys.getenv("HOME"), "Documents", "MouseManagement", "database")
+# set database directory as the current directory for testing   
+##DB_DIR <- getwd()
+DEFAULT_DB_NAME <- file.path(DB_DIR, "mice_colony.db")
 TABLE_NAME <- "mice_stock"
+
+# Ensure database directory exists
+ensure_db_directory <- function() {
+  if (!dir.exists(DB_DIR)) {
+    dir.create(DB_DIR, recursive = TRUE, showWarnings = FALSE)
+    cat("Created database directory:", DB_DIR, "\n")
+  }
+}
 
 # Create the mice_stock table with full schema if DB does not exist
 initialize_db <- function() {
+  # Ensure database directory exists
+  ensure_db_directory()
+  
   if (!file.exists(DEFAULT_DB_NAME)) {
     con <- dbConnect(SQLite(), DEFAULT_DB_NAME)
     dbExecute(con, paste0(
@@ -177,7 +191,7 @@ add_plugging_tables <- function() {
     "pairing_start_date DATE,",
     "pairing_end_date DATE,",
     "plug_observed_date DATE,",
-    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Unknown', 'Empty')),",
+    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Unknown', 'Empty', 'Deleted', 'Not Observed (Waiting for confirmation)')),",
     "notes TEXT,",
     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
     "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
@@ -218,7 +232,7 @@ add_plugging_tables <- function() {
       "pairing_start_date DATE,",
       "pairing_end_date DATE,",
       "plug_observed_date DATE,",
-      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Unknown', 'Empty', 'Deleted')),",
+      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Unknown', 'Empty', 'Deleted', 'Not Observed (Waiting for confirmation)')),",
       "notes TEXT,",
       "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
       "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
