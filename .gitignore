@@ -1,0 +1,62 @@
+# R specific files
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj.user/
+*.Rproj.user
+
+# R package files
+*.Rcheck/
+*.tar.gz
+*.tgz
+*.zip
+
+# macOS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Database files (exclude from version control for security)
+*.db
+*.sqlite
+*.sqlite3
+
+# Excel files (often contain sensitive data)
+*.xls
+*.xlsx
+*.xlsm
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Backup files
+*.bak
+*.backup
+*_backup.*
+
+# Data files (uncomment if you want to exclude data)
+# *.csv
+# *.tsv
+# *.txt
+
+# Images (uncomment if you want to exclude images)
+# *.png
+# *.jpg
+# *.jpeg
+# *.gif
+# *.pdf
