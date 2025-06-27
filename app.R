@@ -11,6 +11,8 @@ library(shiny)
 library(shinyFiles)
 library(tidyverse)
 library(DT)
+library(calendR)
+library(ggsci)
 
 # --- Module sourcing for development ---
 # NOTE: For hot-reloading during development, source() calls are moved inside the server function below.
@@ -20,7 +22,7 @@ source("Modules/db_check.R")
 source("Modules/modal_mice_history.R")
 source("Modules/tab_all_mice.R")
 #source("Modules/tab_breeding.R")
-#source("Modules/tab_calendar_events.R")
+source("Modules/tab_calendar_events.R")
 #source("Modules/tab_deceased.R")
 #source("Modules/tab_deleted.R")
 source("Modules/tab_plugging.R")

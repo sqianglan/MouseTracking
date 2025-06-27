@@ -4,10 +4,19 @@ library(RSQLite)
 library(stringr)
 
 # Set default database path and name
-DB_DIR <- file.path(Sys.getenv("HOME"), "Documents", "MouseManagement", "database")
-# set database directory as the current directory for testing   
-##DB_DIR <- getwd()
-DEFAULT_DB_NAME <- file.path(DB_DIR, "mice_colony.db")
+if (Sys.getenv("MOUSE_DB_DIR") != "") {
+  DB_DIR <- Sys.getenv("MOUSE_DB_DIR")
+} else {
+  DB_DIR <- getwd()
+}
+
+if (Sys.getenv("MOUSE_DB_NAME") != "") {
+  DB_NAME <- Sys.getenv("MOUSE_DB_NAME")
+} else {
+  DB_NAME <- "mice_colony_test.db"
+}
+
+DEFAULT_DB_NAME <- file.path(DB_DIR, DB_NAME)
 TABLE_NAME <- "mice_stock"
 
 # Ensure database directory exists
