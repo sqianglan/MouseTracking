@@ -200,7 +200,7 @@ add_plugging_tables <- function() {
     "pairing_start_date DATE,",
     "pairing_end_date DATE,",
     "plug_observed_date TEXT,",
-    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Confirmed', 'Not Observed (Confirmed)')),",
+    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)')),",
     "notes TEXT,",
     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
     "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
@@ -231,6 +231,10 @@ add_plugging_tables <- function() {
   # Update the CHECK constraint for plugging_status
   tryCatch({
     existing_data <- dbGetQuery(con, "SELECT * FROM plugging_history")
+    
+    # Update "Confirmed" to "Plug Confirmed" in the data before recreating table
+    existing_data$plugging_status[existing_data$plugging_status == "Confirmed"] <- "Plug Confirmed"
+    
     dbExecute(con, "DROP TABLE plugging_history")
     dbExecute(con, paste0(
       "CREATE TABLE plugging_history (",
@@ -241,7 +245,7 @@ add_plugging_tables <- function() {
       "pairing_start_date DATE,",
       "pairing_end_date DATE,",
       "plug_observed_date TEXT,",
-      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Confirmed', 'Not Observed (Confirmed)')),",
+      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)')),",
       "notes TEXT,",
       "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
       "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
@@ -251,7 +255,7 @@ add_plugging_tables <- function() {
     if (nrow(existing_data) > 0) {
       dbWriteTable(con, "plugging_history", existing_data, append = TRUE, row.names = FALSE)
     }
-    cat("Plugging history table updated with new status constraints (including 'Empty')\n")
+    cat("Plugging history table updated with new status constraints (including 'Plug Confirmed')\n")
   }, error = function(e) {
     cat("Error updating plugging history table:", e$message, "\n")
   })

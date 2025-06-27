@@ -8,7 +8,7 @@ library(DT)
 library(jsonlite)
 
 # Constants
-PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)", "Empty", "Not Observed (Confirmed)")
+PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Plug Confirmed", "Not Pregnant", "Not Observed (Waiting for confirmation)", "Empty", "Not Observed (Confirmed)")
 
 # UI Function
 plugging_tab_ui <- function() {
@@ -44,7 +44,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
   plugging_state <- reactiveValues(
     reload = NULL,
     viewing_id = NULL,
-    editing_id = NULL
+    editing_id = NULL,
+    confirming_id = NULL
   )
   
   # Add a reactiveVal to store the pending delete plugging_id
@@ -297,7 +298,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
 
       ### Default values 
       filtered <- pluggings[
-          pluggings$plugging_status %in% c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Confirmed") &
+          pluggings$plugging_status %in% c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Plug Confirmed") &
           (is.na(pluggings$female_status) | pluggings$female_status == "Alive"),
         ]
       
@@ -322,7 +323,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
           })
           euthanized_ids <- unique(unlist(euthanized_ids))
         }
-        filtered <- rbind(filtered, pluggings[pluggings$plugging_status == 'Empty' | pluggings$plugging_status == 'Not Observed (Confirmed)' | seq_len(nrow(pluggings)) %in% euthanized_ids, ])
+        filtered <- rbind(filtered, pluggings[pluggings$plugging_status == 'Empty' | pluggings$plugging_status == 'Not Observed (Confirmed)' | pluggings$plugging_status == 'Not Pregnant' | seq_len(nrow(pluggings)) %in% euthanized_ids, ])
       
       }
       
@@ -408,22 +409,22 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
   
   # Helper to check if status is Plugged
   is_plugged_status <- function(status) {
-    is.null(status) || status %in% c("Plugged", "Confirmed", "Not Observed (Waiting for confirmation)")
+    is.null(status) || status %in% c("Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)")
   }
   
   # Helper to check if status allows further actions (not final states)
   is_active_status <- function(status) {
-    status %in% c("Ongoing", "Plugged", "Confirmed", "Not Observed (Waiting for confirmation)")
+    status %in% c("Ongoing", "Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)")
   }
   
-  # Helper to check if status is Not Observed (Confirmed)
+  # Helper to check if status is Not Observed (Confirmed) or Not Pregnant
   is_not_observed_confirmed <- function(status) {
-    status == "Not Observed (Confirmed)"
+    status %in% c("Not Observed (Confirmed)", "Not Pregnant")
   }
   
   # Helper to check if status allows "Plug is Empty" action
   can_mark_empty <- function(status) {
-    status %in% c("Plugged", "Confirmed", "Not Observed (Waiting for confirmation)")
+    status %in% c("Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)")
   }
   
   # Helper to check if plug observed date is valid (not NA, empty, or "Unknown")
@@ -1309,6 +1310,51 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
     plugging_id <- input$quick_confirm_plugging_btn
     if (is.null(plugging_id)) return()
     
+    # Show confirmation modal with status options
+    showModal(modalDialog(
+      title = "Confirm Plugging Status",
+      size = "s",
+      tagList(
+        div(
+          style = "margin-bottom: 15px;",
+          tags$strong("Please select the final status for this plugging record:")
+        ),
+        div(
+          style = "margin-bottom: 10px;",
+          radioButtons("confirm_status_choice", "Status Options:",
+                      choices = c(
+                        "Not Pregnant" = "Not Pregnant",
+                        "Plug Confirmed" = "Plug Confirmed", 
+                        "Not Observed (Confirmed)" = "Not Observed (Confirmed)"
+                      ),
+                      selected = "Plug Confirmed"
+          )
+        ),
+        div(
+          style = "background-color: #e3f2fd; border: 1px solid #2196f3; padding: 10px; border-radius: 5px;",
+          tags$strong("Note:"), "This will finalize the plugging record status."
+        )
+      ),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_status_btn", "Confirm Status", class = "btn-primary")
+      )
+    ))
+    
+    # Store the plugging_id for use in the confirmation
+    plugging_state$confirming_id <- plugging_id
+  })
+  
+  # Handle the status confirmation
+  observeEvent(input$confirm_status_btn, {
+    plugging_id <- plugging_state$confirming_id
+    selected_status <- input$confirm_status_choice
+    
+    if (is.null(plugging_id) || is.null(selected_status)) {
+      showNotification("Missing information for confirmation", type = "error")
+      return()
+    }
+    
     con <- db_connect()
     tryCatch({
       # Get current values for audit trail
@@ -1319,9 +1365,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
         return()
       }
       
-      # Check if status is eligible for quick confirmation
+      # Check if status is eligible for confirmation
       if (!current$plugging_status[1] %in% c("Not Observed (Waiting for confirmation)", "Plugged")) {
-        showNotification("This record is not eligible for quick confirmation", type = "error")
+        showNotification("This record is not eligible for confirmation", type = "error")
         return()
       }
       
@@ -1330,7 +1376,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
       # Update the plugging event
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET 
-         plugging_status = 'Confirmed',
+         plugging_status = ?,
          updated_at = DATETIME('now'),
          notes = CASE 
            WHEN notes IS NULL OR notes = '' THEN ?
@@ -1338,8 +1384,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
          END
          WHERE id = ?",
         params = list(
-          paste0("[Quick confirmed on ", as.character(Sys.Date()), "]"),
-          paste0("[Quick confirmed on ", as.character(Sys.Date()), "]"),
+          selected_status,
+          paste0("[Status confirmed as '", selected_status, "' on ", as.character(Sys.Date()), "]"),
+          paste0("[Status confirmed as '", selected_status, "' on ", as.character(Sys.Date()), "]"),
           plugging_id
         )
       )
@@ -1352,13 +1399,15 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL)
           "UPDATE",
           old_values,
           list(
-            plugging_status = "Confirmed",
+            plugging_status = selected_status,
             confirmation_date = as.character(Sys.Date()),
-            notes = "Quick confirmation by ASU staff"
+            notes = paste0("Status confirmed as '", selected_status, "' by ASU staff")
           )
         )
         
-        showNotification("Plugging status confirmed successfully!", type = "message")
+        showNotification(paste("Plugging status confirmed as '", selected_status, "' successfully!", sep = ""), type = "message")
+        removeModal()
+        plugging_state$confirming_id <- NULL
         Sys.sleep(1)
         auto_update_plugging_status_to_unknown()
         plugging_state$reload <- Sys.time()

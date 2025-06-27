@@ -487,7 +487,7 @@ validate_plugging_data <- function(data) {
   
   # Validate plugging status
   if (!is.null(data$plugging_status) && data$plugging_status != "") {
-    valid_statuses <- c("Ongoing", "Plugged", "Empty", "Deleted", "Confirmed", "Not Observed (Waiting for confirmation)", "Not Observed (Confirmed)")
+    valid_statuses <- c("Ongoing", "Plugged", "Empty", "Deleted", "Plug Confirmed", "Not Pregnant", "Not Observed (Waiting for confirmation)", "Not Observed (Confirmed)")
     if (!data$plugging_status %in% valid_statuses) {
       errors[["plugging_status"]] <- "Invalid plugging status"
     }
