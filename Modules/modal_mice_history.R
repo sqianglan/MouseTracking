@@ -54,9 +54,39 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     colnames(display_breeding) <- c("Male", "Female 1", "Female 2", "Start Date", "End Date", "Status", "Litter DOB", "Pups")
     
     # Format dates
-    display_breeding$`Start Date` <- format(as.Date(display_breeding$`Start Date`), "%Y-%m-%d")
-    display_breeding$`End Date` <- ifelse(is.na(display_breeding$`End Date`), "Ongoing", format(as.Date(display_breeding$`End Date`), "%Y-%m-%d"))
-    display_breeding$`Litter DOB` <- ifelse(is.na(display_breeding$`Litter DOB`), "N/A", format(as.Date(display_breeding$`Litter DOB`), "%Y-%m-%d"))
+    display_breeding$`Start Date` <- sapply(display_breeding$`Start Date`, function(date) {
+      if (is.na(date) || date == "" || date == "Unknown") {
+        "N/A"
+      } else {
+        tryCatch({
+          format(as.Date(date), "%Y-%m-%d")
+        }, error = function(e) {
+          "N/A"
+        })
+      }
+    })
+    display_breeding$`End Date` <- sapply(display_breeding$`End Date`, function(date) {
+      if (is.na(date) || date == "" || date == "Unknown") {
+        "Ongoing"
+      } else {
+        tryCatch({
+          format(as.Date(date), "%Y-%m-%d")
+        }, error = function(e) {
+          "Ongoing"
+        })
+      }
+    })
+    display_breeding$`Litter DOB` <- sapply(display_breeding$`Litter DOB`, function(date) {
+      if (is.na(date) || date == "" || date == "Unknown") {
+        "N/A"
+      } else {
+        tryCatch({
+          format(as.Date(date), "%Y-%m-%d")
+        }, error = function(e) {
+          "N/A"
+        })
+      }
+    })
     
     # Create HTML table rows
     table_rows <- apply(display_breeding, 1, function(row) {
@@ -82,9 +112,39 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     colnames(display_plugging) <- c("Male", "Female", "Pairing Start", "Pairing End", "Plug Date", "Status")
     
     # Format dates
-    display_plugging$`Pairing Start` <- format(as.Date(display_plugging$`Pairing Start`), "%Y-%m-%d")
-    display_plugging$`Pairing End` <- ifelse(is.na(display_plugging$`Pairing End`), "Ongoing", format(as.Date(display_plugging$`Pairing End`), "%Y-%m-%d"))
-    display_plugging$`Plug Date` <- ifelse(is.na(display_plugging$`Plug Date`), "N/A", format(as.Date(display_plugging$`Plug Date`), "%Y-%m-%d"))
+    display_plugging$`Pairing Start` <- sapply(display_plugging$`Pairing Start`, function(date) {
+      if (is.na(date) || date == "" || date == "Unknown") {
+        "N/A"
+      } else {
+        tryCatch({
+          format(as.Date(date), "%Y-%m-%d")
+        }, error = function(e) {
+          "N/A"
+        })
+      }
+    })
+    display_plugging$`Pairing End` <- sapply(display_plugging$`Pairing End`, function(date) {
+      if (is.na(date) || date == "" || date == "Unknown") {
+        "Ongoing"
+      } else {
+        tryCatch({
+          format(as.Date(date), "%Y-%m-%d")
+        }, error = function(e) {
+          "Ongoing"
+        })
+      }
+    })
+    display_plugging$`Plug Date` <- sapply(display_plugging$`Plug Date`, function(date) {
+      if (is.na(date) || date == "" || date == "Unknown") {
+        "N/A"
+      } else {
+        tryCatch({
+          format(as.Date(date), "%Y-%m-%d")
+        }, error = function(e) {
+          "N/A"
+        })
+      }
+    })
     
     # Create HTML table rows
     table_rows <- apply(display_plugging, 1, function(row) {
