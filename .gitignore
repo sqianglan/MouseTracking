@@ -60,3 +60,19 @@ Thumbs.db
 # *.jpeg
 # *.gif
 # *.pdf
+
+# Additional R files
+.Rprofile
+.Renviron
+.Rapp.history
+
+# Package documentation
+docs/
+man/
+
+# Test files
+tests/testthat/_snaps/
+tests/testthat/_snaps/*.md
+
+# Shiny specific
+shiny_bookmarks/
