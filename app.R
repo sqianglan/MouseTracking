@@ -39,7 +39,11 @@ ui <- fluidPage(
     column(12, div(
       style = 'display: flex; justify-content: space-between; align-items: center;',
       h2('Mouse Management System', style = "margin: 1;"),
-      actionButton('set_timezone_btn', 'Set Timezone', icon = icon('globe'), style = 'float: right;')
+      div(
+        style = 'display: flex; align-items: center; gap: 10px;',
+        actionButton('set_timezone_btn', 'Set Timezone', icon = icon('globe'), style = 'float: right;'),
+        uiOutput('global_lock_ui')
+      )
     ))
   ),
   div(
@@ -93,6 +97,89 @@ server <- function(input, output, session) {
   # Initialize all_mice_table reactive value
   all_mice_table <- reactiveVal(NULL)
   
+  # Global lock system for deletion protection
+  global_lock_state <- reactiveValues(
+    is_locked = TRUE  # Start locked by default
+  )
+  
+  # Global lock UI
+  output$global_lock_ui <- renderUI({
+    if (global_lock_state$is_locked) {
+      actionButton(
+        "unlock_system_btn", 
+        "🔒 System Locked", 
+        icon = icon("lock"), 
+        class = "btn-warning",
+        style = "background-color: #ff9800; color: white; border: none; font-weight: bold;"
+      )
+    } else {
+      actionButton(
+        "lock_system_btn", 
+        "🔓 System Unlocked", 
+        icon = icon("unlock"), 
+        class = "btn-success",
+        style = "background-color: #4caf50; color: white; border: none; font-weight: bold;"
+      )
+    }
+  })
+  
+  # Unlock system
+  observeEvent(input$unlock_system_btn, {
+    showModal(modalDialog(
+      title = "🔓 Unlock System",
+      size = "s",
+      tagList(
+        div(
+          style = "text-align: center; margin-bottom: 20px;",
+          icon("exclamation-triangle", style = "font-size: 3em; color: #ff9800;")
+        ),
+        div(
+          style = "margin-bottom: 15px;",
+          tags$strong("Warning: Unlocking the system will enable deletion functions.")
+        ),
+        div(
+          style = "margin-bottom: 15px;",
+          "This includes:",
+          tags$ul(
+            tags$li("Delete plugging records"),
+            tags$li("Delete mouse records"),
+            tags$li("Bulk delete operations")
+          )
+        ),
+        div(
+          style = "margin-bottom: 15px;",
+          tags$strong("Note: Euthanasia and Empty Plug operations are always allowed as they are legitimate procedures.")
+        ),
+        div(
+          style = "background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 5px;",
+          tags$strong("Please ensure you have proper authorization before unlocking.")
+        )
+      ),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_unlock_btn", "Unlock System", class = "btn-warning")
+      )
+    ))
+  })
+  
+  # Confirm unlock
+  observeEvent(input$confirm_unlock_btn, {
+    global_lock_state$is_locked <- FALSE
+    showNotification("🔓 System unlocked. Deletion functions are now visible.", type = "warning")
+    removeModal()
+  })
+  
+  # Lock system
+  observeEvent(input$lock_system_btn, {
+    global_lock_state$is_locked <- TRUE
+    showNotification("🔒 System locked. Deletion functions are now hidden.", type = "message")
+  })
+  
+  # Function to check if system is locked (for use in modules)
+  is_system_locked <- function() {
+    global_lock_state$is_locked
+  }
+  
   # Load all mice data initially
   observe({
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
@@ -101,9 +188,9 @@ server <- function(input, output, session) {
     all_mice_table(all_data)
   })
   
-  all_mice_tab_server(input, output, session, all_mice_table)
+  all_mice_tab_server(input, output, session, all_mice_table, is_system_locked)
   #breeding_tab_server(input, output, session)
-  plugging_tab_server(input, output, session)
+  plugging_tab_server(input, output, session, is_system_locked)
   #deceased_tab_server(input, output, session)
   #deleted_tab_server(input, output, session)
 

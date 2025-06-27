@@ -4,14 +4,13 @@ all_mice_tab_ui <- function() {
       column(12, 
         div(
           style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;",
-          h3("All Mice"),
+          h3("All Mice", style = "margin: 0;"),
           div(
             actionButton("clear_search_btn", "Clear Search", 
                         style = "background-color: #f44336; color: white; border: none; margin-right: 10px;"),
             actionButton("bulk_edit_btn", "Edit Selected", 
                         style = "background-color: #ff9800; color: white; border: none; margin-right: 10px;"),
-            actionButton("bulk_delete_btn", "Delete Selected", 
-                        style = "background-color: #d32f2f; color: white; border: none;")
+            uiOutput("bulk_delete_btn_ui")
           )
         )
       )
@@ -48,7 +47,12 @@ all_mice_tab_ui <- function() {
   )
 }
 
-all_mice_tab_server <- function(input, output, session, all_mice_table) {
+all_mice_tab_server <- function(input, output, session, all_mice_table, is_system_locked = NULL) {
+  # Default lock function if not provided
+  if (is.null(is_system_locked)) {
+    is_system_locked <- function() FALSE
+  }
+
   # Create reactive value to store filtered data
   filtered_data <- reactiveVal(NULL)
 
@@ -698,6 +702,16 @@ all_mice_tab_server <- function(input, output, session, all_mice_table) {
       show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
     } else {
       showNotification("Could not retrieve mouse information. Please try again.", type = "error", duration = 3)
+    }
+  })
+
+  # Render bulk delete button based on lock state
+  output$bulk_delete_btn_ui <- renderUI({
+    if (!is_system_locked()) {
+      actionButton("bulk_delete_btn", "Delete Selected", 
+                  style = "background-color: #d32f2f; color: white; border: none;")
+    } else {
+      NULL
     }
   })
 } 

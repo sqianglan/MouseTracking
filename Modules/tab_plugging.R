@@ -33,7 +33,12 @@ plugging_tab_ui <- function() {
 }
 
 # Server Function
-plugging_tab_server <- function(input, output, session) {
+plugging_tab_server <- function(input, output, session, is_system_locked = NULL) {
+  
+  # Default lock function if not provided
+  if (is.null(is_system_locked)) {
+    is_system_locked <- function() FALSE
+  }
   
   # Reactive values for state management
   plugging_state <- reactiveValues(
@@ -263,7 +268,7 @@ plugging_tab_server <- function(input, output, session) {
   # Plugging history table
   output$plugging_history_controls <- renderUI({
     tagList(
-      checkboxInput("show_finished_plugging_history", "Show Empty Plugs and Euthanized Mice", value = FALSE),
+      checkboxInput("show_finished_plugging_history", "Show Inactive Records (Unsuccessful Plugs, Empty Plugs and Euthanized Mice)", value = FALSE),
       checkboxInput("show_deleted_plugging_history", "Show Deleted Records (Entries by mistake)", value = FALSE)
     )
   })
@@ -351,8 +356,8 @@ plugging_tab_server <- function(input, output, session) {
         if (row$plugging_status %in% c("Not Observed (Waiting for confirmation)", "Plugged")) {
           btns <- c(btns, paste0('<button class="btn btn-sm btn-success quick-confirm-btn" data-id="', row$id, '">Confirm</button>'))
         }
-        # Add Delete button for all except already deleted or done
-        if (!row$plugging_status %in% c("Deleted", "Not Observed (Waiting for confirmation)")) {
+        # Add Delete button for all except already deleted or done, but only if system is unlocked
+        if (!row$plugging_status %in% c("Deleted", "Not Observed (Waiting for confirmation)") && !is_system_locked()) {
           btns <- c(btns, paste0('<button class="btn btn-sm btn-danger quick-delete-plugging-btn" data-id="', row$id, '">Delete</button>'))
         }
         paste(btns, collapse = ' ')
@@ -640,18 +645,16 @@ plugging_tab_server <- function(input, output, session) {
           div(
             style = "display: flex; justify-content: space-between; align-items: center;",
             div(
-              # Only show action buttons if female mouse is not deceased and plugging status allows actions
-              if (is_not_observed_confirmed(row$plugging_status)) {
-                NULL
-              } else if (row$female_status != "Deceased" && row$plugging_status != "Deleted" && is_active_status(row$plugging_status)) {
+              style = "margin-top: 15px;",
+              if (row$female_status != "Deceased" && row$plugging_status != "Deleted" && is_active_status(row$plugging_status)) {
                 tagList(
                   # Show "Mark as Plugged" for Ongoing status
                   if (row$plugging_status == "Ongoing") {
                     actionButton("mark_plug_observed_btn", "Plugged", class = "btn-success")
                   },
-                  # Show "Euthanized" for all active statuses
+                  # Show "Euthanized" for all active statuses (always allowed)
                   actionButton("euthanize_mice_btn", "Euthanized", class = "btn-warning"),
-                  # Show "Empty Plug" for statuses that can be marked as empty
+                  # Show "Empty Plug" for statuses that can be marked as empty (always allowed)
                   if (can_mark_empty(row$plugging_status)) {
                     actionButton("set_status_empty_btn", "Empty Plug", class = "btn-info")
                   }
@@ -660,7 +663,8 @@ plugging_tab_server <- function(input, output, session) {
             ),
             div(
               actionButton("edit_plugging_details_btn", "Edit", class = "btn-primary"),
-              if (!is_not_observed_confirmed(row$plugging_status) && row$female_status != "Deceased" && row$plugging_status != "Deleted" && row$plugging_status != "Not Observed (Waiting for confirmation)") {
+              # Only hide the Delete button when locked, allow other actions
+              if (!is_not_observed_confirmed(row$plugging_status) && row$female_status != "Deceased" && row$plugging_status != "Deleted" && row$plugging_status != "Not Observed (Waiting for confirmation)" && !is_system_locked()) {
                 actionButton("delete_plugging_btn", "Delete", class = "btn-danger")
               },
               modalButton("Close")
