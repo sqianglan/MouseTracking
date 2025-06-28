@@ -605,4 +605,100 @@ validate_mice_active_status <- function(mice_id, table_name, status_column, mous
   })
 }
 
+# Global function to get live mice by gender (reactive version)
+get_live_mice_by_gender <- function(gender = NULL, global_refresh_trigger = NULL) {
+  if (is.null(global_refresh_trigger)) {
+    # Non-reactive version - direct database call
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    
+    tryCatch({
+      if (is.null(gender)) {
+        # Return all live mice (both genders)
+        mice <- DBI::dbGetQuery(con, 
+          "SELECT asu_id, animal_id, gender, breeding_line, genotype 
+           FROM mice_stock 
+           WHERE status = 'Alive' 
+           ORDER BY asu_id")
+        
+        mice
+      } else {
+        # Filter by specific gender
+        mice <- DBI::dbGetQuery(con, 
+          "SELECT asu_id, animal_id, gender, breeding_line, genotype 
+           FROM mice_stock 
+           WHERE status = 'Alive' AND gender = ?
+           ORDER BY asu_id",
+          params = list(gender))
+        
+        mice
+      }
+    }, finally = {
+      DBI::dbDisconnect(con)
+    })
+  } else {
+    # Reactive version - responds to global refresh trigger
+    reactive({
+      # Add dependency on global refresh trigger
+      global_refresh_trigger()
+      
+      con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+      tryCatch({
+        if (is.null(gender)) {
+          # Return all live mice (both genders)
+          mice <- DBI::dbGetQuery(con, 
+            "SELECT asu_id, animal_id, gender, breeding_line, genotype 
+             FROM mice_stock 
+             WHERE status = 'Alive' 
+             ORDER BY asu_id")
+          
+          mice
+        } else {
+          # Filter by specific gender
+          mice <- DBI::dbGetQuery(con, 
+            "SELECT asu_id, animal_id, gender, breeding_line, genotype 
+             FROM mice_stock 
+             WHERE status = 'Alive' AND gender = ?
+             ORDER BY asu_id",
+            params = list(gender))
+          
+          mice
+        }
+      }, finally = {
+        DBI::dbDisconnect(con)
+      })
+    })
+  }
+}
+
+# Global function to get mouse info (unified version)
+get_mouse_info <- function(asu_id, include_status = FALSE) {
+  if (is.null(asu_id) || asu_id == "") return(NULL)
+  
+  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+  tryCatch({
+    # Build query based on whether status is needed
+    if (include_status) {
+      query <- "SELECT asu_id, dob, breeding_line, genotype, gender, status
+                FROM mice_stock 
+                WHERE asu_id = ? 
+                LIMIT 1"
+    } else {
+      query <- "SELECT asu_id, dob, breeding_line, genotype
+                FROM mice_stock 
+                WHERE asu_id = ? 
+                LIMIT 1"
+    }
+    
+    mouse <- DBI::dbGetQuery(con, query, params = list(asu_id))
+    
+    if (nrow(mouse) == 0) return(NULL)
+    
+    # Calculate age in weeks
+    mouse$age_weeks <- round(as.numeric(Sys.Date() - as.Date(mouse$dob)) / 7, 1)
+    return(mouse)
+  }, finally = {
+    DBI::dbDisconnect(con)
+  })
+}
+
 

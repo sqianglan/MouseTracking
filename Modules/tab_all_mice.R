@@ -10,8 +10,7 @@ all_mice_tab_ui <- function() {
                         style = "background-color: #f44336; color: white; border: none; margin-right: 10px;"),
             actionButton("bulk_edit_btn", "Edit Selected", 
                         style = "background-color: #ff9800; color: white; border: none; margin-right: 10px;"),
-            actionButton("add_plugging_from_all_mice_btn", "Add Plugging Event", 
-                        style = "background-color: #4CAF50; color: white; border: none; margin-right: 10px;"),
+            add_plugging_modal_ui("add_plugging_modal_all_mice"),
             uiOutput("bulk_delete_btn_ui")
           )
         )
@@ -50,6 +49,10 @@ all_mice_tab_ui <- function() {
 }
 
 all_mice_tab_server <- function(input, output, session, all_mice_table, is_system_locked = NULL, global_refresh_trigger = NULL) {
+  # Source the modal module
+  source("Modules/modal_add_plugging_event.R", local = TRUE)
+  source("Modules/validation.R", local = TRUE)
+  
   # Default lock function if not provided
   if (is.null(is_system_locked)) {
     is_system_locked <- function() FALSE
@@ -815,224 +818,323 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     }
   })
 
-  # Handle Add Plugging Event button from All Mice tab
-  observeEvent(input$add_plugging_from_all_mice_btn, {
-    # Get live mice for selection
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    mice <- DBI::dbGetQuery(con, 
-      "SELECT asu_id, animal_id, gender, breeding_line, genotype 
-       FROM mice_stock 
-       WHERE status = 'Alive' 
-       ORDER BY asu_id")
-    DBI::dbDisconnect(con)
+  # Validation workflow function to decide if modal should be activated
+  validate_selection_for_plugging <- function() {
+    # Get selected rows from the table
+    selected_rows <- input$all_mice_table_rows_selected
+    print(selected_rows) ##debugging
     
-    male_choices <- if(nrow(mice[mice$gender == "Male", ]) > 0) {
-      males <- mice[mice$gender == "Male", ]
-      setNames(males$asu_id, 
-               paste(males$asu_id, "-", males$breeding_line))
-    } else {
-      c("No live males available" = "")
+    if (is.null(selected_rows) || length(selected_rows) == 0) {
+      showModal(modalDialog(
+        title = "No Mice Selected",
+        "Please select mice from the table first before adding a plugging event.",
+        footer = modalButton("OK"),
+        size = "s"
+      ))
+      return(FALSE)
     }
     
-    female_choices <- if(nrow(mice[mice$gender == "Female", ]) > 0) {
-      females <- mice[mice$gender == "Female", ]
-      setNames(females$asu_id, 
-               paste(females$asu_id, "-", females$breeding_line))
-    } else {
-      c("No live females available" = "")
+    # Check maximum 3 mice condition
+    if (length(selected_rows) > 3) {
+      showModal(modalDialog(
+        title = "Too Many Mice Selected",
+        paste("You have selected", length(selected_rows), "mice. Maximum allowed is 3 mice for plugging."),
+        footer = modalButton("OK"),
+        size = "s"
+      ))
+      return(FALSE)
     }
     
-    showModal(modalDialog(
-      title = "Add Plugging Event",
-      size = "xl",
-      tagList(
-        fluidRow(
-          column(4, selectInput("plugging_male", "Male (ASU ID)", choices = male_choices)),
-          column(4, selectInput("plugging_female1", "Female 1 (ASU ID)", choices = female_choices)),
-          column(4, selectInput("plugging_female2", "Female 2 (ASU ID)", choices = c("Optional" = "", female_choices)))
-        ),
-        fluidRow(
-          column(4, uiOutput("plugging_male_info_panel")),
-          column(4, uiOutput("plugging_female1_info_panel")),
-          column(4, uiOutput("plugging_female2_info_panel"))
-        ),
-        fluidRow(
-          column(6, dateInput("pairing_start_date", "Pairing Start Date", value = Sys.Date())),
-          column(6, dateInput("pairing_end_date", "Pairing End Date", value = Sys.Date()))
-        ),
-        fluidRow(
-          column(6, selectInput("plugging_status", "Plugging Status", 
-                               choices = c("Ongoing", "Plugged", "Plug Confirmed", "Not Pregnant", "Not Observed (Waiting for confirmation)", "Empty", "Not Observed (Confirmed)"), 
-                               selected = "Ongoing")),
-          column(6, textInput("plugging_cage", "Cage ID"))
-        ),
-        textAreaInput("plugging_notes", "Notes", "", rows = 2)
-      ),
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("all_mice_add_plugging_btn", "Add Plugging Event", class = "btn-primary")
+    # Get the current filtered data
+    current_data <- filtered_data()
+    if (is.null(current_data) || nrow(current_data) == 0) {
+      showModal(modalDialog(
+        title = "No Data Available",
+        "No data is currently available in the table.",
+        footer = modalButton("OK"),
+        size = "s"
+      ))
+      return(FALSE)
+    }
+    
+    # Get selected mice ASU IDs
+    selected_asu_ids <- current_data$asu_id[selected_rows]
+    
+    # Use get_mouse_info to check each selected mouse
+    warning_messages <- list()
+    alive_mice <- list()
+    male_count <- 0
+    female_count <- 0
+    
+    for (asu_id in selected_asu_ids) {
+      # Function 3: Get mouse info (unified version with status)
+      mouse_info <- get_mouse_info(asu_id, include_status = TRUE)
+      
+      if (is.null(mouse_info)) {
+        warning_messages[[paste0("not_found_", asu_id)]] <- paste("Mouse", asu_id, "not found in database")
+        next
+      }
+      
+      # Check if mouse is alive
+      if (mouse_info$status != "Alive") {
+        warning_messages[[paste0("not_alive_", asu_id)]] <- paste("Mouse", asu_id, "is not alive (status:", mouse_info$status, ")")
+        next
+      }
+      
+      # Function 4: Validate mice active status for plugging
+      plugging_check <- validate_mice_active_status(
+        mice_id = asu_id,
+        table_name = "plugging_history", 
+        status_column = "plugging_status",
+        mouse_role = ifelse(mouse_info$gender == "Male", "male", "female")
       )
-    ))
-  })
-  
-  # Mouse info panels for plugging modal
-  output$plugging_male_info_panel <- renderUI({
-    info <- get_mouse_info(input$plugging_male)
-    if (is.null(info)) return(NULL)
-    
-    wellPanel(
-      tags$b("Selected Male Info:"), br(),
-      paste("ASU ID:", info$asu_id), br(),
-      paste("Age (weeks):", info$age_weeks), br(),
-      paste("Breeding Line:", info$breeding_line), br(),
-      paste("Genotype:", info$genotype)
-    )
-  })
-  
-  output$plugging_female1_info_panel <- renderUI({
-    female1_info <- get_mouse_info(input$plugging_female1)
-    if (is.null(female1_info)) return(NULL)
-    
-    wellPanel(
-      tags$b("Selected Female 1 Info:"), br(),
-      paste("ASU ID:", female1_info$asu_id), br(),
-      paste("Age (weeks):", female1_info$age_weeks), br(),
-      paste("Breeding Line:", female1_info$breeding_line), br(),
-      paste("Genotype:", female1_info$genotype)
-    )
-  })
-  
-  output$plugging_female2_info_panel <- renderUI({
-    female2_info <- get_mouse_info(input$plugging_female2)
-    if (is.null(female2_info) || input$plugging_female2 == "Optional") return(NULL)
-    
-    wellPanel(
-      tags$b("Selected Female 2 Info:"), br(),
-      paste("ASU ID:", female2_info$asu_id), br(),
-      paste("Age (weeks):", female2_info$age_weeks), br(),
-      paste("Breeding Line:", female2_info$breeding_line), br(),
-      paste("Genotype:", female2_info$genotype)
-    )
-  })
-  
-  # Get mouse info helper function
-  get_mouse_info <- function(asu_id) {
-    if (is.null(asu_id) || asu_id == "") return(NULL)
-    
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    tryCatch({
-      mouse <- DBI::dbGetQuery(con, 
-        "SELECT asu_id, dob, breeding_line, genotype 
-         FROM mice_stock 
-         WHERE asu_id = ? 
-         LIMIT 1",
-        params = list(asu_id))
       
-      if (nrow(mouse) == 0) return(NULL)
+      # Check stock status
+      stock_check <- validate_mice_active_status(
+        mice_id = asu_id,
+        table_name = "mice_stock",
+        status_column = "status"
+      )
       
-      mouse$age_weeks <- round(as.numeric(Sys.Date() - as.Date(mouse$dob)) / 7, 1)
-      return(mouse)
-    }, finally = {
-      DBI::dbDisconnect(con)
-    })
-  }
-  
-  # Add plugging event handler
-  observeEvent(input$all_mice_add_plugging_btn, {
-    # Prevent multiple executions
-    if (is.null(input$all_mice_add_plugging_btn) || input$all_mice_add_plugging_btn == 0) return()
-    
-    # Validation
-    if (is.null(input$plugging_male) || input$plugging_male == "") {
-      showNotification("Please select a male", type = "error")
-      return()
-    }
-    
-    if (is.null(input$plugging_female1) || input$plugging_female1 == "") {
-      showNotification("Please select at least one female", type = "error")
-      return()
-    }
-    
-    if (input$plugging_male == input$plugging_female1) {
-      showNotification("Male and female 1 cannot be the same mouse", type = "error")
-      return()
-    }
-    
-    # Check if female2 is selected and validate
-    has_female2 <- !is.null(input$plugging_female2) && input$plugging_female2 != "" && input$plugging_female2 != "Optional"
-    
-    if (has_female2) {
-      if (input$plugging_male == input$plugging_female2) {
-        showNotification("Male and female 2 cannot be the same mouse", type = "error")
-        return()
+      # Define active plugging statuses
+      active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)")
+      active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
+      
+      # Check for warnings based on gender
+      if (mouse_info$gender == "Male") {
+        male_count <- male_count + 1
+        
+        if (active_plugging_count >= 2) {
+          warning_messages[[paste0("male_plugging_", asu_id)]] <- paste("Male", asu_id, "has", active_plugging_count, "active plugging records")
+        }
+        
+        if (mouse_info$age_weeks < 7) {
+          warning_messages[[paste0("male_age_", asu_id)]] <- paste("Male", asu_id, "is only", mouse_info$age_weeks, "weeks old (minimum: 7 weeks)")
+        }
+      } else if (mouse_info$gender == "Female") {
+        female_count <- female_count + 1
+        
+        if (active_plugging_count >= 1) {
+          warning_messages[[paste0("female_plugging_", asu_id)]] <- paste("Female", asu_id, "has", active_plugging_count, "active plugging records")
+        }
+        
+        if (mouse_info$age_weeks < 7) {
+          warning_messages[[paste0("female_age_", asu_id)]] <- paste("Female", asu_id, "is only", mouse_info$age_weeks, "weeks old (minimum: 7 weeks)")
+        }
       }
       
-      if (input$plugging_female1 == input$plugging_female2) {
-        showNotification("Female 1 and female 2 cannot be the same mouse", type = "error")
-        return()
-      }
-    }
-    
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    tryCatch({
-      # Create list of females to process
-      females_to_process <- c(input$plugging_female1)
-      if (has_female2) {
-        females_to_process <- c(females_to_process, input$plugging_female2)
+      # Check stock status
+      if (!any(stock_check$all_statuses == "Alive")) {
+        warning_messages[[paste0("stock_status_", asu_id)]] <- paste("Mouse", asu_id, "stock status issue:", stock_check$status_summary)
       }
       
-      # Insert plugging events for each female
-      for (female_id in females_to_process) {
-        DBI::dbExecute(con, 
-          "INSERT INTO plugging_history (male_id, female_id, cage_id, pairing_start_date, 
-           pairing_end_date, plugging_status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          params = list(
-            input$plugging_male,
-            female_id,
-            input$plugging_cage,
-            as.character(input$pairing_start_date),
-            as.character(input$pairing_end_date),
-            input$plugging_status,
-            input$plugging_notes
+      # Add to alive mice list if passed all checks
+      alive_mice[[asu_id]] <- mouse_info
+    }
+    
+    # Check gender distribution
+    if (male_count == 0) {
+      showModal(modalDialog(
+        title = "⚠️ No Male Selected",
+        div(
+          style = "color: #d32f2f;",
+          tags$strong("Cannot add plugging event:"),
+          tags$br(), tags$br(),
+          "You must select at least one male mouse for plugging.",
+          tags$br(), tags$br(),
+          tags$div(
+            style = "background-color: #fff3e0; padding: 10px; border-radius: 4px; border-left: 4px solid #ff9800;",
+            tags$strong("How to fix:"),
+            tags$br(),
+            "• Select one male mouse from the table",
+            tags$br(),
+            "• Ensure the male is alive and at least 7 weeks old"
           )
+        ),
+        footer = modalButton("OK"),
+        size = "m"
+      ))
+      return(FALSE)
+    }
+    
+    if (male_count > 1) {
+      showModal(modalDialog(
+        title = "⚠️ Too Many Males Selected",
+        div(
+          style = "color: #d32f2f;",
+          tags$strong("Cannot add plugging event:"),
+          tags$br(), tags$br(),
+          paste("You have selected", male_count, "males. Maximum allowed is 1 male for plugging."),
+          tags$br(), tags$br(),
+          tags$div(
+            style = "background-color: #fff3e0; padding: 10px; border-radius: 4px; border-left: 4px solid #ff9800;",
+            tags$strong("How to fix:"),
+            tags$br(),
+            "• Select only one male mouse",
+            tags$br(),
+            "• You can select 1-2 female mice to pair with the male"
+          )
+        ),
+        footer = modalButton("OK"),
+        size = "m"
+      ))
+      return(FALSE)
+    }
+    
+    if (female_count == 0) {
+      showModal(modalDialog(
+        title = "⚠️ No Female Selected",
+        div(
+          style = "color: #d32f2f;",
+          tags$strong("Cannot add plugging event:"),
+          tags$br(), tags$br(),
+          "You must select at least one female mouse for plugging.",
+          tags$br(), tags$br(),
+          tags$div(
+            style = "background-color: #fff3e0; padding: 10px; border-radius: 4px; border-left: 4px solid #ff9800;",
+            tags$strong("How to fix:"),
+            tags$br(),
+            "• Select one or two female mice from the table",
+            tags$br(),
+            "• Ensure the females are alive and at least 7 weeks old"
+          )
+        ),
+        footer = modalButton("OK"),
+        size = "m"
+      ))
+      return(FALSE)
+    }
+    
+    # If there are warnings, show them and prevent modal opening
+    if (length(warning_messages) > 0) {
+      showModal(modalDialog(
+        title = "⚠️ Validation Failed - Cannot Add Plugging Event",
+        div(
+          style = "color: #d32f2f;",
+          tags$strong("The following issues prevent adding a plugging event:"),
+          tags$br(), tags$br(),
+          tags$ul(
+            lapply(warning_messages, function(msg) tags$li(msg))
+          ),
+          tags$br(),
+          tags$div(
+            style = "background-color: #fff3e0; padding: 10px; border-radius: 4px; border-left: 4px solid #ff9800;",
+            tags$strong("How to fix:"),
+            tags$br(),
+            "• Select different mice that meet the requirements",
+            tags$br(),
+            "• Ensure mice are alive and at least 7 weeks old",
+            tags$br(),
+            "• Check that mice don't have too many active plugging records",
+            tags$br(),
+            "• Select exactly 1 male and 1-2 females"
+          )
+        ),
+        footer = modalButton("OK"),
+        size = "l"
+      ))
+      return(FALSE)
+    }
+    
+    # All validations passed - show success message
+    return(TRUE)
+  }
+
+  # Handle Add Plugging Event button from All Mice tab - use modular modal
+  plugging_modal_in_all_mice_tab <- add_plugging_modal_server(
+    "add_plugging_modal_all_mice",
+    get_live_mice = function() {
+      # Function 2: Get live mice - but only if validation passes
+      if (!validate_selection_for_plugging()) {
+        return(NULL)  # Return NULL to indicate validation failed
+      }
+      
+      # Get selected rows from the table
+      selected_rows <- input$all_mice_table_rows_selected
+      current_data <- filtered_data()
+      selected_asu_ids <- current_data$asu_id[selected_rows]
+      
+      # Query database to get detailed information for selected mice
+      con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+      tryCatch({
+        # Build query with placeholders for multiple ASU IDs
+        placeholders <- paste(rep("?", length(selected_asu_ids)), collapse = ",")
+        query <- paste0(
+          "SELECT asu_id, animal_id, gender, breeding_line, genotype 
+           FROM mice_stock 
+           WHERE asu_id IN (", placeholders, ") 
+           AND status = 'Alive'
+           ORDER BY asu_id"
         )
         
-        # Get last inserted id
-        new_id <- DBI::dbGetQuery(con, "SELECT last_insert_rowid()")[[1]]
+        selected_mice <- DBI::dbGetQuery(con, query, params = as.list(selected_asu_ids))
         
-        # Log to audit trail
-        log_audit_action(con, "plugging_history", "INSERT", new_id, 
-                        list(
-                          male_id = input$plugging_male,
-                          female_id = female_id,
-                          cage_id = input$plugging_cage,
-                          pairing_start_date = as.character(input$pairing_start_date),
-                          pairing_end_date = as.character(input$pairing_end_date),
-                          plugging_status = input$plugging_status,
-                          notes = input$plugging_notes
-                        ), 
-                        user = 'system', 
-                        operation_details = "Plugging event added from All Mice tab")
-      }
-      
-      # Show success message
-      if (has_female2) {
-        showNotification(paste("Plugging events added for male", input$plugging_male, "with 2 females!"), type = "message")
-      } else {
-        showNotification("Plugging event added!", type = "message")
-      }
-      
-      removeModal()
-      
-      # Trigger global refresh to update plugging tab
-      if (!is.null(global_refresh_trigger)) {
-        global_refresh_trigger(Sys.time())
-      }
-      
-    }, error = function(e) {
-      showNotification(paste("Error adding plugging event:", e$message), type = "error")
-    }, finally = {
-      DBI::dbDisconnect(con)
-    })
-  })
+        # Return in the expected format for the modal
+        list(
+          males = selected_mice[selected_mice$gender == "Male", ],
+          females = selected_mice[selected_mice$gender == "Female", ]
+        )
+        
+      }, error = function(e) {
+        showModal(modalDialog(
+          title = "Database Error",
+          paste("Error retrieving mouse data:", e$message),
+          footer = modalButton("OK"),
+          size = "s"
+        ))
+        NULL  # Return NULL to indicate error
+      }, finally = {
+        DBI::dbDisconnect(con)
+      })
+    },
+    get_mouse_info = get_mouse_info,
+    validate_mice_active_status = validate_mice_active_status,
+    db_connect = function() DBI::dbConnect(RSQLite::SQLite(), DB_PATH),
+    db_disconnect = function(con) DBI::dbDisconnect(con),
+    log_audit_trail = log_audit_trail,
+    auto_update_plugging_status_to_unknown = function() {
+      # Auto-update function for plugging status
+      con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+      tryCatch({
+        today <- as.character(Sys.Date())
+        # Find all ongoing records where pairing_end_date is before today
+        records <- DBI::dbGetQuery(con, 
+          "SELECT * FROM plugging_history 
+           WHERE plugging_status = 'Ongoing' 
+           AND pairing_end_date IS NOT NULL 
+           AND pairing_end_date < ?", 
+          params = list(today))
+        
+        for (i in seq_len(nrow(records))) {
+          rec <- records[i, ]
+          # Update status to Not Observed (Waiting for confirmation)
+          DBI::dbExecute(con, 
+            "UPDATE plugging_history 
+             SET plugging_status = 'Not Observed (Waiting for confirmation)', 
+                 updated_at = DATETIME('now') 
+             WHERE id = ?", 
+            params = list(rec$id))
+          
+          # Log to audit trail
+          log_audit_trail(
+            "plugging_history",
+            rec$id,
+            "UPDATE",
+            as.list(rec),
+            list(
+              plugging_status = "Not Observed (Waiting for confirmation)",
+              confirmation_date = as.character(Sys.Date()),
+              notes = "Auto-update: pairing period ended, status set to Not Observed (Waiting for confirmation)"
+            ),
+            user_id = "system(auto)"
+          )
+        }
+      }, finally = {
+        DBI::dbDisconnect(con)
+      })
+    },
+    plugging_state = reactiveValues(reload = NULL),
+    is_system_locked = is_system_locked,
+    global_refresh_trigger = global_refresh_trigger
+  )
 } 

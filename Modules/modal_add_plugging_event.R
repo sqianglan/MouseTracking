@@ -14,6 +14,13 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
 
     observeEvent(input$show_plugging_modal_btn, {
       mice_data <- get_live_mice()
+      
+      # Check if validation failed (NULL returned)
+      if (is.null(mice_data)) {
+        # Modal will not open - validation warnings were already shown by validate_selection_for_plugging()
+        return()
+      }
+      
       male_choices <- if(nrow(mice_data$males) > 0) {
         setNames(mice_data$males$asu_id, paste(mice_data$males$asu_id, "-", mice_data$males$breeding_line))
       } else {
@@ -24,14 +31,20 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
       } else {
         c("No live females available" = "")
       }
+      
+      # Auto-preselect mice if available
+      selected_male <- if(nrow(mice_data$males) > 0) mice_data$males$asu_id[1] else ""
+      selected_female1 <- if(nrow(mice_data$females) > 0) mice_data$females$asu_id[1] else ""
+      selected_female2 <- if(nrow(mice_data$females) > 1) mice_data$females$asu_id[2] else ""
+      
       showModal(modalDialog(
         title = "Add Plugging Event",
         size = "xl",
         tagList(
           fluidRow(
-            column(4, selectInput(ns("plugging_male"), "Male (ASU ID)", choices = male_choices)),
-            column(4, selectInput(ns("plugging_female1"), "Female 1 (ASU ID)", choices = female_choices)),
-            column(4, selectInput(ns("plugging_female2"), "Female 2 (ASU ID)", choices = c("Optional" = "", female_choices)))
+            column(4, selectInput(ns("plugging_male"), "Male (ASU ID)", choices = male_choices, selected = selected_male)),
+            column(4, selectInput(ns("plugging_female1"), "Female 1 (ASU ID)", choices = female_choices, selected = selected_female1)),
+            column(4, selectInput(ns("plugging_female2"), "Female 2 (ASU ID)", choices = c("Optional" = "", female_choices), selected = selected_female2))
           ),
           fluidRow(
             column(4, uiOutput(ns("plugging_male_info_panel"))),

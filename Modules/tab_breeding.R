@@ -29,6 +29,7 @@ breeding_tab_server <- function(input, output, session) {
   observeEvent(input$show_breeding_modal_btn, {
     males <- get_live_mice("Male")
     females <- get_live_mice("Female")
+    
     showModal(modalDialog(
       title = "Add Breeding Event",
       size = "m",

@@ -76,49 +76,17 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   
   # Use the enhanced audit trail system from audit_trail.R
   
-  # Get live mice for selection (cached)
+  # Get live mice for selection - using centralized function directly
   get_live_mice <- reactive({
-    # Add dependency on global refresh trigger
-    global_refresh_trigger()
+    # Get all live mice directly using centralized function
+    all_mice <- get_live_mice_by_gender(gender = NULL, global_refresh_trigger = global_refresh_trigger)()
     
-    con <- db_connect()
-    tryCatch({
-      mice <- DBI::dbGetQuery(con, 
-        "SELECT asu_id, animal_id, gender, breeding_line, genotype 
-         FROM mice_stock 
-         WHERE status = 'Alive' 
-         ORDER BY asu_id")
-      
-      list(
-        males = mice[mice$gender == "Male", ],
-        females = mice[mice$gender == "Female", ]
-      )
-    }, finally = {
-      db_disconnect(con)
-    })
+    # Return in the expected format for the modal
+    list(
+      males = all_mice[all_mice$gender == "Male", ],
+      females = all_mice[all_mice$gender == "Female", ]
+    )
   })
-  
-  # Get mouse info helper
-  get_mouse_info <- function(asu_id) {
-    if (is.null(asu_id) || asu_id == "") return(NULL)
-    
-    con <- db_connect()
-    tryCatch({
-      mouse <- DBI::dbGetQuery(con, 
-        "SELECT asu_id, dob, breeding_line, genotype 
-         FROM mice_stock 
-         WHERE asu_id = ? 
-         LIMIT 1",
-        params = list(asu_id))
-      
-      if (nrow(mouse) == 0) return(NULL)
-      
-      mouse$age_weeks <- round(as.numeric(Sys.Date() - as.Date(mouse$dob)) / 7, 1)
-      return(mouse)
-    }, finally = {
-      db_disconnect(con)
-    })
-  }
   
   # Plugging history table
   output$plugging_history_controls <- renderUI({
@@ -1470,7 +1438,10 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   add_plugging_modal_server(
     "add_plugging_modal",
     get_live_mice = get_live_mice,
-    get_mouse_info = get_mouse_info,
+    get_mouse_info = function(asu_id) {
+      # Use unified function from validation.R (without status for modal display)
+      get_mouse_info(asu_id, include_status = FALSE)
+    },
     validate_mice_active_status = validate_mice_active_status,
     db_connect = db_connect,
     db_disconnect = db_disconnect,
