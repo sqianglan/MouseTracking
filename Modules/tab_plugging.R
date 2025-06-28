@@ -18,7 +18,7 @@ plugging_tab_ui <- function() {
   fluidPage(
     div(
       style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;",
-      h3("🔗 Plugging Management", style = "margin: 0; font-size: 1.8em; color: #2c3e50; font-weight: 700;"),
+      h3("♂️🐭 x 🐭♀️ Plugging Management", style = "margin: 0; font-size: 1.8em; color: #2c3e50; font-weight: 700;"),
       div(
         style = "display: flex; align-items: center; gap: 8px;",
         div(
@@ -38,7 +38,7 @@ plugging_tab_ui <- function() {
       ),
       div(
         style = "padding: 12px; background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 6px; border-left: 4px solid #28a745;",
-        "📊 Record plugging events for breeding pairs and track their progress through different stages."
+        "📊 Record plugging events for breeding pairs or trios and track their progress through different stages."
       )
     ),
     div(

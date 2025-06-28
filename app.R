@@ -452,7 +452,7 @@ ui <- fluidPage(
         )
       ),
       tabPanel("🐭 All Mice", all_mice_tab_ui()),
-      tabPanel("🔗 Plugging", plugging_tab_ui()),
+      tabPanel("🐭⚤🐭 Plugging", plugging_tab_ui()),
     ),
     div(
       style = "display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 12px 16px; margin-top: 32px; border-radius: 0 0 8px 8px;",
