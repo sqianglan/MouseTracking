@@ -155,15 +155,17 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     
     showModal(modalDialog(
       title = "Add Plugging Event",
-      size = "l",
+      size = "xl",
       tagList(
         fluidRow(
-          column(6, selectInput("plugging_male", "Male (ASU ID)", choices = male_choices)),
-          column(6, selectInput("plugging_female", "Female (ASU ID)", choices = female_choices))
+          column(4, selectInput("plugging_male", "Male (ASU ID)", choices = male_choices)),
+          column(4, selectInput("plugging_female1", "Female 1 (ASU ID)", choices = female_choices)),
+          column(4, selectInput("plugging_female2", "Female 2 (ASU ID)", choices = c("Optional" = "", female_choices)))
         ),
         fluidRow(
-          column(6, uiOutput("plugging_male_info_panel")),
-          column(6, uiOutput("plugging_female_info_panel"))
+          column(4, uiOutput("plugging_male_info_panel")),
+          column(4, uiOutput("plugging_female1_info_panel")),
+          column(4, uiOutput("plugging_female2_info_panel"))
         ),
         fluidRow(
           column(6, dateInput("pairing_start_date", "Pairing Start Date", value = Sys.Date())),
@@ -197,16 +199,29 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     )
   })
   
-  output$plugging_female_info_panel <- renderUI({
-    info <- get_mouse_info(input$plugging_female)
-    if (is.null(info)) return(NULL)
+  output$plugging_female1_info_panel <- renderUI({
+    female1_info <- get_mouse_info(input$plugging_female1)
+    if (is.null(female1_info)) return(NULL)
     
     wellPanel(
-      tags$b("Selected Female Info:"), br(),
-      paste("ASU ID:", info$asu_id), br(),
-      paste("Age (weeks):", info$age_weeks), br(),
-      paste("Breeding Line:", info$breeding_line), br(),
-      paste("Genotype:", info$genotype)
+      tags$b("Selected Female 1 Info:"), br(),
+      paste("ASU ID:", female1_info$asu_id), br(),
+      paste("Age (weeks):", female1_info$age_weeks), br(),
+      paste("Breeding Line:", female1_info$breeding_line), br(),
+      paste("Genotype:", female1_info$genotype)
+    )
+  })
+  
+  output$plugging_female2_info_panel <- renderUI({
+    female2_info <- get_mouse_info(input$plugging_female2)
+    if (is.null(female2_info) || input$plugging_female2 == "Optional") return(NULL)
+    
+    wellPanel(
+      tags$b("Selected Female 2 Info:"), br(),
+      paste("ASU ID:", female2_info$asu_id), br(),
+      paste("Age (weeks):", female2_info$age_weeks), br(),
+      paste("Breeding Line:", female2_info$breeding_line), br(),
+      paste("Genotype:", female2_info$genotype)
     )
   })
   
@@ -218,54 +233,83 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       return()
     }
     
-    if (is.null(input$plugging_female) || input$plugging_female == "") {
-      showNotification("Please select a female", type = "error")
+    if (is.null(input$plugging_female1) || input$plugging_female1 == "") {
+      showNotification("Please select at least one female", type = "error")
       return()
     }
     
-    if (input$plugging_male == input$plugging_female) {
-      showNotification("Male and female cannot be the same mouse", type = "error")
+    if (input$plugging_male == input$plugging_female1) {
+      showNotification("Male and female 1 cannot be the same mouse", type = "error")
       return()
+    }
+    
+    # Check if female2 is selected and validate
+    has_female2 <- !is.null(input$plugging_female2) && input$plugging_female2 != "" && input$plugging_female2 != "Optional"
+    
+    if (has_female2) {
+      if (input$plugging_male == input$plugging_female2) {
+        showNotification("Male and female 2 cannot be the same mouse", type = "error")
+        return()
+      }
+      
+      if (input$plugging_female1 == input$plugging_female2) {
+        showNotification("Female 1 and female 2 cannot be the same mouse", type = "error")
+        return()
+      }
     }
     
     con <- db_connect()
     tryCatch({
-      # Insert plugging event
-      DBI::dbExecute(con, 
-        "INSERT INTO plugging_history (male_id, female_id, cage_id, pairing_start_date, 
-         pairing_end_date, plugging_status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        params = list(
-          input$plugging_male,
-          input$plugging_female,
-          input$plugging_cage,
-          as.character(input$pairing_start_date),
-          as.character(input$pairing_end_date),
-          input$plugging_status,
-          input$plugging_notes
+      # Create list of females to process
+      females_to_process <- c(input$plugging_female1)
+      if (has_female2) {
+        females_to_process <- c(females_to_process, input$plugging_female2)
+      }
+      
+      # Insert plugging events for each female
+      for (female_id in females_to_process) {
+        DBI::dbExecute(con, 
+          "INSERT INTO plugging_history (male_id, female_id, cage_id, pairing_start_date, 
+           pairing_end_date, plugging_status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          params = list(
+            input$plugging_male,
+            female_id,
+            input$plugging_cage,
+            as.character(input$pairing_start_date),
+            as.character(input$pairing_end_date),
+            input$plugging_status,
+            input$plugging_notes
+          )
         )
-      )
-      
-      # Get last inserted id
-      new_id <- DBI::dbGetQuery(con, "SELECT last_insert_rowid()")[[1]]
-      
-      # Log to audit trail
-      log_audit_trail(
-        "plugging_history",
-        new_id,
-        "INSERT",
-        NULL,
-        list(
-          male_id = input$plugging_male,
-          female_id = input$plugging_female,
-          cage_id = input$plugging_cage,
-          pairing_start_date = as.character(input$pairing_start_date),
-          pairing_end_date = as.character(input$pairing_end_date),
-          plugging_status = input$plugging_status,
-          notes = input$plugging_notes
+        
+        # Get last inserted id
+        new_id <- DBI::dbGetQuery(con, "SELECT last_insert_rowid()")[[1]]
+        
+        # Log to audit trail
+        log_audit_trail(
+          "plugging_history",
+          new_id,
+          "INSERT",
+          NULL,
+          list(
+            male_id = input$plugging_male,
+            female_id = female_id,
+            cage_id = input$plugging_cage,
+            pairing_start_date = as.character(input$pairing_start_date),
+            pairing_end_date = as.character(input$pairing_end_date),
+            plugging_status = input$plugging_status,
+            notes = input$plugging_notes
+          )
         )
-      )
+      }
       
-      showNotification("Plugging event added!", type = "message")
+      # Show success message
+      if (has_female2) {
+        showNotification(paste("Plugging events added for male", input$plugging_male, "with 2 females!"), type = "message")
+      } else {
+        showNotification("Plugging event added!", type = "message")
+      }
+      
       removeModal()
       Sys.sleep(1)
       auto_update_plugging_status_to_unknown()
@@ -727,9 +771,10 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         tagList(
           fluidRow(
             column(6, selectInput("edit_plugging_male", "Male", choices = male_choices, selected = row$male_id)),
-            column(6, selectInput("edit_plugging_female", "Female", choices = female_choices, selected = row$female_id))
+            column(6, selectInput("edit_plugging_female1", "Female 1", choices = female_choices, selected = row$female_id))
           ),
           fluidRow(
+            column(6, selectInput("edit_plugging_female2", "Female 2 - Optional", choices = c("Optional" = "", female_choices), selected = if(row$female_id != "" && row$female_id != "Optional") row$female_id else "Optional")),
             column(6, dateInput("edit_pairing_start_date", "Pairing Start Date", 
                                 value = if(!is.na(row$pairing_start_date) && row$pairing_start_date != "") as.Date(row$pairing_start_date) else Sys.Date())),
             column(6, dateInput("edit_pairing_end_date", "Pairing End Date", 
@@ -775,12 +820,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       return()
     }
     
-    if (is.null(input$edit_plugging_female) || input$edit_plugging_female == "") {
+    if (is.null(input$edit_plugging_female1) || input$edit_plugging_female1 == "") {
       showNotification("Please select a female", type = "error")
       return()
     }
     
-    if (input$edit_plugging_male == input$edit_plugging_female) {
+    if (input$edit_plugging_male == input$edit_plugging_female1) {
       showNotification("Male and female cannot be the same mouse", type = "error")
       return()
     }
@@ -818,7 +863,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
          WHERE id = ?",
         params = list(
           input$edit_plugging_male,
-          input$edit_plugging_female,
+          input$edit_plugging_female1,
           as.character(input$edit_pairing_start_date),
           as.character(input$edit_pairing_end_date),
           plug_observed_date_value,
@@ -837,7 +882,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           old_values,
           list(
             male_id = input$edit_plugging_male,
-            female_id = input$edit_plugging_female,
+            female_id = input$edit_plugging_female1,
             pairing_start_date = as.character(input$edit_pairing_start_date),
             pairing_end_date = as.character(input$edit_pairing_end_date),
             plug_observed_date = plug_observed_date_value,
