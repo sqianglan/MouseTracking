@@ -177,8 +177,27 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     # Calculate age in weeks
     display_data$age_weeks <- round(as.numeric(Sys.Date() - as.Date(display_data$dob)) / 7, 1)
     
-    # Reorder columns for display
-    col_order <- c("asu_id", "animal_id", "gender", "dob", "age_weeks", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "last_updated")
+    # Add status light before ASU ID
+    display_data$asu_id_with_light <- sapply(display_data$asu_id, function(asu_id) {
+      status_tag <- mice_status_tag_all_mice(asu_id)
+      
+      # Define light colors based on status
+      light_color <- switch(status_tag,
+        "Free" = "#4CAF50",      # Green
+        "Busy" = "#FF9800",      # Orange
+        "Deceased" = "#F44336",  # Red
+        "Unknown" = "#9E9E9E"    # Gray
+      )
+      
+      # Create HTML for the light and ASU ID
+      paste0(
+        '<span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background-color: ', light_color, '; margin-right: 8px; vertical-align: middle;" title="Status: ', status_tag, '"></span>',
+        asu_id
+      )
+    })
+    
+    # Reorder columns for display (replace asu_id with asu_id_with_light)
+    col_order <- c("asu_id_with_light", "animal_id", "gender", "dob", "age_weeks", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "last_updated")
     display_data <- display_data[, col_order]
     
     # Format dates
@@ -213,6 +232,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       ),
       filter = 'none',
       selection = 'multiple',
+      escape = FALSE,  # Allow HTML in the ASU ID column
       callback = JS("
         table.on('dblclick', 'tr', function() {
           var rowIndex = table.row(this).index();
@@ -220,7 +240,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
           console.log('Row index:', rowIndex);
           console.log('Double-click data:', data);
           if (data && data.length > 0) {
-            var asuId = data[0];
+            var asuIdCell = data[0];
+            // Extract ASU ID from HTML content (remove the light span)
+            var asuId = asuIdCell.replace(/<[^>]*>/g, '').trim();
             console.log('ASU ID captured:', asuId);
             Shiny.setInputValue('mouse_double_click', asuId, {priority: 'event'});
             Shiny.setInputValue('mouse_double_click_row', rowIndex, {priority: 'event'});

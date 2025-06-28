@@ -701,4 +701,63 @@ get_mouse_info <- function(asu_id, include_status = FALSE) {
   })
 }
 
+# Function to determine mouse status tag for all mice table
+mice_status_tag_all_mice <- function(asu_id) {
+  if (is.null(asu_id) || asu_id == "") return("Unknown")
+  
+  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+  tryCatch({
+    # First check if mouse exists and get basic status
+    mouse_info <- DBI::dbGetQuery(con, 
+      "SELECT asu_id, gender, status FROM mice_stock WHERE asu_id = ? LIMIT 1", 
+      params = list(asu_id))
+    
+    if (nrow(mouse_info) == 0) {
+      return("Unknown")
+    }
+    
+    # If mouse is not alive, return "Deceased"
+    if (mouse_info$status != "Alive") {
+      return("Deceased")
+    }
+    
+    # Check active plugging records
+    mouse_role <- ifelse(mouse_info$gender == "Male", "male", "female")
+    mouse_id_column <- ifelse(mouse_role == "male", "male_id", "female_id")
+    
+    # Query active plugging records
+    active_plugging_query <- paste0(
+      "SELECT COUNT(*) as active_count 
+       FROM plugging_history 
+       WHERE ", mouse_id_column, " = ? 
+       AND plugging_status IN ('Ongoing', 'Plugged', 'Not Observed (Waiting for confirmation)')"
+    )
+    
+    active_count <- DBI::dbGetQuery(con, active_plugging_query, params = list(asu_id))$active_count
+    
+    # Determine status based on active plugging records
+    if (mouse_role == "male") {
+      # For males: Busy if 2 or more active records, Free otherwise
+      if (active_count >= 2) {
+        return("Busy")
+      } else {
+        return("Free")
+      }
+    } else {
+      # For females: Busy if 1 or more active records, Free otherwise
+      if (active_count >= 1) {
+        return("Busy")
+      } else {
+        return("Free")
+      }
+    }
+    
+  }, error = function(e) {
+    # Return "Unknown" if there's an error
+    return("Unknown")
+  }, finally = {
+    DBI::dbDisconnect(con)
+  })
+}
+
 
