@@ -75,7 +75,7 @@ ui <- fluidPage(
         paste("Database:", basename(DB_PATH))
       ),
       div(
-        HTML('Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #337ab7; text-decoration: underline;">Qiang Lan</a>, University of Bristol'),
+        HTML('Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #337ab7; text-decoration: underline;">Dr. Qiang Lan</a>, University of Bristol'),
         style = "text-align: center; font-size: 1em; color: #555;"
       ),
       div(style = "width: 200px;") # Empty div for balance

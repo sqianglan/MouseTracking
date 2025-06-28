@@ -17,9 +17,10 @@ all_mice_tab_ui <- function() {
       )
     ),
     fluidRow(
-      column(3,
+      column(2,
         wellPanel(
-          h4("Search Animals", style = "margin-top: 0;"),
+          style = "padding: 10px; margin-bottom: 10px;",
+          h4("Search Animals", style = "margin-top: 0; margin-bottom: 15px; font-size: 16px;"),
           textInput("all_mice_search_asu_id", "ASU ID", placeholder = "Enter ASU ID (supports * and ? wildcards)"),
           textInput("all_mice_search_animal_id", "Animal ID", placeholder = "Enter Animal ID (supports * and ? wildcards)"),
           selectInput("all_mice_search_gender", "Gender", choices = c("", "Male", "Female"), selected = ""),
@@ -30,14 +31,14 @@ all_mice_tab_ui <- function() {
           selectInput("all_mice_search_stock_category", "Stock Category", choices = c("", "Experiment", "Breeding", "Charles River"), selected = ""),
           selectInput("all_mice_search_status", "Status", choices = c("Both", "Live", "Deceased"), selected = "Live"),
           div(
-            style = "margin-top: 15px; font-size: 12px; color: #666;",
+            style = "margin-top: 10px; font-size: 11px; color: #666;",
             "Use * for multiple characters and ? for single character wildcards"
           ),
           actionButton("all_mice_execute_search_btn", "Search", 
-                      style = "background-color: #1976d2; color: white; border: none; width: 100%; margin-top: 10px;")
+                      style = "background-color: #1976d2; color: white; border: none; width: 100%; margin-top: 8px; font-size: 12px;")
         )
       ),
-      column(9,
+      column(10,
         div(
           style = "margin-bottom: 10px; font-size: 12px; color: #666;",
           "💡 Double-click on any row to view Mouse History Tracing"
@@ -172,10 +173,10 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     }
     
     # Select columns including timestamps
-    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "last_updated")]
+    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
     
     # Calculate age in weeks
-    display_data$age_weeks <- round(as.numeric(Sys.Date() - as.Date(display_data$dob)) / 7, 1)
+    display_data$age_weeks <- floor(as.numeric(Sys.Date() - as.Date(data$dob)) / 7) 
     
     # Add status light before ASU ID
     display_data$asu_id_with_light <- sapply(display_data$asu_id, function(asu_id) {
@@ -196,8 +197,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       )
     })
     
-    # Reorder columns for display (replace asu_id with asu_id_with_light)
-    col_order <- c("asu_id_with_light", "animal_id", "gender", "dob", "age_weeks", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "last_updated")
+    # Reorder columns for display (replace asu_id with asu_id_with_light, exclude dob and last_updated)
+    col_order <- c("asu_id_with_light", "animal_id", "gender", "age_weeks", "breeding_line", "genotype", "responsible_person", "stock_category", "status")
     display_data <- display_data[, col_order]
     
     # Format dates
@@ -214,14 +215,12 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       "ASU ID",
       "Animal ID", 
       "Gender",
-      "Date of Birth",
       "Age (weeks)",
       "Breeding Line",
       "Genotype",
       "Responsible Person",
       "Stock Category",
-      "Status",
-      "Last Updated"
+      "Status"
     )
     DT::datatable(
       display_data,
@@ -337,7 +336,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       return()
     }
     # Get the displayed table as shown to the user (with only columns that exist in data)
-    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
+    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
     selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
     selected_data <- data[data$asu_id %in% selected_asu_ids, , drop = FALSE]
     # Get existing values from database for dropdowns (keep connection open)
@@ -460,7 +459,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       return()
     }
     # Get the displayed table as shown to the user (with only columns that exist in data)
-    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
+    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
     selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
     selected_data <- data[data$asu_id %in% selected_asu_ids, , drop = FALSE]
     # Get existing values from database for dropdowns (keep connection open)

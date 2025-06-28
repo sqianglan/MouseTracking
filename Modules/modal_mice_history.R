@@ -11,6 +11,28 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     return()
   }
   
+  # Fetch additional mouse details from database (including last_updated)
+  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+  
+  # Get complete mouse information including last_updated
+  mouse_details_query <- paste0(
+    "SELECT asu_id, animal_id, gender, dob, breeding_line, genotype, responsible_person, stock_category, status, last_updated
+     FROM mice_stock 
+     WHERE asu_id = '", asu_id, "'"
+  )
+  
+  mouse_details <- tryCatch({
+    DBI::dbGetQuery(con, mouse_details_query)
+  }, error = function(e) {
+    # Fallback to current data if database query fails
+    mouse_info
+  })
+  
+  # Use database data if available, otherwise use current data
+  if (nrow(mouse_details) > 0) {
+    mouse_info <- mouse_details[1, ]
+  }
+  
   # Fetch breeding history
   con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
   
@@ -175,13 +197,15 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
         div(
           strong("Animal ID:"), mouse_info$animal_id, br(),
           strong("Gender:"), mouse_info$gender, br(),
+          strong("Date of Birth:"), ifelse(is.na(mouse_info$dob) || mouse_info$dob == "", "N/A", mouse_info$dob), br(),
           strong("Genotype:"), ifelse(is.null(mouse_info$genotype) || is.na(mouse_info$genotype), "N/A", mouse_info$genotype), br(),
           strong("Breeding Line:"), ifelse(is.null(mouse_info$breeding_line) || is.na(mouse_info$breeding_line), "N/A", mouse_info$breeding_line)
         ),
         div(
-          strong("Date of Birth:"), mouse_info$dob, br(),
           strong("Status:"), mouse_info$status, br(),
-          strong("Responsible Person:"), ifelse(is.na(mouse_info$responsible_person), "N/A", mouse_info$responsible_person)
+          strong("Responsible Person:"), ifelse(is.na(mouse_info$responsible_person), "N/A", mouse_info$responsible_person), br(),
+          strong("Stock Category:"), ifelse(is.na(mouse_info$stock_category), "N/A", mouse_info$stock_category), br(),
+          strong("Last Updated:"), ifelse(is.na(mouse_info$last_updated) || mouse_info$last_updated == "", "N/A", mouse_info$last_updated)
         )
       )
     ),
