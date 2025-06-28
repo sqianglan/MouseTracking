@@ -3,47 +3,69 @@ all_mice_tab_ui <- function() {
     fluidRow(
       column(12, 
         div(
-          style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;",
-          h3("All Mice", style = "margin: 0;"),
+          style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;",
+          h3("🐭 All Mice", style = "margin: 0; font-size: 1.8em; color: #2c3e50; font-weight: 700;"),
           div(
-            actionButton("clear_search_btn", "Clear Search", 
-                        style = "background-color: #f44336; color: white; border: none; margin-right: 10px;"),
-            actionButton("bulk_edit_btn", "Edit Selected", 
-                        style = "background-color: #ff9800; color: white; border: none; margin-right: 10px;"),
-            add_plugging_modal_ui("add_plugging_modal_all_mice"),
-            uiOutput("bulk_delete_btn_ui")
+            style = "display: flex; align-items: center; gap: 8px;",
+            div(
+              style = "font-size: 12px; color: #6c757d; background: #e9ecef; padding: 4px 8px; border-radius: 4px;",
+              "💡 Double-click any row to view Mouse History"
+            )
           )
         )
       )
     ),
     fluidRow(
-      column(2,
-        wellPanel(
-          style = "padding: 10px; margin-bottom: 10px;",
-          h4("Search Animals", style = "margin-top: 0; margin-bottom: 15px; font-size: 16px;"),
-          textInput("all_mice_search_asu_id", "ASU ID", placeholder = "Enter ASU ID (supports * and ? wildcards)"),
-          textInput("all_mice_search_animal_id", "Animal ID", placeholder = "Enter Animal ID (supports * and ? wildcards)"),
-          selectInput("all_mice_search_gender", "Gender", choices = c("", "Male", "Female"), selected = ""),
-          textInput("all_mice_search_breeding_line", "Breeding Line", placeholder = "Enter Breeding Line (supports * and ? wildcards)"),
+      column(3,
+        div(
+          class = "search-panel",
+          h4("🔍 Search & Filter", style = "margin-top: 0; margin-bottom: 16px; font-size: 1.2em; color: #2c3e50;"),
+          textInput("all_mice_search_asu_id", "ASU ID", placeholder = "Enter ASU ID", width = "100%"),
+          textInput("all_mice_search_animal_id", "Animal ID", placeholder = "Enter Animal ID", width = "100%"),
+          selectInput("all_mice_search_gender", "Gender", 
+                     choices = c("All" = "", "Male" = "Male", "Female" = "Female"), 
+                     selected = "", width = "100%"),
+          textInput("all_mice_search_breeding_line", "Breeding Line", placeholder = "Enter Breeding Line", width = "100%"),
           selectizeInput("all_mice_search_responsible_person", "Responsible Person", 
-                        choices = c(""), 
+                        choices = c("All" = ""), 
                         options = list(placeholder = "Select responsible person")),
-          selectInput("all_mice_search_stock_category", "Stock Category", choices = c("", "Experiment", "Breeding", "Charles River"), selected = ""),
-          selectInput("all_mice_search_status", "Status", choices = c("Both", "Live", "Deceased"), selected = "Live"),
+          selectInput("all_mice_search_stock_category", "Stock Category", 
+                     choices = c("All" = "", "Experiment" = "Experiment", "Breeding" = "Breeding", "Charles River" = "Charles River"), 
+                     selected = "", width = "100%"),
+          selectInput("all_mice_search_status", "Status", 
+                     choices = c("Live" = "Live", "Deceased" = "Deceased", "Both" = "Both"), 
+                     selected = "Live", width = "100%"),
           div(
-            style = "margin-top: 10px; font-size: 11px; color: #666;",
-            "Use * for multiple characters and ? for single character wildcards"
+            style = "margin-top: 12px; padding: 8px; background: #f8f9fa; border-radius: 4px; font-size: 11px; color: #6c757d; border-left: 3px solid #17a2b8;",
+            "💡 Use * for multiple characters and ? for single character wildcards"
           ),
-          actionButton("all_mice_execute_search_btn", "Search", 
-                      style = "background-color: #1976d2; color: white; border: none; width: 100%; margin-top: 8px; font-size: 12px;")
+          actionButton("all_mice_execute_search_btn", "🔍 Search", 
+                      style = "background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%); color: white; border: none; width: 100%; margin-top: 12px; font-size: 14px; padding: 10px 16px; border-radius: 6px; font-weight: 500;")
         )
       ),
-      column(10,
+      column(9,
         div(
-          style = "margin-bottom: 10px; font-size: 12px; color: #666;",
-          "💡 Double-click on any row to view Mouse History Tracing"
-        ),
-        DT::dataTableOutput("all_mice_table")
+          style = "background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);",
+          div(
+            class = "action-buttons",
+            style = "margin-bottom: 16px;",
+            actionButton("clear_search_btn", "🗑️ Clear Search", 
+                        style = "background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%); color: white; border: none; padding: 8px 16px; font-size: 13px; border-radius: 6px;"),
+            actionButton("bulk_edit_btn", "✏️ Edit Selected", 
+                        style = "background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; border: none; padding: 8px 16px; font-size: 13px; border-radius: 6px;"),
+            add_plugging_modal_ui("add_plugging_modal_all_mice"),
+            uiOutput("bulk_delete_btn_ui")
+          ),
+          div(
+            style = "margin-bottom: 12px; padding: 8px 12px; background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); border-radius: 6px; border-left: 4px solid #2196f3;",
+            "📊 Showing filtered results. Use the search panel to refine your query."
+          ),
+          div(
+            style = "position: relative;",
+            uiOutput("loading_overlay"),
+            DT::dataTableOutput("all_mice_table")
+          )
+        )
       )
     )
   )
@@ -178,11 +200,11 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     # Calculate age in weeks
     display_data$age_weeks <- floor(as.numeric(Sys.Date() - as.Date(data$dob)) / 7) 
     
-    # Add status light before ASU ID
+    # Add status light before ASU ID with improved styling
     display_data$asu_id_with_light <- sapply(display_data$asu_id, function(asu_id) {
       status_tag <- mice_status_tag_all_mice(asu_id)
       
-      # Define light colors based on status
+      # Define light colors based on status with better contrast
       light_color <- switch(status_tag,
         "Free" = "#4CAF50",      # Green
         "Busy" = "#FF9800",      # Orange
@@ -190,10 +212,10 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         "Unknown" = "#9E9E9E"    # Gray
       )
       
-      # Create HTML for the light and ASU ID
+      # Create HTML for the light and ASU ID with improved styling
       paste0(
-        '<span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background-color: ', light_color, '; margin-right: 8px; vertical-align: middle;" title="Status: ', status_tag, '"></span>',
-        asu_id
+        '<span class="status-indicator status-', tolower(status_tag), '" style="background-color: ', light_color, ';" title="Status: ', status_tag, '"></span>',
+        '<span style="font-weight: 500; color: #2c3e50;">', asu_id, '</span>'
       )
     })
     
@@ -222,60 +244,49 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       "Stock Category",
       "Status"
     )
+    
+    # Enhanced DataTable with better styling and functionality
     DT::datatable(
       display_data,
       options = list(
         pageLength = 25,
         scrollX = TRUE,
-        dom = 'tip'
+        dom = '<"top"lf>rt<"bottom"ip><"clear">',
+        language = list(
+          search = "🔍 Search:",
+          lengthMenu = "Show _MENU_ entries per page",
+          info = "Showing _START_ to _END_ of _TOTAL_ entries"
+        )
       ),
       filter = 'none',
       selection = 'multiple',
       escape = FALSE,  # Allow HTML in the ASU ID column
+      rownames = FALSE,
+      class = 'table table-striped table-hover',
       callback = JS("
         table.on('dblclick', 'tr', function() {
-          var rowIndex = table.row(this).index();
           var data = table.row(this).data();
-          console.log('Row index:', rowIndex);
-          console.log('Double-click data:', data);
           if (data && data.length > 0) {
             var asuIdCell = data[0];
-            // Extract ASU ID from HTML content (remove the light span)
             var asuId = asuIdCell.replace(/<[^>]*>/g, '').trim();
-            console.log('ASU ID captured:', asuId);
             Shiny.setInputValue('mouse_double_click', asuId, {priority: 'event'});
-            Shiny.setInputValue('mouse_double_click_row', rowIndex, {priority: 'event'});
-          } else {
-            console.log('No data found in row');
           }
         });
-      "),
-      rownames = FALSE
+      ")
     )
   })
   
-  # Handle Clear Search button
-  observeEvent(input$clear_search_btn, {
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    all_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id"))
-    DBI::dbDisconnect(con)
-    filtered_data(all_data)
-    all_mice_table(all_data)
-    showNotification("Search cleared. Showing all animals.", type = "message", duration = 3)
+  # Loading overlay for table operations
+  output$loading_overlay <- renderUI({
+    # This will be shown/hidden based on reactive triggers
+    NULL
   })
   
-  # Populate responsible person dropdown for All Mice tab search
-  observe({
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
-    DBI::dbDisconnect(con)
-    
-    updateSelectizeInput(session, "all_mice_search_responsible_person", 
-                        choices = c("", responsible_persons))
-  })
-  
-  # Handle All Mice tab search execution
+  # Handle All Mice tab search execution with loading states
   observeEvent(input$all_mice_execute_search_btn, {
+    # Show loading notification
+    showNotification("🔍 Searching...", type = "default", duration = NULL, id = "search_loading")
+    
     where_conditions <- c()
     if (!is.null(input$all_mice_search_asu_id) && input$all_mice_search_asu_id != "") {
       asu_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_asu_id))
@@ -319,11 +330,44 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     DBI::dbDisconnect(con)
     filtered_data(search_results)
     all_mice_table(search_results)
+    
+    # Remove loading notification and show results
+    removeNotification("search_loading")
+    
     if (nrow(search_results) == 0) {
-      showNotification("No animals found matching your search criteria.", type = "warning", duration = 3)
+      showNotification("❌ No animals found matching your search criteria.", type = "warning", duration = 3)
     } else {
-      showNotification(paste("Found", nrow(search_results), "animals matching your search criteria."), type = "message", duration = 3)
+      showNotification(paste("✅ Found", nrow(search_results), "animals matching your search criteria."), type = "message", duration = 3)
     }
+  })
+  
+  # Handle Clear Search button
+  observeEvent(input$clear_search_btn, {
+    # Clear all search form fields
+    updateTextInput(session, "all_mice_search_asu_id", value = "")
+    updateTextInput(session, "all_mice_search_animal_id", value = "")
+    updateSelectInput(session, "all_mice_search_gender", selected = "")
+    updateTextInput(session, "all_mice_search_breeding_line", value = "")
+    updateSelectizeInput(session, "all_mice_search_responsible_person", selected = "")
+    updateSelectInput(session, "all_mice_search_stock_category", selected = "")
+    updateSelectInput(session, "all_mice_search_status", selected = "Live")
+    
+    # Reset to default filter (show only alive mice)
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    alive_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " WHERE status = 'Alive' ORDER BY asu_id"))
+    DBI::dbDisconnect(con)
+    filtered_data(alive_data)
+    all_mice_table(alive_data)
+  })
+  
+  # Populate responsible person dropdown for All Mice tab search
+  observe({
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
+    DBI::dbDisconnect(con)
+    
+    updateSelectizeInput(session, "all_mice_search_responsible_person", 
+                        choices = c("All" = "", responsible_persons))
   })
   
   # Handle Bulk Edit button
@@ -833,7 +877,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
   output$bulk_delete_btn_ui <- renderUI({
     if (!is_system_locked()) {
       actionButton("bulk_delete_btn", "Delete Selected", 
-                  style = "background-color: #d32f2f; color: white; border: none;")
+                  style = "background-color: #d32f2f; color: white; border: none; margin-right: 8px; padding: 6px 12px; font-size: 13px;")
     } else {
       NULL
     }

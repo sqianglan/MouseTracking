@@ -16,21 +16,41 @@ PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Plug Confirmed", "Not Pregnant", "
 # UI Function
 plugging_tab_ui <- function() {
   fluidPage(
-    h3("Plugging Management"),
     div(
-      class = "action-buttons",
-      add_plugging_modal_ui("add_plugging_modal"),
-      actionButton("show_calendar_btn", "Event Calendar", 
-                  class = "btn-info", style = "margin-right: 10px;")
+      style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;",
+      h3("🔗 Plugging Management", style = "margin: 0; font-size: 1.8em; color: #2c3e50; font-weight: 700;"),
+      div(
+        style = "display: flex; align-items: center; gap: 8px;",
+        div(
+          style = "font-size: 12px; color: #6c757d; background: #e9ecef; padding: 4px 8px; border-radius: 4px;",
+          "💡 Manage breeding pairs and track plugging events"
+        )
+      )
     ),
     div(
-      tags$i(tags$b("Record plugging events for breeding pairs.")),
-      style = "margin: 20px 0; color: #888; font-size: 14px;"
+      style = "background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 16px;",
+      div(
+        class = "action-buttons",
+        style = "margin-bottom: 16px;",
+        add_plugging_modal_ui("add_plugging_modal"),
+        actionButton("show_calendar_btn", "📅 Event Calendar", 
+                    class = "btn-info", style = "margin-left: 8px; padding: 8px 16px; font-size: 14px; border-radius: 6px;")
+      ),
+      div(
+        style = "padding: 12px; background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 6px; border-left: 4px solid #28a745;",
+        "📊 Record plugging events for breeding pairs and track their progress through different stages."
+      )
     ),
-    hr(),
-    h4("Plugging History"),
-    uiOutput("plugging_history_controls"),
-    DT::dataTableOutput("plugging_history_table")
+    div(
+      style = "background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);",
+      h4("📋 Plugging History", style = "margin: 8px 0 16px 0; font-size: 1.3em; color: #2c3e50;"),
+      uiOutput("plugging_history_controls"),
+      div(
+        style = "position: relative;",
+        uiOutput("plugging_loading_overlay"),
+        DT::dataTableOutput("plugging_history_table")
+      )
+    )
   )
 }
 
@@ -90,9 +110,24 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   
   # Plugging history table
   output$plugging_history_controls <- renderUI({
-    tagList(
-      checkboxInput("show_finished_plugging_history", "Show Inactive Records (Unsuccessful Plugs, Empty Plugs and Euthanized Mice)", value = FALSE),
-      checkboxInput("show_deleted_plugging_history", "Show Deleted Records (Entries by mistake)", value = FALSE)
+    div(
+      style = "display: flex; align-items: center; gap: 16px;",
+      div(
+        style = "display: flex; flex-direction: column; margin-right: 16px;",
+        checkboxInput("show_finished_plugging_history", "Show Inactive Records", value = FALSE),
+        div(
+          style = "font-size: 11px; color: #666; margin-left: 20px; margin-top: -12px;",
+          "(Unsuccessful Plugs, Empty Plugs and Euthanized Mice)"
+        )
+      ),
+      div(
+        style = "display: flex; flex-direction: column;",
+        checkboxInput("show_deleted_plugging_history", "Show Deleted Records", value = FALSE),
+        div(
+          style = "font-size: 11px; color: #666; margin-left: 20px; margin-top: -12px;",
+          "(Entries by mistake)"
+        )
+      )
     )
   })
   

@@ -4,7 +4,9 @@
 add_plugging_modal_ui <- function(id) {
   ns <- NS(id)
   tagList(
-    actionButton(ns("show_plugging_modal_btn"), "Add Plugging Event", class = "btn-primary", style = "margin-right: 10px;")
+    actionButton(ns("show_plugging_modal_btn"), "➕ Add Plugging Event", 
+                class = "btn-primary", 
+                style = "padding: 8px 16px; font-size: 14px; border-radius: 6px; font-weight: 500;")
   )
 }
 
@@ -35,7 +37,7 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
       # Auto-preselect mice if available
       selected_male <- if(nrow(mice_data$males) > 0) mice_data$males$asu_id[1] else ""
       selected_female1 <- if(nrow(mice_data$females) > 0) mice_data$females$asu_id[1] else ""
-      selected_female2 <- if(nrow(mice_data$females) > 1) mice_data$females$asu_id[2] else ""
+      selected_female2 <- ""  # Always start with empty for Female 2 (optional)
       
       showModal(modalDialog(
         title = "Add Plugging Event",
@@ -52,12 +54,7 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
             column(4, uiOutput(ns("plugging_female2_info_panel")))
           ),
           fluidRow(
-            column(12, 
-              div(
-                style = "color: #d32f2f; font-size: 11px; margin-bottom: 15px; text-align: left;",
-                "*Active plugging records include: Ongoing, Plugged and Not Observed (Waiting for confirmation)"
-              )
-            )
+            column(12, uiOutput(ns("active_plugging_warning_text")))
           ),
           fluidRow(
             column(6, dateInput(ns("pairing_start_date"), "Pairing Start Date", value = Sys.Date())),
@@ -99,7 +96,7 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
         active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)")
         active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
         
-        male_has_warnings <- (active_plugging_count > 2) || 
+        male_has_warnings <- (active_plugging_count >= 2) || 
                            (!any(stock_check$all_statuses == "Alive")) || 
                            (male_info$age_weeks < 7)
       }
@@ -353,6 +350,20 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
           if (length(warning_messages) > 0) warning_messages
         )
       )
+    })
+
+    # Render the active plugging warning text - only show when warnings exist
+    output$active_plugging_warning_text <- renderUI({
+      warnings_value <- warnings_exist()
+      
+      if (warnings_value) {
+        div(
+          style = "color: #d32f2f; font-size: 11px; margin-bottom: 15px; text-align: left;",
+          "*Active plugging records include: Ongoing, Plugged and Not Observed (Waiting for confirmation)"
+        )
+      } else {
+        NULL
+      }
     })
 
     # Render the add plugging button with warning-based state

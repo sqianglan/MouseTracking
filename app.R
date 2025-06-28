@@ -36,13 +36,400 @@ user_timezone <- reactiveVal(Sys.timezone())
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
+  tags$head(
+    tags$style(HTML("
+      /* Modern CSS Reset and Base Styles */
+      * {
+        box-sizing: border-box;
+      }
+      
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #f8f9fa;
+        color: #333;
+        line-height: 1.6;
+      }
+      
+      /* Container and Layout Optimizations */
+      .container-fluid {
+        padding: 16px !important;
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      
+      /* Modern Card-based Design */
+      .well {
+        background: white;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        padding: 16px !important;
+        margin-bottom: 16px !important;
+        transition: box-shadow 0.2s ease;
+      }
+      
+      .well:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      }
+      
+      /* Enhanced Navbar Styling */
+      .navbar {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        border: none !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin-bottom: 16px !important;
+        padding: 0 !important;
+        min-height: 48px !important;
+      }
+      
+      .navbar-nav > li > a {
+        font-size: 16px !important;
+        padding: 12px 20px !important;
+        line-height: 1.4 !important;
+        font-weight: 500 !important;
+        color: rgba(255,255,255,0.9) !important;
+        transition: all 0.3s ease;
+        border-radius: 6px;
+        margin: 4px 8px !important;
+      }
+      
+      .navbar-nav > li > a:hover {
+        background-color: rgba(255,255,255,0.1) !important;
+        color: white !important;
+        transform: translateY(-1px);
+      }
+      
+      .navbar-nav > li.active > a {
+        background-color: rgba(255,255,255,0.2) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+      
+      /* Modern Button Styling */
+      .btn {
+        border-radius: 6px !important;
+        font-weight: 500 !important;
+        padding: 8px 16px !important;
+        font-size: 14px !important;
+        transition: all 0.3s ease;
+        border: none !important;
+        cursor: pointer;
+      }
+      
+      .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+      }
+      
+      .btn-primary {
+        background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%) !important;
+        color: white !important;
+      }
+      
+      .btn-success {
+        background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%) !important;
+        color: white !important;
+      }
+      
+      .btn-warning {
+        background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%) !important;
+        color: white !important;
+      }
+      
+      .btn-danger {
+        background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%) !important;
+        color: white !important;
+      }
+      
+      .btn-info {
+        background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%) !important;
+        color: white !important;
+      }
+      
+      /* Enhanced Form Controls */
+      .form-control {
+        border: 2px solid #e9ecef !important;
+        border-radius: 6px !important;
+        padding: 8px 12px !important;
+        font-size: 14px !important;
+        height: auto !important;
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
+      }
+      
+      .form-control:focus {
+        border-color: #1976d2 !important;
+        box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.1) !important;
+      }
+      
+      .form-group {
+        margin-bottom: 16px !important;
+      }
+      
+      /* Enhanced DataTables */
+      .dataTables_wrapper {
+        margin-top: 16px !important;
+      }
+      
+      .dataTables_wrapper .dataTables_length,
+      .dataTables_wrapper .dataTables_filter,
+      .dataTables_wrapper .dataTables_info,
+      .dataTables_wrapper .dataTables_paginate {
+        margin: 8px 0 !important;
+      }
+      
+      .dataTables_wrapper .dataTables_length select,
+      .dataTables_wrapper .dataTables_filter input {
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 4px 8px;
+      }
+      
+      /* Enhanced Table Styling */
+      .table {
+        border-collapse: separate;
+        border-spacing: 0;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      }
+      
+      .table thead th {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-bottom: 2px solid #dee2e6;
+        font-weight: 600;
+        color: #2c3e50;
+        padding: 12px 8px;
+      }
+      
+      .table tbody tr:hover {
+        background-color: #f8f9fa;
+        transition: background-color 0.2s ease;
+      }
+      
+      .table tbody td {
+        padding: 10px 8px;
+        border-bottom: 1px solid #e9ecef;
+        vertical-align: middle;
+      }
+      
+      /* Enhanced Pagination */
+      .dataTables_paginate .paginate_button {
+        border-radius: 4px !important;
+        margin: 0 2px !important;
+        transition: all 0.3s ease !important;
+      }
+      
+      .dataTables_paginate .paginate_button:hover {
+        background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%) !important;
+        color: white !important;
+        border-color: #1976d2 !important;
+      }
+      
+      .dataTables_paginate .paginate_button.current {
+        background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%) !important;
+        color: white !important;
+        border-color: #1976d2 !important;
+      }
+      
+      /* Status Indicators */
+      .status-indicator {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 8px;
+        vertical-align: middle;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      }
+      
+      .status-free { background-color: #4caf50; }
+      .status-busy { background-color: #ff9800; }
+      .status-deceased { background-color: #f44336; }
+      .status-unknown { background-color: #9e9e9e; }
+      
+      /* Loading States */
+      .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255,255,255,0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        border-radius: 8px;
+      }
+      
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #1976d2;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      /* Enhanced Typography */
+      h1, h2, h3, h4, h5, h6 {
+        color: #2c3e50;
+        font-weight: 600;
+        margin-bottom: 12px;
+      }
+      
+      h2 { font-size: 2em; }
+      h3 { font-size: 1.6em; }
+      h4 { font-size: 1.3em; }
+      
+      /* Alert and Notification Styling */
+      .alert {
+        border-radius: 6px;
+        border: none;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+      }
+      
+      .alert-success {
+        background-color: #d4edda;
+        color: #155724;
+        border-left: 4px solid #28a745;
+      }
+      
+      .alert-warning {
+        background-color: #fff3cd;
+        color: #856404;
+        border-left: 4px solid #ffc107;
+      }
+      
+      .alert-danger {
+        background-color: #f8d7da;
+        color: #721c24;
+        border-left: 4px solid #dc3545;
+      }
+      
+      .alert-info {
+        background-color: #d1ecf1;
+        color: #0c5460;
+        border-left: 4px solid #17a2b8;
+      }
+      
+      /* Responsive Grid Improvements */
+      .row {
+        margin-left: -8px !important;
+        margin-right: -8px !important;
+      }
+      
+      .col-sm-2, .col-sm-3, .col-sm-4, .col-sm-6, .col-sm-8, .col-sm-10, .col-sm-12 {
+        padding-left: 8px !important;
+        padding-right: 8px !important;
+      }
+      
+      /* Modal Enhancements */
+      .modal-content {
+        border-radius: 8px;
+        border: none;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      }
+      
+      .modal-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 8px 8px 0 0;
+        border-bottom: none;
+      }
+      
+      .modal-title {
+        font-weight: 600;
+      }
+      
+      /* Search Panel Enhancements */
+      .search-panel {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      
+      /* Action Button Group */
+      .action-buttons {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      
+      /* Footer Styling */
+      .app-footer {
+        background: #f8f9fa;
+        border-top: 1px solid #dee2e6;
+        padding: 12px 16px;
+        margin-top: 32px;
+        font-size: 0.9em;
+        color: #6c757d;
+      }
+      
+      /* Responsive Design */
+      @media (max-width: 768px) {
+        .container-fluid {
+          padding: 8px !important;
+        }
+        
+        .navbar-nav > li > a {
+          font-size: 14px !important;
+          padding: 8px 12px !important;
+        }
+        
+        .btn {
+          font-size: 13px !important;
+          padding: 6px 12px !important;
+        }
+        
+        .action-buttons {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        
+        .action-buttons .btn {
+          margin-bottom: 4px;
+        }
+      }
+      
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+      }
+      
+      ::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 4px;
+      }
+      
+      ::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+      }
+    "))
+  ),
   fluidRow(
     column(12, div(
-      style = 'display: flex; justify-content: space-between; align-items: center;',
-      h2('Mouse Management System', style = "margin: 1;"),
+      style = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 8px 0;',
+      h2('Mouse Management System', style = "margin: 0; font-size: 2em; color: #2c3e50; font-weight: 700;"),
       div(
-        style = 'display: flex; align-items: center; gap: 10px;',
-        actionButton('set_timezone_btn', 'Set Timezone', icon = icon('globe'), style = 'float: right;'),
+        style = 'display: flex; align-items: center; gap: 12px;',
+        actionButton('set_timezone_btn', '🌍 Set Timezone', icon = icon('globe'), 
+                    style = 'padding: 8px 16px; font-size: 14px; border-radius: 6px;'),
         uiOutput('global_lock_ui')
       )
     ))
@@ -51,34 +438,33 @@ ui <- fluidPage(
     navbarPage(
       title = NULL,
       id = "tabs",
-      tabPanel("Home", 
+      tabPanel("🏠 Home", 
         div(
-          h3("Welcome to the Mouse Management System (beta)!", style = "text-align: center; font-size: 2.25em;"),
+          style = "display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 60vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 48px; margin: 16px 0;",
+          h3("Welcome to the Mouse Management System", style = "text-align: center; font-size: 2.5em; color: white; margin-bottom: 32px; font-weight: 700;"),
           div(
-            actionButton("welcome_search_btn", "Search", style = "margin-right: 16px; font-size: 1.5em; padding: 12px 32px; background-color: #1976d2; color: white; border: none;"),
-            actionButton("welcome_add_animals_btn", "Add Animals", style = "font-size: 1.5em; padding: 12px 32px; background-color: #43a047; color: white; border: none;"),
-            style = "display: flex; justify-content: center; gap: 16px; margin-top: 24px;"
-          ),
-          style = "display: flex; flex-direction: column; justify-content: center; align-items: center; height: 350px; min-height: 40vh;"
+            style = "display: flex; justify-content: center; gap: 24px; flex-wrap;",
+            actionButton("welcome_search_btn", "🔍 Search Animals", 
+                        style = "font-size: 1.5em; padding: 20px 40px; background: rgba(255,255,255,0.2); color: white; border: 2px solid white; border-radius: 8px; font-weight: 600;"),
+            actionButton("welcome_add_animals_btn", "➕ Add Animals", 
+                        style = "font-size: 1.5em; padding: 20px 40px; background: rgba(255,255,255,0.2); color: white; border: 2px solid white; border-radius: 8px; font-weight: 600;")
+          )
         )
       ),
-      tabPanel("All Mice", all_mice_tab_ui()),
-      #tabPanel("Breeding", breeding_tab_ui()),
-      tabPanel("Plugging", plugging_tab_ui()),
-      #tabPanel("Deceased", deceased_tab_ui()),
-      #tabPanel("Deleted", deleted_tab_ui())
+      tabPanel("🐭 All Mice", all_mice_tab_ui()),
+      tabPanel("🔗 Plugging", plugging_tab_ui()),
     ),
     div(
-      style = "display: flex; justify-content: space-between; align-items: center; position: fixed; left: 0; right: 0; bottom: 0; margin-bottom: 0; background: white; z-index: 1000; padding: 8px 16px; border-top: 1px solid #eee;",
+      style = "display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 12px 16px; margin-top: 32px; border-radius: 0 0 8px 8px;",
       div(
-        style = "font-size: 1.1em; color: #666; font-style: italic;",
-        paste("Database:", basename(DB_PATH))
+        style = "font-size: 0.9em; color: #6c757d; font-style: italic;",
+        paste("📊 Database:", basename(DB_PATH))
       ),
       div(
-        HTML('Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #337ab7; text-decoration: underline;">Dr. Qiang Lan</a>, University of Bristol'),
-        style = "text-align: center; font-size: 1em; color: #555;"
+        HTML('💬 Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #1976d2; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol'),
+        style = "text-align: center; font-size: 0.85em; color: #6c757d;"
       ),
-      div(style = "width: 200px;") # Empty div for balance
+      div(style = "width: 180px;") # Empty div for balance
     )
   )
 )
@@ -122,7 +508,7 @@ server <- function(input, output, session) {
         "🔒 System Locked", 
         icon = icon("lock"), 
         class = "btn-warning",
-        style = "background-color: #ff9800; color: white; border: none; font-weight: bold;"
+        style = "background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; border: none; font-weight: bold; padding: 8px 16px; font-size: 14px; border-radius: 6px;"
       )
     } else {
       actionButton(
@@ -130,7 +516,7 @@ server <- function(input, output, session) {
         "🔓 System Unlocked", 
         icon = icon("unlock"), 
         class = "btn-success",
-        style = "background-color: #4caf50; color: white; border: none; font-weight: bold;"
+        style = "background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%); color: white; border: none; font-weight: bold; padding: 8px 16px; font-size: 14px; border-radius: 6px;"
       )
     }
   })
@@ -177,14 +563,14 @@ server <- function(input, output, session) {
   # Confirm unlock
   observeEvent(input$confirm_unlock_btn, {
     global_lock_state$is_locked <- FALSE
-    showNotification("🔓 System unlocked. Deletion functions are now visible.", type = "warning")
+    showNotification("🔓 System unlocked! Deletion functions are now visible.", type = "warning", duration = 4)
     removeModal()
   })
   
   # Lock system
   observeEvent(input$lock_system_btn, {
     global_lock_state$is_locked <- TRUE
-    showNotification("🔒 System locked. Deletion functions are now hidden.", type = "message")
+    showNotification("🔒 System locked! Deletion functions are now hidden.", type = "message", duration = 4)
   })
   
   # Function to check if system is locked (for use in modules)
