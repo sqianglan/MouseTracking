@@ -73,7 +73,7 @@ man/
 # Test files
 tests/testthat/_snaps/
 tests/testthat/_snaps/*.md
-
+test_only/
 # Shiny specific
 shiny_bookmarks/
 .Rproj.user

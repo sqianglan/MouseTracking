@@ -534,4 +534,75 @@ display_validation_warnings <- function(validation_result) {
     tags$br(),
     HTML(warning_html)
   ))
-} 
+}
+
+# validation function for mice status in plugging_history
+validate_mice_active_status <- function(mice_id, table_name, status_column, mouse_role = NULL) {
+  # input validation is not necessary here because the input is already validated in the calling function
+  
+  # Connect to database
+  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+  
+  tryCatch({
+    # Determine the mouse ID column based on table name and mouse role
+    mouse_id_column <- switch(table_name,
+      "plugging_history" = {
+        # For plugging_history, check mouse_role to determine column
+        if (!is.null(mouse_role) && mouse_role == "male") {
+          "male_id"  # For males, check male_id column
+        } else {
+          "female_id"  # For females or default, check female_id column
+        }
+      },
+      "breeding_history" = "female1_id", # For breeding_history, we check female1_id
+      "mice_stock" = "asu_id",           # For mice_stock, we check asu_id
+      "asu_id"  # Default fallback
+    )
+    
+    # Query to get all records for this mouse
+    all_records_query <- paste0(
+      "SELECT ", status_column, " as status ",
+      "FROM ", table_name, " ",
+      "WHERE ", mouse_id_column, " = ?"
+    )
+    
+    all_records <- DBI::dbGetQuery(con, all_records_query, params = list(mice_id))
+    
+    # Check if mouse exists in the table at all
+    if (nrow(all_records) == 0) {
+      return(list(
+        valid = FALSE, 
+        message = paste("Mouse", mice_id, "not found in table", table_name),
+        record_count = 0,
+        all_statuses = character(0),
+        status_summary = "No records found"
+      ))
+    }
+    
+    # Get all statuses and create summary
+    all_statuses <- all_records$status
+    status_summary <- table(all_statuses)
+    status_details <- paste(names(status_summary), "(", status_summary, ")", collapse = ", ")
+    
+    return(list(
+      valid = TRUE,
+      message = paste("Mouse", mice_id, "found in", table_name, "with statuses:", status_details),
+      record_count = nrow(all_records),
+      all_statuses = all_statuses,
+      status_summary = status_details
+    ))
+    
+  }, error = function(e) {
+    return(list(
+      valid = FALSE, 
+      message = paste("Database error:", e$message),
+      record_count = 0,
+      all_statuses = character(0),
+      status_summary = "Error occurred"
+    ))
+  }, finally = {
+    DBI::dbDisconnect(con)
+  })
+}
+
+

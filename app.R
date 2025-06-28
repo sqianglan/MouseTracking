@@ -26,7 +26,7 @@ source("Modules/tab_calendar_events.R")
 #source("Modules/tab_deceased.R")
 #source("Modules/tab_deleted.R")
 source("Modules/tab_plugging.R")
-source("Modules/validation.R", local = TRUE)
+source("Modules/validation.R")
 
 # Initialize audit trail
 initialize_audit_trail()
