@@ -673,46 +673,63 @@ server <- function(input, output, session) {
       return()
     }
     
-    # Create data frame for single entry
-    single_entry_df <- data.frame(
-      asu_id = input_data$asu_id,
-      animal_id = if (input_data$animal_id == "") NA else input_data$animal_id,
-      ear_mark = if (input_data$ear_mark == "") NA else input_data$ear_mark,
-      gender = input_data$gender,
-      dob = as.character(input_data$dob),
-      genotype = if (is.null(input_data$genotype) || input_data$genotype == "") NA else input_data$genotype,
-      transgenes = if (is.null(input_data$transgenes) || input_data$transgenes == "") NA else input_data$transgenes,
-      strain = 'C57BL/6J',
-      breeding_line = if (is.null(input_data$breeding_line) || input_data$breeding_line == "") NA else input_data$breeding_line,
-      dam = NA,
-      sire = NA,
-      cage_id = NA,
-      room = NA,
-      project_code = if (is.null(input_data$project_code) || input_data$project_code == "") NA else input_data$project_code,
-      responsible_person = if (is.null(input_data$responsible_person) || input_data$responsible_person == "") NA else input_data$responsible_person,
-      protocol = if (is.null(input_data$protocol) || input_data$protocol == "") NA else input_data$protocol,
-      stock_category = input_data$stock_category,
-      status = input_data$status,
-      date_of_death = NA,
-      age_at_death_weeks = NA,
-      max_severity = NA,
-      procedure = NA,
-      stage = NA,
-      deceased_timestamp = NA,
-      notes = NA,
-      imported_from_excel = FALSE,
-      date_created = Sys.time(),
-      last_updated = Sys.time(),
-      stringsAsFactors = FALSE
-    )
-    
     # Insert into database with audit trail logging
     result <- tryCatch({
-      DBI::dbWriteTable(con, TABLE_NAME, single_entry_df, append = TRUE, row.names = FALSE)
+      # Use direct SQL INSERT to properly set timestamps
+      DBI::dbExecute(con, 
+        "INSERT INTO mice_stock (
+          asu_id, animal_id, ear_mark, gender, dob, genotype, transgenes, strain, 
+          breeding_line, dam, sire, cage_id, room, project_code, responsible_person, 
+          protocol, stock_category, status, date_of_death, age_at_death_weeks, 
+          max_severity, procedure, stage, deceased_timestamp, notes, imported_from_excel, 
+          date_created, last_updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))",
+        params = list(
+          input_data$asu_id,
+          if (is.null(input_data$animal_id) || input_data$animal_id == "") NA else input_data$animal_id,
+          NA, # ear_mark
+          input_data$gender,
+          as.character(input_data$dob),
+          if (is.null(input_data$genotype) || input_data$genotype == "") NA else input_data$genotype,
+          if (is.null(input_data$transgenes) || input_data$transgenes == "") NA else input_data$transgenes,
+          'C57BL/6J', # strain
+          if (is.null(input_data$breeding_line) || input_data$breeding_line == "") NA else input_data$breeding_line,
+          NA, # dam
+          NA, # sire
+          NA, # cage_id
+          NA, # room
+          if (is.null(input_data$project_code) || input_data$project_code == "") NA else input_data$project_code,
+          if (is.null(input_data$responsible_person) || input_data$responsible_person == "") NA else input_data$responsible_person,
+          if (is.null(input_data$protocol) || input_data$protocol == "") NA else input_data$protocol,
+          input_data$stock_category,
+          input_data$status,
+          NA, # date_of_death
+          NA, # age_at_death_weeks
+          NA, # max_severity
+          NA, # procedure
+          NA, # stage
+          NA, # deceased_timestamp
+          NA, # notes
+          FALSE # imported_from_excel
+        )
+      )
       
       # Log the audit trail
       log_audit_action(con, TABLE_NAME, "INSERT", input_data$asu_id, 
-                      as.list(single_entry_df[1, ]), 
+                      list(
+                        asu_id = input_data$asu_id,
+                        animal_id = if (is.null(input_data$animal_id) || input_data$animal_id == "") NA else input_data$animal_id,
+                        gender = input_data$gender,
+                        dob = as.character(input_data$dob),
+                        genotype = if (is.null(input_data$genotype) || input_data$genotype == "") NA else input_data$genotype,
+                        transgenes = if (is.null(input_data$transgenes) || input_data$transgenes == "") NA else input_data$transgenes,
+                        breeding_line = if (is.null(input_data$breeding_line) || input_data$breeding_line == "") NA else input_data$breeding_line,
+                        project_code = if (is.null(input_data$project_code) || input_data$project_code == "") NA else input_data$project_code,
+                        responsible_person = if (is.null(input_data$responsible_person) || input_data$responsible_person == "") NA else input_data$responsible_person,
+                        protocol = if (is.null(input_data$protocol) || input_data$protocol == "") NA else input_data$protocol,
+                        stock_category = input_data$stock_category,
+                        status = input_data$status
+                      ), 
                       user = 'system', 
                       operation_details = "Single entry via UI")
       

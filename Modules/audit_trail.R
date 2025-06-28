@@ -219,7 +219,7 @@ get_mouse_modification_history <- function(asu_id, db_path = DB_PATH, limit = 10
       }
     }, error = function(e) Sys.timezone())
     history$timestamp <- as.POSIXct(history$timestamp, format = "%Y-%m-%d %H:%M:%S", tz = 'UTC')
-    history$formatted_time <- format(history$timestamp, tz = tz, usetz = TRUE, '%Y-%m-%d %H:%M:%S')
+    history$formatted_time <- format(history$timestamp, tz = tz, usetz = TRUE, '%d-%b-%Y %H:%M:%S')
     
     # Parse JSON values if they exist
     history$old_values_parsed <- sapply(history$old_values, function(x) {
@@ -356,7 +356,7 @@ get_detailed_audit_trail <- function(db_path = DB_PATH,
   # Format the data
   if (nrow(audit_data) > 0) {
     audit_data$timestamp <- as.POSIXct(audit_data$timestamp)
-    audit_data$formatted_time <- format(audit_data$timestamp, "%Y-%m-%d %H:%M:%S")
+    audit_data$formatted_time <- format(audit_data$timestamp, "%d-%b-%Y %H:%M:%S")
   }
   
   return(audit_data)
@@ -482,7 +482,7 @@ get_plugging_modification_history <- function(plugging_id, db_path = DB_PATH, li
       # Format timestamps for display
       history$formatted_time <- tryCatch({
         if (inherits(history$timestamp, "POSIXct")) {
-          format(history$timestamp, tz = tz, usetz = TRUE, '%Y-%m-%d %H:%M:%S')
+          format(history$timestamp, tz = tz, usetz = TRUE, '%d-%b-%Y %H:%M:%S')
         } else {
           as.character(history$timestamp)
         }

@@ -420,8 +420,6 @@ apply_mappings_and_create_df <- function(df, confirmed_mappings, stock_category 
     deceased_timestamp = NA,
     notes = if (!is.null(confirmed_mappings$notes)) as.character(df[[confirmed_mappings$notes]]) else NA,
     imported_from_excel = TRUE,
-    date_created = Sys.time(),
-    last_updated = Sys.time(),
     stringsAsFactors = FALSE
   )
   
@@ -614,12 +612,53 @@ check_duplicates_and_conflicts <- function(parsed_df) {
 import_data_to_db <- function(parsed_df) {
   con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
   result <- tryCatch({
-    DBI::dbWriteTable(con, TABLE_NAME, parsed_df, append = TRUE, row.names = FALSE)
+    # Use direct SQL INSERT for each row to properly set timestamps
+    for (i in 1:nrow(parsed_df)) {
+      row <- parsed_df[i, ]
+      DBI::dbExecute(con, 
+        "INSERT INTO mice_stock (
+          asu_id, animal_id, ear_mark, gender, dob, genotype, transgenes, strain, 
+          breeding_line, dam, sire, cage_id, room, project_code, responsible_person, 
+          protocol, stock_category, status, date_of_death, age_at_death_weeks, 
+          max_severity, procedure, stage, deceased_timestamp, notes, imported_from_excel, 
+          date_created, last_updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))",
+        params = list(
+          row$asu_id,
+          row$animal_id,
+          row$ear_mark,
+          row$gender,
+          as.character(row$dob),
+          row$genotype,
+          row$transgenes,
+          row$strain,
+          row$breeding_line,
+          row$dam,
+          row$sire,
+          row$cage_id,
+          row$room,
+          row$project_code,
+          row$responsible_person,
+          row$protocol,
+          row$stock_category,
+          row$status,
+          row$date_of_death,
+          row$age_at_death_weeks,
+          row$max_severity,
+          row$procedure,
+          row$stage,
+          row$deceased_timestamp,
+          row$notes,
+          TRUE # imported_from_excel
+        )
+      )
+    }
     TRUE
   }, error = function(e) {
     FALSE
+  }, finally = {
+    DBI::dbDisconnect(con)
   })
-  DBI::dbDisconnect(con)
   return(result)
 }
 

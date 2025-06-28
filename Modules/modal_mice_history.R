@@ -59,7 +59,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
         "N/A"
       } else {
         tryCatch({
-          format(as.Date(date), "%Y-%m-%d")
+          format(as.Date(date), "%d-%b-%Y")
         }, error = function(e) {
           "N/A"
         })
@@ -70,7 +70,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
         "Ongoing"
       } else {
         tryCatch({
-          format(as.Date(date), "%Y-%m-%d")
+          format(as.Date(date), "%d-%b-%Y")
         }, error = function(e) {
           "Ongoing"
         })
@@ -81,7 +81,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
         "N/A"
       } else {
         tryCatch({
-          format(as.Date(date), "%Y-%m-%d")
+          format(as.Date(date), "%d-%b-%Y")
         }, error = function(e) {
           "N/A"
         })
@@ -117,7 +117,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
         "N/A"
       } else {
         tryCatch({
-          format(as.Date(date), "%Y-%m-%d")
+          format(as.Date(date), "%d-%b-%Y")
         }, error = function(e) {
           "N/A"
         })
@@ -128,7 +128,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
         "Ongoing"
       } else {
         tryCatch({
-          format(as.Date(date), "%Y-%m-%d")
+          format(as.Date(date), "%d-%b-%Y")
         }, error = function(e) {
           "Ongoing"
         })
@@ -139,7 +139,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
         "N/A"
       } else {
         tryCatch({
-          format(as.Date(date), "%Y-%m-%d")
+          format(as.Date(date), "%d-%b-%Y")
         }, error = function(e) {
           "N/A"
         })

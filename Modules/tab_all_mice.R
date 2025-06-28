@@ -136,18 +136,60 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
   output$all_mice_table <- DT::renderDataTable({
     req(filtered_data())
     data <- filtered_data()
-    # No need to filter here; filtering is already handled at the beginning
-    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "transgenes", "genotype", "responsible_person", "stock_category", "status")]
+    
+    # Function to format timestamps
+    format_timestamp <- function(timestamp) {
+      if (is.null(timestamp) || is.na(timestamp) || timestamp == "") {
+        return("")
+      }
+      # Handle Unix timestamp (seconds since epoch)
+      if (is.numeric(timestamp) && timestamp > 1000000000) {
+        return(format(as.POSIXct(timestamp, origin = "1970-01-01"), "%d-%b-%Y %H:%M"))
+      }
+      # Handle string timestamps
+      if (is.character(timestamp)) {
+        # Try to parse as POSIXct
+        parsed <- tryCatch({
+          as.POSIXct(timestamp)
+        }, error = function(e) {
+          # If it's a Unix timestamp string, convert to numeric first
+          if (grepl("^\\d+\\.?\\d*$", timestamp)) {
+            as.POSIXct(as.numeric(timestamp), origin = "1970-01-01")
+          } else {
+            NA
+          }
+        })
+        if (!is.na(parsed)) {
+          return(format(parsed, "%d-%b-%Y %H:%M"))
+        }
+      }
+      return(as.character(timestamp))
+    }
+    
+    # Select columns including timestamps
+    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "transgenes", "genotype", "responsible_person", "stock_category", "status", "date_created", "last_updated")]
+    
     if ("dob" %in% colnames(display_data)) {
       dob_dates <- as.Date(display_data$dob)
       age_weeks <- round(as.numeric(Sys.Date() - dob_dates) / 7, 1)
       display_data$age_weeks <- age_weeks
-      col_order <- c("asu_id", "animal_id", "gender", "dob", "age_weeks", "breeding_line", "transgenes", "genotype", "responsible_person", "stock_category", "status")
+      col_order <- c("asu_id", "animal_id", "gender", "dob", "age_weeks", "breeding_line", "transgenes", "genotype", "responsible_person", "stock_category", "status", "date_created", "last_updated")
       display_data <- display_data[, col_order]
     }
+    
+    # Format dates
     if ("dob" %in% colnames(display_data)) {
-      display_data$dob <- format(as.Date(display_data$dob), "%Y-%m-%d")
+      display_data$dob <- format(as.Date(display_data$dob), "%d-%b-%Y")
     }
+    
+    # Format timestamps
+    if ("date_created" %in% colnames(display_data)) {
+      display_data$date_created <- sapply(display_data$date_created, format_timestamp)
+    }
+    if ("last_updated" %in% colnames(display_data)) {
+      display_data$last_updated <- sapply(display_data$last_updated, format_timestamp)
+    }
+    
     colnames(display_data) <- c(
       "ASU ID",
       "Animal ID", 
@@ -159,7 +201,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       "Genotype",
       "Responsible Person",
       "Stock Category",
-      "Status"
+      "Status",
+      "Date Created",
+      "Last Updated"
     )
     DT::datatable(
       display_data,
