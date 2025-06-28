@@ -408,7 +408,6 @@ export_audit_trail <- function(db_path = DB_PATH,
 # Initialize the enhanced audit trail table
 initialize_enhanced_audit_trail <- function(db_path = DB_PATH) {
   create_enhanced_audit_trail_table(db_path)
-  cat("Enhanced audit trail system initialized.\n")
 }
 
 # Initialize audit trail system (compatibility function)

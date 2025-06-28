@@ -68,8 +68,16 @@ ui <- fluidPage(
       #tabPanel("Deleted", deleted_tab_ui())
     ),
     div(
-      HTML('Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #337ab7; text-decoration: underline;">Qiang Lan</a>, University of Bristol'),
-      style = "text-align: center; font-size: 1em; color: #555; position: fixed; left: 0; right: 0; bottom: 0; margin-bottom: 0; background: white; z-index: 1000; padding: 8px 0; border-top: 1px solid #eee;"
+      style = "display: flex; justify-content: space-between; align-items: center; position: fixed; left: 0; right: 0; bottom: 0; margin-bottom: 0; background: white; z-index: 1000; padding: 8px 16px; border-top: 1px solid #eee;",
+      div(
+        style = "font-size: 1.1em; color: #666; font-style: italic;",
+        paste("Database:", basename(DB_PATH))
+      ),
+      div(
+        HTML('Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #337ab7; text-decoration: underline;">Qiang Lan</a>, University of Bristol'),
+        style = "text-align: center; font-size: 1em; color: #555;"
+      ),
+      div(style = "width: 200px;") # Empty div for balance
     )
   )
 )

@@ -136,7 +136,6 @@ update_existing_db <- function() {
         dbWriteTable(con, TABLE_NAME, existing_data, append = TRUE, row.names = FALSE)
       }
       
-      cat("Database schema updated to allow 'Deleted' status\n")
     }
   }
   
@@ -255,7 +254,6 @@ add_plugging_tables <- function() {
     if (nrow(existing_data) > 0) {
       dbWriteTable(con, "plugging_history", existing_data, append = TRUE, row.names = FALSE)
     }
-    cat("Plugging history table updated with new status constraints (including 'Plug Confirmed')\n")
   }, error = function(e) {
     cat("Error updating plugging history table:", e$message, "\n")
   })
@@ -263,12 +261,9 @@ add_plugging_tables <- function() {
   dbDisconnect(con)
 }
 
-# Add audit_trail table if not exists
-add_audit_trail_table <- function() {
-  # This function is now handled by the enhanced audit trail system
-  # The enhanced audit trail table is created in audit_trail.R
-  cat("Audit trail table initialization handled by enhanced audit trail system.\n")
-}
+
+
+
 
 # Call this after initialize_db
 initialize_db()
@@ -276,16 +271,10 @@ add_breeding_tables()
 add_breeding_status_column()
 add_plugging_tables()
 # add_audit_trail_table() # Removed - now handled by enhanced audit trail
-cat("Breeding and plugging tables ready.\n")
 
 DB_PATH <<- normalizePath(DEFAULT_DB_NAME)
 
-cat(paste("Database ready at", DB_PATH, "\n"))
-
 # Note: Audit trail functions are now provided by the enhanced audit_trail.R module
-# The following functions are maintained for backward compatibility but delegate to the enhanced system
-# - log_audit_action() - Use the enhanced version from audit_trail.R
-# - get_mouse_modification_history() - Use the enhanced version from audit_trail.R
 
 # Utility: Extract ASU ID from animal_id
 extract_asu_id <- function(animal_id) {
