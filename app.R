@@ -257,10 +257,9 @@ server <- function(input, output, session) {
 
   # Show Single Entry Form
   observeEvent(input$add_single_entry_btn, {
-    # Get existing values from database for autocomplete
+    # Get existing values from database for dropdowns
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
     breeding_lines <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT breeding_line FROM ", TABLE_NAME, " WHERE breeding_line IS NOT NULL"))$breeding_line)
-    transgenes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT transgenes FROM ", TABLE_NAME, " WHERE transgenes IS NOT NULL"))$transgenes)
     genotypes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT genotype FROM ", TABLE_NAME, " WHERE genotype IS NOT NULL"))$genotype)
     responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
     project_codes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT project_code FROM ", TABLE_NAME, " WHERE project_code IS NOT NULL"))$project_code)
@@ -284,11 +283,11 @@ server <- function(input, output, session) {
                                 options = list(create = TRUE, placeholder = "Select or type new")))
       ),
       fluidRow(
-        column(6, selectizeInput("single_entry_transgenes", "Transgenes", 
-                                choices = c("", transgenes), 
-                                options = list(create = TRUE, placeholder = "Select or type new"))),
         column(6, selectizeInput("single_entry_genotype", "Genotype", 
                                 choices = c("", genotypes), 
+                                options = list(create = TRUE, placeholder = "Select or type new"))),
+        column(6, selectizeInput("single_entry_breeding_line", "Breeding Line", 
+                                choices = c("", breeding_lines), 
                                 options = list(create = TRUE, placeholder = "Select or type new")))
       ),
      
@@ -312,10 +311,12 @@ server <- function(input, output, session) {
                                 options = list(create = TRUE, placeholder = "Select or type new"))),
       ),
       fluidRow(
+        column(6, selectInput("single_entry_study_plan", "Study Plan", 
+                              choices = c("", "SP2500090", "SP2500083", "SP2500082", "SP2500081"), 
+                              selected = "SP2500090")),
         column(6, selectInput("single_entry_stock_category", "Stock Category", 
                               choices = c("Experiment", "Breeding", "Charles River"), 
                               selected = "Experiment")),
-        column(6, div()) # Empty column for spacing
       ),
       div(
         style = "margin-top: 15px; font-size: 12px; color: #666;",
@@ -626,11 +627,11 @@ server <- function(input, output, session) {
       gender = input$single_entry_gender,
       dob = input$single_entry_dob,
       genotype = input$single_entry_genotype,
-      transgenes = input$single_entry_transgenes,
       breeding_line = input$single_entry_breeding_line,
       project_code = input$single_entry_project_code,
       responsible_person = input$single_entry_responsible_person,
       protocol = input$single_entry_protocol,
+      study_plan = input$single_entry_study_plan,
       stock_category = input$single_entry_stock_category,
       status = input$single_entry_status
     )
@@ -688,7 +689,7 @@ server <- function(input, output, session) {
         "INSERT INTO mice_stock (
           asu_id, animal_id, ear_mark, gender, dob, genotype, transgenes, strain, 
           breeding_line, dam, sire, cage_id, room, project_code, responsible_person, 
-          protocol, stock_category, status, date_of_death, age_at_death_weeks, 
+          protocol, study_plan, stock_category, status, date_of_death, age_at_death_weeks, 
           max_severity, procedure, stage, deceased_timestamp, notes, imported_from_excel, 
           date_created, last_updated
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))",
@@ -699,7 +700,7 @@ server <- function(input, output, session) {
           input_data$gender,
           as.character(input_data$dob),
           if (is.null(input_data$genotype) || input_data$genotype == "") NA else input_data$genotype,
-          if (is.null(input_data$transgenes) || input_data$transgenes == "") NA else input_data$transgenes,
+          NA, # transgenes
           'C57BL/6J', # strain
           if (is.null(input_data$breeding_line) || input_data$breeding_line == "") NA else input_data$breeding_line,
           NA, # dam
@@ -709,6 +710,7 @@ server <- function(input, output, session) {
           if (is.null(input_data$project_code) || input_data$project_code == "") NA else input_data$project_code,
           if (is.null(input_data$responsible_person) || input_data$responsible_person == "") NA else input_data$responsible_person,
           if (is.null(input_data$protocol) || input_data$protocol == "") NA else input_data$protocol,
+          if (is.null(input_data$study_plan) || input_data$study_plan == "") 'SP2500090' else input_data$study_plan,
           input_data$stock_category,
           input_data$status,
           NA, # date_of_death
@@ -730,11 +732,11 @@ server <- function(input, output, session) {
                         gender = input_data$gender,
                         dob = as.character(input_data$dob),
                         genotype = if (is.null(input_data$genotype) || input_data$genotype == "") NA else input_data$genotype,
-                        transgenes = if (is.null(input_data$transgenes) || input_data$transgenes == "") NA else input_data$transgenes,
                         breeding_line = if (is.null(input_data$breeding_line) || input_data$breeding_line == "") NA else input_data$breeding_line,
                         project_code = if (is.null(input_data$project_code) || input_data$project_code == "") NA else input_data$project_code,
                         responsible_person = if (is.null(input_data$responsible_person) || input_data$responsible_person == "") NA else input_data$responsible_person,
                         protocol = if (is.null(input_data$protocol) || input_data$protocol == "") NA else input_data$protocol,
+                        study_plan = if (is.null(input_data$study_plan) || input_data$study_plan == "") 'SP2500090' else input_data$study_plan,
                         stock_category = input_data$stock_category,
                         status = input_data$status
                       ), 

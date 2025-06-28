@@ -175,9 +175,8 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
         div(
           strong("Animal ID:"), mouse_info$animal_id, br(),
           strong("Gender:"), mouse_info$gender, br(),
-          strong("Breeding Line:"), ifelse(is.na(mouse_info$breeding_line), "N/A", mouse_info$breeding_line), br(),
           strong("Genotype:"), ifelse(is.null(mouse_info$genotype) || is.na(mouse_info$genotype), "N/A", mouse_info$genotype), br(),
-          strong("Transgene:"), ifelse(is.null(mouse_info$transgenes) || is.na(mouse_info$transgenes), "N/A", mouse_info$transgenes)
+          strong("Breeding Line:"), ifelse(is.null(mouse_info$breeding_line) || is.na(mouse_info$breeding_line), "N/A", mouse_info$breeding_line)
         ),
         div(
           strong("Date of Birth:"), mouse_info$dob, br(),

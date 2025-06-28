@@ -1463,7 +1463,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         showNotification(paste("Plugging status confirmed as '", selected_status, "' successfully!", sep = ""), type = "message")
         removeModal()
         plugging_state$confirming_id <- NULL
-        Sys.sleep(1)
+        ##Sys.sleep(1)
         auto_update_plugging_status_to_unknown()
         plugging_state$reload <- Sys.time()
       } else {

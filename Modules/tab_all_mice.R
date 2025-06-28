@@ -167,15 +167,14 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     }
     
     # Select columns including timestamps
-    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "transgenes", "genotype", "responsible_person", "stock_category", "status", "date_created", "last_updated")]
+    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "last_updated")]
     
-    if ("dob" %in% colnames(display_data)) {
-      dob_dates <- as.Date(display_data$dob)
-      age_weeks <- round(as.numeric(Sys.Date() - dob_dates) / 7, 1)
-      display_data$age_weeks <- age_weeks
-      col_order <- c("asu_id", "animal_id", "gender", "dob", "age_weeks", "breeding_line", "transgenes", "genotype", "responsible_person", "stock_category", "status", "date_created", "last_updated")
-      display_data <- display_data[, col_order]
-    }
+    # Calculate age in weeks
+    display_data$age_weeks <- round(as.numeric(Sys.Date() - as.Date(display_data$dob)) / 7, 1)
+    
+    # Reorder columns for display
+    col_order <- c("asu_id", "animal_id", "gender", "dob", "age_weeks", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "last_updated")
+    display_data <- display_data[, col_order]
     
     # Format dates
     if ("dob" %in% colnames(display_data)) {
@@ -183,9 +182,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     }
     
     # Format timestamps
-    if ("date_created" %in% colnames(display_data)) {
-      display_data$date_created <- sapply(display_data$date_created, format_timestamp)
-    }
     if ("last_updated" %in% colnames(display_data)) {
       display_data$last_updated <- sapply(display_data$last_updated, format_timestamp)
     }
@@ -197,12 +193,10 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       "Date of Birth",
       "Age (weeks)",
       "Breeding Line",
-      "Transgenes",
       "Genotype",
       "Responsible Person",
       "Stock Category",
       "Status",
-      "Date Created",
       "Last Updated"
     )
     DT::datatable(
@@ -316,13 +310,12 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       return()
     }
     # Get the displayed table as shown to the user (with only columns that exist in data)
-    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "transgenes", "genotype", "responsible_person", "stock_category", "status")]
+    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
     selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
     selected_data <- data[data$asu_id %in% selected_asu_ids, , drop = FALSE]
     # Get existing values from database for dropdowns (keep connection open)
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
     breeding_lines <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT breeding_line FROM ", TABLE_NAME, " WHERE breeding_line IS NOT NULL"))$breeding_line)
-    transgenes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT transgenes FROM ", TABLE_NAME, " WHERE transgenes IS NOT NULL"))$transgenes)
     genotypes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT genotype FROM ", TABLE_NAME, " WHERE genotype IS NOT NULL"))$genotype)
     responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
     project_codes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT project_code FROM ", TABLE_NAME, " WHERE project_code IS NOT NULL"))$project_code)
@@ -340,16 +333,15 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     common_gender <- get_common_value(selected_data$gender)
     common_status <- get_common_value(selected_data$status)
     common_breeding_line <- get_common_value(selected_data$breeding_line)
-    common_transgenes <- get_common_value(selected_data$transgenes)
     common_genotype <- get_common_value(selected_data$genotype)
     common_responsible_person <- get_common_value(selected_data$responsible_person)
     common_protocol <- get_common_value(selected_data$protocol)
+    common_study_plan <- get_common_value(selected_data$study_plan)
     common_project_code <- get_common_value(selected_data$project_code)
     common_stock_category <- get_common_value(selected_data$stock_category)
 
     # Ensure common values are included in choices for each field, and remove NA
     breeding_line_choices <- unique(c("", na.omit(as.character(breeding_lines)), common_breeding_line))
-    transgenes_choices <- unique(c("", na.omit(as.character(transgenes)), common_transgenes))
     genotype_choices <- unique(c("", na.omit(as.character(genotypes)), common_genotype))
     responsible_person_choices <- unique(c("", na.omit(as.character(responsible_persons)), common_responsible_person))
     protocol_choices <- unique(c("", 
@@ -357,6 +349,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       "2 (Epithelial stem cell fate and dynamics during tissue development and regeneration)",
       "3 (Mouse tumor model)",
       common_protocol))
+    study_plan_choices <- c("", "SP2500090", "SP2500083", "SP2500082", "SP2500081")
     project_code_choices <- unique(c("", na.omit(as.character(project_codes)), common_project_code))
     stock_category_choices <- unique(c("", "Experiment", "Breeding", "Charles River", common_stock_category))
 
@@ -364,7 +357,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     cat('DEBUG: selected asu_id(s):', paste(selected_data$asu_id, collapse=','), '\n')
     # Debug: Print selected value and choices for each field
     cat('DEBUG: breeding_line - selected:', common_breeding_line, 'choices:', paste(breeding_line_choices, collapse=','), '\n')
-    cat('DEBUG: transgenes - selected:', common_transgenes, 'choices:', paste(transgenes_choices, collapse=','), '\n')
     cat('DEBUG: genotype - selected:', common_genotype, 'choices:', paste(genotype_choices, collapse=','), '\n')
     cat('DEBUG: responsible_person - selected:', common_responsible_person, 'choices:', paste(responsible_person_choices, collapse=','), '\n')
     cat('DEBUG: protocol - selected:', common_protocol, 'choices:', paste(protocol_choices, collapse=','), '\n')
@@ -392,16 +384,12 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
                                 choices = breeding_line_choices, 
                                 selected = common_breeding_line,
                                 options = list(create = TRUE, placeholder = "Select or type new"))),
-        column(6, selectizeInput("bulk_edit_transgenes", "Transgenes", 
-                                choices = transgenes_choices, 
-                                selected = common_transgenes,
-                                options = list(create = TRUE, placeholder = "Select or type new")))
-      ),
-      fluidRow(
         column(6, selectizeInput("bulk_edit_genotype", "Genotype", 
                                 choices = genotype_choices, 
                                 selected = common_genotype,
-                                options = list(create = TRUE, placeholder = "Select or type new"))),
+                                options = list(create = TRUE, placeholder = "Select or type new")))
+      ),
+      fluidRow(
         column(6, selectizeInput("bulk_edit_responsible_person", "Responsible Person", 
                                 choices = responsible_person_choices, 
                                 selected = common_responsible_person,
@@ -417,10 +405,12 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
                                 options = list(create = TRUE, placeholder = "Select or type new")))
       ),
       fluidRow(
+        column(6, selectInput("bulk_edit_study_plan", "Study Plan", 
+                              choices = study_plan_choices, 
+                              selected = common_study_plan)),
         column(6, selectInput("bulk_edit_stock_category", "Stock Category", 
                               choices = stock_category_choices, 
-                              selected = common_stock_category)),
-        column(6, div()) # Empty column for spacing
+                              selected = common_stock_category))
       ),
       div(
         style = "margin-top: 15px; font-size: 12px; color: #666;",
@@ -443,13 +433,12 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       return()
     }
     # Get the displayed table as shown to the user (with only columns that exist in data)
-    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "transgenes", "genotype", "responsible_person", "stock_category", "status")]
+    display_data <- data[, c("asu_id", "animal_id", "gender", "dob", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
     selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
     selected_data <- data[data$asu_id %in% selected_asu_ids, , drop = FALSE]
     # Get existing values from database for dropdowns (keep connection open)
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
     breeding_lines <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT breeding_line FROM ", TABLE_NAME, " WHERE breeding_line IS NOT NULL"))$breeding_line)
-    transgenes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT transgenes FROM ", TABLE_NAME, " WHERE transgenes IS NOT NULL"))$transgenes)
     genotypes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT genotype FROM ", TABLE_NAME, " WHERE genotype IS NOT NULL"))$genotype)
     responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
     project_codes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT project_code FROM ", TABLE_NAME, " WHERE project_code IS NOT NULL"))$project_code)
@@ -466,9 +455,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     if (!is.null(input$bulk_edit_breeding_line) && input$bulk_edit_breeding_line != "") {
       bulk_edit_data$breeding_line <- input$bulk_edit_breeding_line
     }
-    if (!is.null(input$bulk_edit_transgenes) && input$bulk_edit_transgenes != "") {
-      bulk_edit_data$transgenes <- input$bulk_edit_transgenes
-    }
     if (!is.null(input$bulk_edit_genotype) && input$bulk_edit_genotype != "") {
       bulk_edit_data$genotype <- input$bulk_edit_genotype
     }
@@ -477,6 +463,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     }
     if (!is.null(input$bulk_edit_protocol) && input$bulk_edit_protocol != "") {
       bulk_edit_data$protocol <- input$bulk_edit_protocol
+    }
+    if (!is.null(input$bulk_edit_study_plan) && input$bulk_edit_study_plan != "") {
+      bulk_edit_data$study_plan <- input$bulk_edit_study_plan
     }
     if (!is.null(input$bulk_edit_project_code) && input$bulk_edit_project_code != "") {
       bulk_edit_data$project_code <- input$bulk_edit_project_code
@@ -526,11 +515,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         old_values$breeding_line <- selected_data$breeding_line[i]
         new_values$breeding_line <- input$bulk_edit_breeding_line
       }
-      if (!is.null(input$bulk_edit_transgenes) && input$bulk_edit_transgenes != "") {
-        update_fields <- c(update_fields, paste0("transgenes = '", input$bulk_edit_transgenes, "'"))
-        old_values$transgenes <- selected_data$transgenes[i]
-        new_values$transgenes <- input$bulk_edit_transgenes
-      }
       if (!is.null(input$bulk_edit_genotype) && input$bulk_edit_genotype != "") {
         update_fields <- c(update_fields, paste0("genotype = '", input$bulk_edit_genotype, "'"))
         old_values$genotype <- selected_data$genotype[i]
@@ -545,6 +529,11 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         update_fields <- c(update_fields, paste0("protocol = '", input$bulk_edit_protocol, "'"))
         old_values$protocol <- selected_data$protocol[i]
         new_values$protocol <- input$bulk_edit_protocol
+      }
+      if (!is.null(input$bulk_edit_study_plan) && input$bulk_edit_study_plan != "") {
+        update_fields <- c(update_fields, paste0("study_plan = '", input$bulk_edit_study_plan, "'"))
+        old_values$study_plan <- selected_data$study_plan[i]
+        new_values$study_plan <- input$bulk_edit_study_plan
       }
       if (!is.null(input$bulk_edit_project_code) && input$bulk_edit_project_code != "") {
         update_fields <- c(update_fields, paste0("project_code = '", input$bulk_edit_project_code, "'"))

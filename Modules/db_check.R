@@ -52,6 +52,7 @@ initialize_db <- function() {
       "project_code TEXT,",
       "responsible_person TEXT,",
       "protocol TEXT,",
+      "study_plan TEXT DEFAULT 'SP2500090' CHECK (study_plan IN ('SP2500090', 'SP2500083', 'SP2500082', 'SP2500081')),",
       "stock_category TEXT DEFAULT 'Experiment' CHECK (stock_category IN ('Experiment', 'Breeding', 'Charles River')),",
       "status TEXT DEFAULT 'Alive' CHECK (status IN ('Alive', 'Deceased', 'Deleted')),",
       "date_of_death DATE,",
@@ -82,6 +83,11 @@ update_existing_db <- function() {
   if (TABLE_NAME %in% tables) {
     # Get current table info
     table_info <- dbGetQuery(con, paste0("PRAGMA table_info(", TABLE_NAME, ")"))
+    
+    # Check if study_plan column exists
+    if (!"study_plan" %in% table_info$name) {
+      dbExecute(con, paste0("ALTER TABLE ", TABLE_NAME, " ADD COLUMN study_plan TEXT DEFAULT 'SP2500090' CHECK (study_plan IN ('SP2500090', 'SP2500083', 'SP2500082', 'SP2500081'))"))
+    }
     
     # Check if status column exists and what constraints it has
     status_col <- table_info[table_info$name == "status", ]
@@ -116,6 +122,7 @@ update_existing_db <- function() {
         "project_code TEXT,",
         "responsible_person TEXT,",
         "protocol TEXT,",
+        "study_plan TEXT DEFAULT 'SP2500090' CHECK (study_plan IN ('SP2500090', 'SP2500083', 'SP2500082', 'SP2500081')),",
         "stock_category TEXT DEFAULT 'Experiment' CHECK (stock_category IN ('Experiment', 'Breeding', 'Charles River')),",
         "status TEXT DEFAULT 'Alive' CHECK (status IN ('Alive', 'Deceased', 'Deleted')),",
         "date_of_death DATE,",
@@ -303,7 +310,6 @@ parse_excel_to_mice_stock <- function(df) {
       gender = c("Gender", "Sex", "S", "G"),
       dob = c("DoB", "Date of Birth", "Birth Date", "BirthDate", "Date", "DOB"),
       genotype = c("Genotype", "Geno"),
-      transgenes = c("Transgenes", "Transgene", "Trans"),
       strain = c("Strain", "Mouse Strain", "Strain Type"),
       breeding_line = c("Breeding line", "Breeding Line", "BreedingLine", "Breeding_Line", "Line", "Breeding"),
       dam = c("Dam", "Mother", "Female Parent", "Dam ID"),
@@ -313,6 +319,7 @@ parse_excel_to_mice_stock <- function(df) {
       project_code = c("Project code", "Project Code", "ProjectCode", "Project_Code", "Project", "Code"),
       responsible_person = c("Responsible Person", "ResponsiblePerson", "Responsible_Person", "Team", "Person", "Responsible"),
       protocol = c("19b protocol", "Protocol", "Protocol Number", "ProtocolNum", "Protocol_Number"),
+      study_plan = c("Study Plan", "StudyPlan", "Study_Plan", "Plan", "Study"),
       notes = c("Notes", "Note", "Comments", "Comment", "Description")
     )
   )
@@ -399,6 +406,7 @@ apply_mappings_and_create_df <- function(df, confirmed_mappings, stock_category 
     project_code = if (!is.null(confirmed_mappings$project_code)) as.character(df[[confirmed_mappings$project_code]]) else NA,
     responsible_person = if (!is.null(confirmed_mappings$responsible_person)) as.character(df[[confirmed_mappings$responsible_person]]) else NA,
     protocol = if (!is.null(confirmed_mappings$protocol)) as.character(df[[confirmed_mappings$protocol]]) else NA,
+    study_plan = if (!is.null(confirmed_mappings$study_plan)) as.character(df[[confirmed_mappings$study_plan]]) else 'SP2500090',
     stock_category = stock_category,
     status = 'Alive',
     date_of_death = NA,
@@ -732,7 +740,6 @@ create_column_mapping_ui <- function(mapping_result, df) {
       "gender" = "Gender",
       "dob" = "Date of Birth",
       "genotype" = "Genotype",
-      "transgenes" = "Transgenes",
       "strain" = "Strain",
       "breeding_line" = "Breeding Line",
       "dam" = "Dam",
@@ -742,6 +749,7 @@ create_column_mapping_ui <- function(mapping_result, df) {
       "project_code" = "Project Code",
       "responsible_person" = "Responsible Person",
       "protocol" = "Protocol",
+      "study_plan" = "Study Plan",
       "notes" = "Notes",
       field
     )

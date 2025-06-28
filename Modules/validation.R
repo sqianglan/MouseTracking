@@ -140,26 +140,6 @@ validate_genotype <- function(genotype) {
   return(list(valid = TRUE, message = "Valid genotype"))
 }
 
-validate_transgenes <- function(transgenes) {
-  if (is.null(transgenes) || transgenes == "") {
-    return(list(valid = TRUE, message = "Transgenes is optional"))
-  }
-  
-  transgenes <- trimws(transgenes)
-  
-  # Check length
-  if (nchar(transgenes) > 200) {
-    return(list(valid = FALSE, message = "Transgenes must be 200 characters or less"))
-  }
-  
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", transgenes)) {
-    return(list(valid = FALSE, message = "Transgenes contains invalid characters"))
-  }
-  
-  return(list(valid = TRUE, message = "Valid transgenes"))
-}
-
 validate_responsible_person <- function(responsible_person) {
   if (is.null(responsible_person) || responsible_person == "") {
     return(list(valid = TRUE, message = "Responsible person is optional"))
@@ -306,6 +286,22 @@ validate_notes <- function(notes) {
   return(list(valid = TRUE, message = "Valid notes"))
 }
 
+validate_study_plan <- function(study_plan) {
+  if (is.null(study_plan) || study_plan == "") {
+    return(list(valid = TRUE, message = "Study plan is optional"))
+  }
+  
+  study_plan <- trimws(study_plan)
+  
+  # Check for valid study plan values
+  valid_study_plans <- c("SP2500090", "SP2500083", "SP2500082", "SP2500081")
+  if (!study_plan %in% valid_study_plans) {
+    return(list(valid = FALSE, message = paste("Study plan must be one of:", paste(valid_study_plans, collapse = ", "))))
+  }
+  
+  return(list(valid = TRUE, message = "Valid study plan"))
+}
+
 # Comprehensive validation function for mouse data
 validate_mouse_data <- function(data) {
   errors <- list()
@@ -337,8 +333,8 @@ validate_mouse_data <- function(data) {
   
   # Validate optional fields
   optional_fields <- c("animal_id", "ear_mark", "breeding_line", "genotype", 
-                      "transgenes", "responsible_person", "project_code", 
-                      "protocol", "cage_id", "room", "notes")
+                      "responsible_person", "project_code", 
+                      "protocol", "study_plan", "cage_id", "room", "notes")
   
   for (field in optional_fields) {
     if (field %in% names(data) && !is.null(data[[field]]) && data[[field]] != "") {
@@ -347,10 +343,10 @@ validate_mouse_data <- function(data) {
         "ear_mark" = validate_animal_id(data[[field]]), # Same validation as animal_id
         "breeding_line" = validate_breeding_line(data[[field]]),
         "genotype" = validate_genotype(data[[field]]),
-        "transgenes" = validate_transgenes(data[[field]]),
         "responsible_person" = validate_responsible_person(data[[field]]),
         "project_code" = validate_project_code(data[[field]]),
         "protocol" = validate_protocol(data[[field]]),
+        "study_plan" = validate_study_plan(data[[field]]),
         "cage_id" = validate_cage_id(data[[field]]),
         "room" = validate_room(data[[field]]),
         "notes" = validate_notes(data[[field]])
