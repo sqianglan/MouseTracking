@@ -16,10 +16,11 @@ all_mice_tab_ui <- function() {
       )
     ),
     fluidRow(
-      column(3,
+      column(2,
         div(
           class = "search-panel",
-          h4("🔍 Search & Filter", style = "margin-top: 0; margin-bottom: 16px; font-size: 1.2em; color: #2c3e50;"),
+          style = "padding: 8px 4px 8px 4px; min-width: 150px; max-width: 220px;",
+          h4("🔍 Search & Filter", style = "margin-top: 0; margin-bottom: 10px; font-size: 1.05em; color: #2c3e50;"),
           textInput("all_mice_search_asu_id", "ASU ID", placeholder = "Enter ASU ID", width = "100%"),
           textInput("all_mice_search_animal_id", "Animal ID", placeholder = "Enter Animal ID", width = "100%"),
           selectInput("all_mice_search_gender", "Gender", 
@@ -36,28 +37,28 @@ all_mice_tab_ui <- function() {
                      choices = c("Live" = "Live", "Deceased" = "Deceased", "Both" = "Both"), 
                      selected = "Live", width = "100%"),
           div(
-            style = "margin-top: 12px; padding: 8px; background: #f8f9fa; border-radius: 4px; font-size: 11px; color: #6c757d; border-left: 3px solid #17a2b8;",
+            style = "margin-top: 6px; padding: 4px; background: #f8f9fa; border-radius: 4px; font-size: 9.5px; color: #6c757d; border-left: 3px solid #17a2b8;",
             "💡 Use * for multiple characters and ? for single character wildcards"
           ),
           actionButton("all_mice_execute_search_btn", "🔍 Search", 
-                      style = "background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%); color: white; border: none; width: 100%; margin-top: 12px; font-size: 14px; padding: 10px 16px; border-radius: 6px; font-weight: 500;")
+                      style = "background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%); color: white; border: none; width: 100%; margin-top: 6px; font-size: 12px; padding: 6px 8px; border-radius: 6px; font-weight: 500;")
         )
       ),
-      column(9,
+      column(10,
         div(
-          style = "background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);",
+          style = "background: white; border-radius: 8px; padding: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);",
           div(
             class = "action-buttons",
-            style = "margin-bottom: 16px;",
+            style = "margin-bottom: 10px;",
             actionButton("clear_search_btn", "🗑️ Clear Search", 
-                        style = "background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%); color: white; border: none; padding: 8px 16px; font-size: 13px; border-radius: 6px;"),
+                        style = "background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%); color: white; border: none; padding: 5px 10px; font-size: 11px; border-radius: 6px;"),
             actionButton("bulk_edit_btn", "✏️ Edit Selected", 
-                        style = "background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; border: none; padding: 8px 16px; font-size: 13px; border-radius: 6px;"),
+                        style = "background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; border: none; padding: 5px 10px; font-size: 11px; border-radius: 6px;"),
             add_plugging_modal_ui("add_plugging_modal_all_mice"),
             uiOutput("bulk_delete_btn_ui")
           ),
           div(
-            style = "margin-bottom: 12px; padding: 8px 12px; background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); border-radius: 6px; border-left: 4px solid #2196f3;",
+            style = "margin-bottom: 6px; padding: 5px 8px; background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); border-radius: 6px; border-left: 4px solid #2196f3; font-size: 11px;",
             "📊 Showing filtered results. Use the search panel to refine your query."
           ),
           div(
@@ -237,7 +238,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       "ASU ID",
       "Animal ID", 
       "Gender",
-      "Age (weeks)",
+      "Age (wks)",
       "Breeding Line",
       "Genotype",
       "Responsible Person",
@@ -252,6 +253,10 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         pageLength = 25,
         scrollX = TRUE,
         dom = '<"top"lf>rt<"bottom"ip><"clear">',
+        columnDefs = list(
+          list(width = '120px', targets = 0),  # ASU ID column - give it more width
+          list(width = '80px', targets = 3)    # Age column - make it smaller
+        ),
         language = list(
           search = "🔍 Search:",
           lengthMenu = "Show _MENU_ entries per page",
@@ -422,16 +427,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     study_plan_choices <- c("", "SP2500090", "SP2500083", "SP2500082", "SP2500081")
     project_code_choices <- unique(c("", na.omit(as.character(project_codes)), common_project_code))
     stock_category_choices <- unique(c("", "Experiment", "Breeding", "Charles River", common_stock_category))
-
-    # Debug: Print selected mouse asu_id(s)
-    cat('DEBUG: selected asu_id(s):', paste(selected_data$asu_id, collapse=','), '\n')
-    # Debug: Print selected value and choices for each field
-    cat('DEBUG: breeding_line - selected:', common_breeding_line, 'choices:', paste(breeding_line_choices, collapse=','), '\n')
-    cat('DEBUG: genotype - selected:', common_genotype, 'choices:', paste(genotype_choices, collapse=','), '\n')
-    cat('DEBUG: responsible_person - selected:', common_responsible_person, 'choices:', paste(responsible_person_choices, collapse=','), '\n')
-    cat('DEBUG: protocol - selected:', common_protocol, 'choices:', paste(protocol_choices, collapse=','), '\n')
-    cat('DEBUG: project_code - selected:', common_project_code, 'choices:', paste(project_code_choices, collapse=','), '\n')
-    cat('DEBUG: stock_category - selected:', common_stock_category, 'choices:', paste(stock_category_choices, collapse=','), '\n')
 
     showModal(modalDialog(
       title = paste("Bulk Edit", length(selected_asu_ids), "Selected Animals"),
@@ -633,7 +628,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
                            user = 'system', operation_details = "Bulk edit via UI")
           }
         }, error = function(e) {
-          # Handle error silently for now
+          warning(paste("Error updating", asu_id, ":", e$message))
         })
       }
     }
@@ -754,7 +749,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
                           user = 'system', operation_details = "Bulk delete via UI")
         }
       }, error = function(e) {
-        print(paste("Error updating", asu_id, ":", e$message))
+        warning(paste("Error updating", asu_id, ":", e$message))
       })
     }
     
@@ -813,7 +808,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
                           user = 'system', operation_details = "Bulk deceased via UI")
         }
       }, error = function(e) {
-        print(paste("Error updating deceased", asu_id, ":", e$message))
+        warning(paste("Error updating deceased", asu_id, ":", e$message))
       })
     }
     
@@ -848,10 +843,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     asu_id <- input$mouse_double_click
     row_index <- input$mouse_double_click_row
     
-    # Debug: Print the received ASU ID and row index
-    cat("Received ASU ID:", asu_id, "\n")
-    cat("Received row index:", row_index, "\n")
-    
     # If ASU ID is empty or invalid, try to get it from the row index
     if (is.null(asu_id) || asu_id == "" || asu_id == "NA") {
       display_data <- filtered_data()
@@ -860,7 +851,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         original_data <- all_mice_table()
         if (!is.null(original_data) && row_index < nrow(original_data)) {
           asu_id <- original_data$asu_id[row_index + 1]  # +1 because R is 1-indexed
-          cat("Retrieved ASU ID from row index:", asu_id, "\n")
         }
       }
     }
@@ -887,7 +877,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
   validate_selection_for_plugging <- function() {
     # Get selected rows from the table
     selected_rows <- input$all_mice_table_rows_selected
-    print(selected_rows) ##debugging
     
     if (is.null(selected_rows) || length(selected_rows) == 0) {
       showModal(modalDialog(

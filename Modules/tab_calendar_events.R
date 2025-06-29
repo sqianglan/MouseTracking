@@ -1,5 +1,5 @@
 # Modules/tab_calendar_events.R
-# Calendar modal for plugging events using calendR
+# Optimized Calendar modal for plugging events using calendR
 
 library(shiny)
 library(calendR)
@@ -15,6 +15,16 @@ plugging_calendar_modal_ui <- function(id) {
       column(6, selectInput(ns("cal_month"), "Month", choices = month.name, selected = month.name[as.integer(format(Sys.Date(), "%m"))])),
       column(6, numericInput(ns("cal_year"), "Year", value = as.integer(format(Sys.Date(), "%Y")), min = 2000, max = 2100))
     ),
+    fluidRow(
+      column(12, 
+        div(
+          style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
+          div(),
+          downloadButton(ns("export_ical_btn"), "📅 Export to iCal", 
+                        style = "background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%); color: white; border: none; font-weight: 500;")
+        )
+      )
+    ),
     plotOutput(ns("calendar_plot"), height = "500px"),
     uiOutput(ns("calendar_legend"))
   )
@@ -27,326 +37,457 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
 
     # Function to generate consistent colors for different asu_id values
     get_color_for_asu <- function(asu_id) {
-      # Predefined color palette
-     # colors <- c("orange", "blue", "green", "purple", "red", "brown", "pink", "cyan", "magenta", "darkgreen", 
-     #            "darkblue", "darkred", "gold", "lightblue", "lightgreen", "lightcoral", "lightpink", "lightsalmon")
       colors <- pal_npg()(10)
-      # Generate a hash-based index for consistent color assignment
       hash_val <- sum(utf8ToInt(asu_id)) %% length(colors)
-      return(colors[hash_val + 1])  # +1 because R is 1-indexed
+      return(colors[hash_val + 1])
     }
 
-    # Reactive: Get plugging events with observed dates and also the contents in Harvesting @
+    # Helper function to parse expected ages
+    parse_expected_ages <- function(exp_ages) {
+      if (is.null(exp_ages) || length(exp_ages) == 0 || is.na(exp_ages) || exp_ages == "") {
+        return(13.5) # Default to E13.5
+      }
+      
+      ages_split <- unlist(strsplit(exp_ages, "[,; ]"))
+      ages_split <- trimws(ages_split)
+      ages_split <- ages_split[grepl("[0-9]", ages_split)]
+      
+      if (length(ages_split) == 0) {
+        return(13.5) # Default to E13.5
+      }
+      
+      # Convert to numeric and filter valid values
+      ages_numeric <- suppressWarnings(as.numeric(gsub("[^0-9.]", "", ages_split)))
+      ages_numeric <- ages_numeric[!is.na(ages_numeric) & ages_numeric > 0]
+      
+      if (length(ages_numeric) == 0) {
+        return(13.5) # Default to E13.5
+      }
+      
+      return(ages_numeric)
+    }
+
+    # Helper function to safely parse dates
+    safe_parse_date <- function(date_string) {
+      if (is.null(date_string) || is.na(date_string) || date_string == "" || date_string == "Unknown") {
+        return(as.Date(NA))
+      }
+      
+      # Try different date formats
+      date_formats <- c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%m-%d-%Y", "%d-%m-%Y")
+      
+      for (format in date_formats) {
+        tryCatch({
+          parsed_date <- as.Date(date_string, format = format)
+          if (!is.na(parsed_date)) {
+            return(parsed_date)
+          }
+        }, error = function(e) {
+          # Continue to next format
+        })
+      }
+      
+      # If all formats fail, return NA
+      warning("Could not parse date: ", date_string)
+      return(as.Date(NA))
+    }
+
+    # Helper function to calculate base date
+    calculate_base_date <- function(status, plug_date, pairing_start_date, pairing_end_date) {
+      # For Plugged or Plug Confirmed status
+      if (status %in% c("Plugged", "Plug Confirmed")) {
+        parsed_plug_date <- safe_parse_date(plug_date)
+        if (!is.na(parsed_plug_date)) {
+          return(list(date = parsed_plug_date, is_estimated = FALSE))
+        } else {
+          # If no plug observed date, use pairing end date for estimation
+          parsed_pairing_end_date <- safe_parse_date(pairing_end_date)
+          if (!is.na(parsed_pairing_end_date)) {
+            return(list(date = parsed_pairing_end_date, is_estimated = TRUE))
+          }
+        }
+      } else if (status == "Not Observed (Waiting for confirmation)") {
+        parsed_pairing_date <- safe_parse_date(pairing_start_date)
+        if (!is.na(parsed_pairing_date)) {
+          return(list(date = parsed_pairing_date + 1, is_estimated = TRUE))
+        }
+      }
+      return(NULL)
+    }
+
+    # Helper function to create calendar events
+    create_calendar_events <- function(pluggings) {
+      if (nrow(pluggings) == 0) {
+        return(data.frame())
+      }
+      
+      events_list <- list()
+      
+      for (i in seq_len(nrow(pluggings))) {
+        row <- pluggings[i, ]
+        
+        # Skip if required fields are missing
+        if (is.null(row$asu_id) || is.na(row$asu_id) || 
+            is.null(row$plugging_status) || is.na(row$plugging_status)) {
+          next
+        }
+        
+        # Calculate base date
+        base_date_result <- calculate_base_date(
+          row$plugging_status, 
+          row$plug_observed_date, 
+          row$pairing_start_date,
+          row$pairing_end_date
+        )
+        
+        if (is.null(base_date_result)) {
+          next
+        }
+        
+        base_date <- base_date_result$date
+        is_estimated <- base_date_result$is_estimated
+        
+        # Determine color
+        if (row$plugging_status == "Not Observed (Waiting for confirmation)") {
+          color <- "gray"
+        } else if (is_estimated) {
+          color <- "#FFEB3B"  # Light yellow for estimated dates
+        } else {
+          color <- get_color_for_asu(row$asu_id)
+        }
+        
+        # Parse expected ages
+        expected_ages <- parse_expected_ages(row$expected_age_for_harvesting)
+        
+        # Create events for each expected age
+        for (age in expected_ages) {
+          harvest_date <- base_date + floor(age)
+          
+          if (!is.na(harvest_date)) {
+            event <- data.frame(
+              asu_id = row$asu_id,
+              label = paste0(row$asu_id, " @E", floor(age) + 0.5),
+              day = as.integer(format(harvest_date, "%d")),
+              date = harvest_date,
+              target_month = as.integer(format(harvest_date, "%m")),
+              target_year = as.integer(format(harvest_date, "%Y")),
+              color = color,
+              status = row$plugging_status,
+              is_estimated = is_estimated,
+              stringsAsFactors = FALSE
+            )
+            events_list[[length(events_list) + 1]] <- event
+          }
+        }
+      }
+      
+      if (length(events_list) == 0) {
+        return(data.frame())
+      }
+      
+      return(do.call(rbind, events_list))
+    }
+
+    # Reactive: Get plugging events with observed dates
     plugging_data <- reactive({
       con <- NULL
-      result <- data.frame(female_id = character(0), plug_observed_date = as.Date(character(0)), expected_age_for_harvesting = character(0), asu_id = character(0), plugging_status = character(0), pairing_start_date = as.Date(character(0)), stringsAsFactors = FALSE)
       tryCatch({
         con <- dbConnect(SQLite(), db_path)
-        query <- "SELECT ph.female_id, ph.plug_observed_date, ph.expected_age_for_harvesting, ph.plugging_status, ph.pairing_start_date, ms.asu_id FROM plugging_history ph LEFT JOIN mice_stock ms ON ph.female_id = ms.asu_id WHERE (ph.plug_observed_date IS NOT NULL AND ph.plug_observed_date != '') OR (ph.plugging_status = 'Not Observed (Waiting for confirmation)' AND ph.pairing_start_date IS NOT NULL AND ph.pairing_start_date != '')"
+        query <- "
+          SELECT 
+            ph.female_id, 
+            ph.plug_observed_date, 
+            ph.expected_age_for_harvesting, 
+            ph.plugging_status, 
+            ph.pairing_start_date, 
+            ph.pairing_end_date,
+            ms.asu_id 
+          FROM plugging_history ph 
+          LEFT JOIN mice_stock ms ON ph.female_id = ms.asu_id 
+          WHERE 
+            ms.status = 'Alive'
+            AND (
+              (ph.plug_observed_date IS NOT NULL AND ph.plug_observed_date != '') 
+              OR 
+              (ph.plugging_status IN ('Plugged', 'Plug Confirmed') 
+               AND ph.pairing_end_date IS NOT NULL AND ph.pairing_end_date != '')
+              OR 
+              (ph.plugging_status = 'Not Observed (Waiting for confirmation)' 
+               AND ph.pairing_start_date IS NOT NULL AND ph.pairing_start_date != '')
+            )
+        "
         result <- dbGetQuery(con, query)
+        
         if (nrow(result) > 0) {
-          result$plug_observed_date <- as.Date(result$plug_observed_date)
-          result$pairing_start_date <- as.Date(result$pairing_start_date)
+          # Use safe date parsing for all date columns
+          result$plug_observed_date <- sapply(result$plug_observed_date, safe_parse_date)
+          result$pairing_start_date <- sapply(result$pairing_start_date, safe_parse_date)
+          result$pairing_end_date <- sapply(result$pairing_end_date, safe_parse_date)
         }
+        
+        return(result)
       }, error = function(e) {
-        message("Error fetching plugging data: ", e$message)
+        warning("Error fetching plugging data: ", e$message)
+        return(data.frame())
       }, finally = {
         if (!is.null(con)) dbDisconnect(con)
       })
-      result
+    })
+
+    # Reactive: Calculate all calendar events (cached for performance)
+    all_calendar_events <- reactive({
+      pluggings <- plugging_data()
+      create_calendar_events(pluggings)
+    })
+
+    # Reactive: Filter events for current month/year
+    current_month_events <- reactive({
+      req(input$cal_month, input$cal_year)
+      
+      month_num <- match(input$cal_month, month.name)
+      year_num <- input$cal_year
+      
+      events <- all_calendar_events()
+      
+      if (nrow(events) == 0) {
+        return(data.frame())
+      }
+      
+      # Filter for current month/year and validate days
+      filtered <- events[
+        events$target_month == month_num & 
+        events$target_year == year_num & 
+        !is.na(events$day) & 
+        events$day > 0 & 
+        events$day <= 31, 
+      ]
+      
+      return(filtered)
     })
 
     # Render the calendar plot
     output$calendar_plot <- renderPlot({
       req(input$cal_month, input$cal_year)
+      
       month_num <- match(input$cal_month, month.name)
       year_num <- input$cal_year
-      pluggings <- plugging_data()
-      if (nrow(pluggings) == 0) {
-        calendR(year = year_num, month = month_num, title = paste("Plugging Calendar -", input$cal_month, year_num))
+      events <- current_month_events()
+      
+      if (nrow(events) == 0) {
+        calendR(
+          year = year_num, 
+          month = month_num, 
+          title = paste("Plugging Calendar -", input$cal_month, year_num)
+        )
         return()
       }
       
-      # Get all plugging events (not just current month) to calculate harvest dates
-      # Expand rows for multiple expected ages, and compute correct day for each
-      expanded <- do.call(rbind, lapply(seq_len(nrow(pluggings)), function(i) {
-        asu <- pluggings$asu_id[i]
-        exp_ages <- pluggings$expected_age_for_harvesting[i]
-        status <- pluggings$plugging_status[i]
-        plug_date <- pluggings$plug_observed_date[i]
-        pairing_date <- pluggings$pairing_start_date[i]
-        
-        cat(sprintf("[DEBUG] Row %d: asu=%s, status=%s, plug_date=%s, pairing_date=%s, exp_ages=%s\n", i, as.character(asu), as.character(status), as.character(plug_date), as.character(pairing_date), as.character(exp_ages)))
-        
-        # Defensive: skip if any required field is missing or empty
-        if (is.null(asu) || length(asu) == 0 || is.na(asu) ||
-            is.null(status) || length(status) == 0 || is.na(status)) {
-          cat(sprintf("[DEBUG] Skipping row %d due to missing asu or status\n", i))
-          return(NULL)
-        }
-        
-        # Defensive: ensure status is a single string
-        if (length(status) != 1) {
-          cat(sprintf("[DEBUG] Skipping row %d due to status length != 1\n", i))
-          return(NULL)
-        }
-        
-        # Defensive: ensure plug_date and pairing_date are either NA or length 1
-        if (!is.null(plug_date) && length(plug_date) > 1) plug_date <- plug_date[1]
-        if (!is.null(pairing_date) && length(pairing_date) > 1) pairing_date <- pairing_date[1]
-        
-        # Skip if plug_date is "Unknown"
-        if (is.null(plug_date) || plug_date == "Unknown") {
-          cat(sprintf("[DEBUG] Row %d: Skipping due to Unknown plug_date\n", i))
-          return(NULL)
-        }
-        
-        # Determine the base date based on status
-        if (!is.null(status) && status == "Plugged" && !is.null(plug_date) && length(plug_date) > 0 && !is.na(plug_date)) {
-          base_date <- plug_date
-          color <- get_color_for_asu(asu)
-          cat(sprintf("[DEBUG] Row %d: Using plug_date as base_date\n", i))
-        } else if (!is.null(status) && status == "Not Observed (Waiting for confirmation)" && !is.null(pairing_date) && length(pairing_date) > 0 && !is.na(pairing_date)) {
-          base_date <- pairing_date + 1
-          color <- "gray"
-          cat(sprintf("[DEBUG] Row %d: Using pairing_date as base_date\n", i))
-        } else {
-          cat(sprintf("[DEBUG] Skipping row %d due to status/base_date logic\n", i))
-          return(NULL)
-        }
-        
-        exp_ages_split <- character(0)
-        if (!is.null(exp_ages) && length(exp_ages) > 0 && !is.na(exp_ages)) {
-          exp_ages_split <- unlist(strsplit(exp_ages, "[,; ]"))
-          exp_ages_split <- trimws(exp_ages_split)
-          exp_ages_split <- exp_ages_split[grepl("[0-9]", exp_ages_split)]
-        }
-        
-        if (length(exp_ages_split) == 0 || (length(exp_ages_split) == 1 && (is.na(exp_ages_split) || exp_ages_split == ""))) {
-          # Default to E13.5
-          offset <- 13.5
-          label <- paste0(asu, " @E13.5")
-          new_date <- base_date + floor(offset)
-          if (is.na(new_date) || is.null(new_date) || length(new_date) == 0) {
-            cat(sprintf("[DEBUG] Skipping row %d due to invalid new_date\n", i))
-            return(NULL)
-          }
-          cat(sprintf("[DEBUG] Row %d: Using default E13.5\n", i))
-          return(data.frame(asu_id = asu, label = label, day = as.integer(format(new_date, "%d")), date = new_date, 
-                    target_month = as.integer(format(new_date, "%m")), target_year = as.integer(format(new_date, "%Y")), 
-                    color = color, status = status, stringsAsFactors = FALSE))
-        } else {
-          out <- lapply(exp_ages_split, function(ea) {
-            num <- suppressWarnings(as.numeric(gsub("[^0-9.]", "", ea)))
-            if (is.na(num) || is.null(num) || length(num) == 0) {
-              cat(sprintf("[DEBUG] Skipping row %d, exp_ages_split=%s due to invalid num\n", i, as.character(ea)))
-              return(NULL)
-            }
-            label <- paste0(asu, " @E", as.character(floor(num)+0.5))
-            new_date <- base_date + floor(num)
-            if (is.na(new_date) || is.null(new_date) || length(new_date) == 0) {
-              cat(sprintf("[DEBUG] Skipping row %d, exp_ages_split=%s due to invalid new_date\n", i, as.character(ea)))
-              return(NULL)
-            }
-            cat(sprintf("[DEBUG] Row %d: Using exp_ages_split=%s\n", i, as.character(ea)))
-            return(data.frame(asu_id = asu, label = label, day = as.integer(format(new_date, "%d")), date = new_date,
-                      target_month = as.integer(format(new_date, "%m")), target_year = as.integer(format(new_date, "%Y")),
-                      color = color, status = status, stringsAsFactors = FALSE))
-          })
-          return(do.call(rbind, out))
-        }
-      }))
-      
-      # Filter for current month/year
-      current_month_events <- expanded[expanded$target_month == month_num & expanded$target_year == year_num, ]
-      
-      if (nrow(current_month_events) == 0) {
-        calendR(year = year_num, month = month_num, title = paste("Plugging Calendar -", input$cal_month, year_num))
-        return()
-      }
-      
-      # Ensure we only have valid positive integers for days
-      valid_indices <- !is.na(current_month_events$day) & current_month_events$day > 0 & current_month_events$day <= 31
-      current_month_events <- current_month_events[valid_indices, ]
-      
-      if (nrow(current_month_events) == 0 || length(current_month_events$day) == 0) {
-        calendR(year = year_num, month = month_num, title = paste("Plugging Calendar -", input$cal_month, year_num))
-        return()
-      }
-      
-      days <- as.integer(current_month_events$day)
-      labels <- current_month_events$label
-      colors <- current_month_events$color
-      
-      # Final safety check
-      if (length(days) == 0 || length(labels) == 0) {
-        calendR(year = year_num, month = month_num, title = paste("Plugging Calendar -", input$cal_month, year_num))
-        return()
-      }
-      
-      # Create calendar with different colors for different statuses
+      # Create calendar with events
       calendR(
         year = year_num,
         month = month_num,
-        special.days = days,
-        special.col = colors,
-        text = labels,
-        text.pos = days,
+        special.days = events$day,
+        special.col = events$color,
+        text = events$label,
+        text.pos = events$day,
         text.size = 4,
         text.col = "black",
         title = paste("Plugging Calendar -", input$cal_month, year_num)
       )
     })
 
-    # Optional: Legend for the calendar
+    # Render calendar legend
     output$calendar_legend <- renderUI({
-      pluggings <- plugging_data()
       req(input$cal_month, input$cal_year)
-      month_num <- match(input$cal_month, month.name)
-      year_num <- input$cal_year
       
-      if (nrow(pluggings) == 0) return(NULL)
-      
-      # Legend: show all expanded labels for current month
-      expanded <- do.call(rbind, lapply(seq_len(nrow(pluggings)), function(i) {
-        asu <- pluggings$asu_id[i]
-        exp_ages <- pluggings$expected_age_for_harvesting[i]
-        status <- pluggings$plugging_status[i]
-        plug_date <- pluggings$plug_observed_date[i]
-        pairing_date <- pluggings$pairing_start_date[i]
-        
-        cat(sprintf("[DEBUG] Row %d: asu=%s, status=%s, plug_date=%s, pairing_date=%s, exp_ages=%s\n", i, as.character(asu), as.character(status), as.character(plug_date), as.character(pairing_date), as.character(exp_ages)))
-        
-        # Defensive: skip if any required field is missing or empty
-        if (is.null(asu) || length(asu) == 0 || is.na(asu) ||
-            is.null(status) || length(status) == 0 || is.na(status)) {
-          cat(sprintf("[DEBUG] Skipping row %d due to missing asu or status\n", i))
-          return(NULL)
-        }
-        
-        # Defensive: ensure status is a single string
-        if (length(status) != 1) {
-          cat(sprintf("[DEBUG] Skipping row %d due to status length != 1\n", i))
-          return(NULL)
-        }
-        
-        # Defensive: ensure plug_date and pairing_date are either NA or length 1
-        if (!is.null(plug_date) && length(plug_date) > 1) plug_date <- plug_date[1]
-        if (!is.null(pairing_date) && length(pairing_date) > 1) pairing_date <- pairing_date[1]
-        
-        # Skip if plug_date is "Unknown"
-        if (is.null(plug_date) || plug_date == "Unknown") {
-          cat(sprintf("[DEBUG] Row %d: Skipping due to Unknown plug_date\n", i))
-          return(NULL)
-        }
-        
-        # Determine the base date based on status
-        if (!is.null(status) && status == "Plugged" && !is.null(plug_date) && length(plug_date) > 0 && !is.na(plug_date)) {
-          base_date <- plug_date
-          color <- get_color_for_asu(asu)
-          cat(sprintf("[DEBUG] Row %d: Using plug_date as base_date\n", i))
-        } else if (!is.null(status) && status == "Not Observed (Waiting for confirmation)" && !is.null(pairing_date) && length(pairing_date) > 0 && !is.na(pairing_date)) {
-          base_date <- pairing_date + 1
-          color <- "gray"
-          cat(sprintf("[DEBUG] Row %d: Using pairing_date as base_date\n", i))
-        } else {
-          cat(sprintf("[DEBUG] Skipping row %d due to status/base_date logic\n", i))
-          return(NULL)
-        }
-        
-        exp_ages_split <- character(0)
-        if (!is.null(exp_ages) && length(exp_ages) > 0 && !is.na(exp_ages)) {
-          exp_ages_split <- unlist(strsplit(exp_ages, "[,; ]"))
-          exp_ages_split <- trimws(exp_ages_split)
-          exp_ages_split <- exp_ages_split[grepl("[0-9]", exp_ages_split)]
-        }
-        
-        if (length(exp_ages_split) == 0 || (length(exp_ages_split) == 1 && (is.na(exp_ages_split) || exp_ages_split == ""))) {
-          # Default to E13.5
-          offset <- 13.5
-          label <- paste0(asu, " @E13.5")
-          new_date <- base_date + floor(offset)
-          if (is.na(new_date) || is.null(new_date) || length(new_date) == 0) {
-            cat(sprintf("[DEBUG] Skipping row %d due to invalid new_date\n", i))
-            return(NULL)
-          }
-          cat(sprintf("[DEBUG] Row %d: Using default E13.5\n", i))
-          return(data.frame(asu_id = asu, label = label, date = new_date, 
-                    target_month = as.integer(format(new_date, "%m")), target_year = as.integer(format(new_date, "%Y")),
-                    color = color, status = status, stringsAsFactors = FALSE))
-        } else {
-          out <- lapply(exp_ages_split, function(ea) {
-            num <- suppressWarnings(as.numeric(gsub("[^0-9.]", "", ea)))
-            if (is.na(num) || is.null(num) || length(num) == 0) {
-              cat(sprintf("[DEBUG] Skipping row %d, exp_ages_split=%s due to invalid num\n", i, as.character(ea)))
-              return(NULL)
-            }
-            label <- paste0(asu, " @E", as.character(floor(num)+0.5))
-            new_date <- base_date + floor(num)
-            if (is.na(new_date) || is.null(new_date) || length(new_date) == 0) {
-              cat(sprintf("[DEBUG] Skipping row %d, exp_ages_split=%s due to invalid new_date\n", i, as.character(ea)))
-              return(NULL)
-            }
-            cat(sprintf("[DEBUG] Row %d: Using exp_ages_split=%s\n", i, as.character(ea)))
-            return(data.frame(asu_id = asu, label = label, date = new_date,
-                      target_month = as.integer(format(new_date, "%m")), target_year = as.integer(format(new_date, "%Y")),
-                      color = color, status = status, stringsAsFactors = FALSE))
-          })
-          return(do.call(rbind, out))
-        }
-      }))
-      
-      # Filter for current month/year
-      current_month_events <- expanded[expanded$target_month == month_num & expanded$target_year == year_num, ]
-      
-      if (nrow(current_month_events) == 0) return(NULL)
-      
-      # Get unique asu_ids and their colors for the legend
-      unique_events <- current_month_events[!duplicated(current_month_events$asu_id), ]
-      # Only show color key for Plugged events (non-gray colors)
-      plugged_events <- unique_events[unique_events$color != "gray", ]
-      
-      # Get plug dates for plugged events from original data
-      if(nrow(plugged_events) > 0) {
-        plugged_asu_ids <- plugged_events$asu_id
-        plug_dates <- pluggings[pluggings$asu_id %in% plugged_asu_ids & pluggings$plugging_status == "Plugged", 
-                               c("asu_id", "plug_observed_date")]
-        # Merge plug dates with plugged_events
-        plugged_events <- merge(plugged_events, plug_dates, by = "asu_id", all.x = TRUE)
+      events <- current_month_events()
+      if (nrow(events) == 0) {
+        return(NULL)
       }
       
-      tagList(
-        tags$div(
-          
-          if(nrow(plugged_events) > 0) {
-            tagList(
-              tags$p(
-                style = "margin-top: 10px; font-size: 12px;",
-                tags$b("Plugged Mouse:")
-              ),
-              tags$ul(
-                style = "list-style: none; padding: 0; margin: 10px 0;",
-                lapply(seq_len(nrow(plugged_events)), function(i) {
-                  plug_date_text <- if(!is.na(plugged_events$plug_observed_date[i])) {
-                    format(as.Date(plugged_events$plug_observed_date[i]), "%d-%b")
-                  } else {
-                    "Unknown"
-                  }
-                  tags$li(
-                    style = paste0("color: ", plugged_events$color[i], "; margin: 5px 0;"),
-                    paste0(plugged_events$asu_id[i], " plugged @ ", plug_date_text)
-                  )
-                })
-              )
-            )
-          },
+      # Get unique plugged events (non-gray colors)
+      plugged_events <- events[events$color != "gray", ]
+      if (nrow(plugged_events) == 0) {
+        return(tags$div(
           tags$p(
             style = "margin-top: 10px; font-size: 12px;",
-            tags$span(style = "color: gray;", "Gray: "), "Not Observed (Waiting for confirmation) status (estimated from pairing date + 1 day)"
+            tags$span(style = "color: gray;", "Gray: "), 
+            "Not Observed (Waiting for confirmation) status (estimated from pairing date + 1 day)"
           )
+        ))
+      }
+      
+      # Get unique asu_ids for plugged events
+      unique_plugged <- plugged_events[!duplicated(plugged_events$asu_id), ]
+      
+      # Get plug dates from original data
+      pluggings <- plugging_data()
+      plug_dates <- pluggings[
+        pluggings$asu_id %in% unique_plugged$asu_id & 
+        pluggings$plugging_status %in% c("Plugged", "Plug Confirmed"), 
+        c("asu_id", "plug_observed_date", "plugging_status", "pairing_end_date")
+      ]
+      
+      # Merge with unique plugged events
+      if (nrow(plug_dates) > 0) {
+        unique_plugged <- merge(unique_plugged, plug_dates, by = "asu_id", all.x = TRUE)
+      }
+      
+      # Separate confirmed and estimated events
+      confirmed_events <- unique_plugged[unique_plugged$color != "#FFEB3B", ]
+      estimated_events <- unique_plugged[unique_plugged$color == "#FFEB3B", ]
+      
+      legend_items <- list()
+      
+      # Add confirmed events
+      if (nrow(confirmed_events) > 0) {
+        legend_items[[length(legend_items) + 1]] <- tags$p(
+          style = "margin-top: 10px; font-size: 12px;",
+          tags$b("Confirmed Plugged Mice:")
         )
+        
+        legend_items[[length(legend_items) + 1]] <- tags$ul(
+          style = "list-style: none; padding: 0; margin: 10px 0;",
+          lapply(seq_len(nrow(confirmed_events)), function(i) {
+            plug_date_text <- if (!is.na(confirmed_events$plug_observed_date[i]) && 
+                                 !is.null(confirmed_events$plug_observed_date[i])) {
+              tryCatch({
+                format(as.Date(confirmed_events$plug_observed_date[i]), "%d-%b")
+              }, error = function(e) {
+                "Unknown"
+              })
+            } else {
+              "Unknown"
+            }
+            tags$li(
+              style = paste0("color: ", confirmed_events$color[i], "; margin: 5px 0;"),
+              paste0(confirmed_events$asu_id[i], " (", confirmed_events$plugging_status[i], ") @ ", plug_date_text)
+            )
+          })
+        )
+      }
+      
+      # Add estimated events
+      if (nrow(estimated_events) > 0) {
+        legend_items[[length(legend_items) + 1]] <- tags$p(
+          style = "margin-top: 10px; font-size: 12px;",
+          tags$b("Estimated Plugged Mice:")
+        )
+        
+        legend_items[[length(legend_items) + 1]] <- tags$ul(
+          style = "list-style: none; padding: 0; margin: 10px 0;",
+          lapply(seq_len(nrow(estimated_events)), function(i) {
+            pairing_end_text <- if (!is.na(estimated_events$pairing_end_date[i]) && 
+                                   !is.null(estimated_events$pairing_end_date[i])) {
+              tryCatch({
+                format(as.Date(estimated_events$pairing_end_date[i]), "%d-%b")
+              }, error = function(e) {
+                "Unknown"
+              })
+            } else {
+              "Unknown"
+            }
+            tags$li(
+              style = paste0("color: #FFEB3B; margin: 5px 0;"),
+              paste0(estimated_events$asu_id[i], " (", estimated_events$plugging_status[i], ") estimated from pairing end @ ", pairing_end_text)
+            )
+          })
+        )
+      }
+      
+      # Add gray events explanation
+      legend_items[[length(legend_items) + 1]] <- tags$p(
+        style = "margin-top: 10px; font-size: 12px;",
+        tags$span(style = "color: gray;", "Gray: "), 
+        "Not Observed (Waiting for confirmation) status (estimated from pairing start date + 1 day)"
       )
+      
+      # Add light yellow explanation
+      legend_items[[length(legend_items) + 1]] <- tags$p(
+        style = "margin-top: 10px; font-size: 12px;",
+        tags$span(style = "color: #FFEB3B;", "Light Yellow: "), 
+        "Plugged/Plug Confirmed mice with estimated dates (no plug observed date, using pairing end date)"
+      )
+      
+      do.call(tagList, legend_items)
     })
+    
+    # Function to generate iCal content
+    generate_ical_content <- function(events, month_name, year) {
+      if (nrow(events) == 0) {
+        return("")
+      }
+      
+      # iCal header
+      ical_content <- c(
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Mouse Management System//Calendar Export//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH"
+      )
+      
+      # Generate unique ID for each event
+      uid_counter <- 1
+      
+      for (i in seq_len(nrow(events))) {
+        event <- events[i, ]
+        
+        # Format date for iCal (YYYYMMDD format)
+        event_date <- format(event$date, "%Y%m%d")
+        
+        # Create unique identifier
+        uid <- paste0("mouse-harvest-", uid_counter, "@mousemanagement.local")
+        uid_counter <- uid_counter + 1
+        
+        # Determine event description based on status and estimation
+        description <- paste0(
+          "Mouse ID: ", event$asu_id, "\n",
+          "Status: ", event$status, "\n",
+          "Harvest Age: ", gsub("@E", "E", event$label), "\n"
+        )
+        
+        if (event$is_estimated) {
+          description <- paste0(description, "Note: Date estimated (no plug observed date)\n")
+        }
+        
+        # Create iCal event
+        ical_event <- c(
+          "BEGIN:VEVENT",
+          paste0("UID:", uid),
+          paste0("DTSTART;VALUE=DATE:", event_date),
+          paste0("DTEND;VALUE=DATE:", event_date),
+          paste0("SUMMARY:", event$label),
+          paste0("DESCRIPTION:", gsub("\n", "\\n", description)),
+          paste0("CATEGORIES:Mouse Harvest"),
+          "STATUS:CONFIRMED",
+          "SEQUENCE:0",
+          paste0("DTSTAMP:", format(Sys.time(), "%Y%m%dT%H%M%SZ")),
+          "END:VEVENT"
+        )
+        
+        ical_content <- c(ical_content, ical_event)
+      }
+      
+      # iCal footer
+      ical_content <- c(ical_content, "END:VCALENDAR")
+      
+      return(paste(ical_content, collapse = "\r\n"))
+    }
+    
+    # Download handler for iCal export
+    output$export_ical_btn <- downloadHandler(
+      filename = function() {
+        month_num <- match(input$cal_month, month.name)
+        year_num <- input$cal_year
+        paste0("mouse_harvest_calendar_", sprintf("%02d", month_num), "_", year_num, ".ics")
+      },
+      content = function(file) {
+        events <- current_month_events()
+        ical_content <- generate_ical_content(events, input$cal_month, input$cal_year)
+        writeLines(ical_content, file)
+      }
+    )
   })
 }
 

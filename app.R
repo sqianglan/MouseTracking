@@ -74,7 +74,7 @@ ui <- fluidPage(
       
       /* Enhanced Navbar Styling */
       .navbar {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        background: linear-gradient(135deg, rgba(135, 206, 235, 0.6) 0%, rgba(95, 158, 160, 0.6) 100%) !important;
         border: none !important;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         margin-bottom: 16px !important;
@@ -87,21 +87,21 @@ ui <- fluidPage(
         padding: 12px 20px !important;
         line-height: 1.4 !important;
         font-weight: 500 !important;
-        color: rgba(255,255,255,0.9) !important;
+        color: rgba(128,128,128,0.9) !important;
         transition: all 0.3s ease;
         border-radius: 6px;
         margin: 4px 8px !important;
       }
       
       .navbar-nav > li > a:hover {
-        background-color: rgba(255,255,255,0.1) !important;
-        color: white !important;
+        background-color: rgba(255,255,255,0.2) !important;
+        color: rgba(64,64,64,0.9) !important;
         transform: translateY(-1px);
       }
       
       .navbar-nav > li.active > a {
-        background-color: rgba(255,255,255,0.2) !important;
-        color: white !important;
+        background-color: rgba(255,255,255,0.25) !important;
+        color: rgba(64,64,64,0.9) !important;
         font-weight: 600 !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
       }
@@ -123,7 +123,7 @@ ui <- fluidPage(
       }
       
       .btn-primary {
-        background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%) !important;
+        background: linear-gradient(135deg, #5F9EA0 0%, #4682B4 100%) !important;
         color: white !important;
       }
       
@@ -158,8 +158,8 @@ ui <- fluidPage(
       }
       
       .form-control:focus {
-        border-color: #1976d2 !important;
-        box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.1) !important;
+        border-color: #5F9EA0 !important;
+        box-shadow: 0 0 0 3px rgba(95, 158, 160, 0.1) !important;
       }
       
       .form-group {
@@ -221,15 +221,15 @@ ui <- fluidPage(
       }
       
       .dataTables_paginate .paginate_button:hover {
-        background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%) !important;
+        background: linear-gradient(135deg, #5F9EA0 0%, #4682B4 100%) !important;
         color: white !important;
-        border-color: #1976d2 !important;
+        border-color: #5F9EA0 !important;
       }
       
       .dataTables_paginate .paginate_button.current {
-        background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%) !important;
+        background: linear-gradient(135deg, #5F9EA0 0%, #4682B4 100%) !important;
         color: white !important;
-        border-color: #1976d2 !important;
+        border-color: #5F9EA0 !important;
       }
       
       /* Status Indicators */
@@ -267,7 +267,7 @@ ui <- fluidPage(
         width: 40px;
         height: 40px;
         border: 4px solid #f3f3f3;
-        border-top: 4px solid #1976d2;
+        border-top: 4px solid #5F9EA0;
         border-radius: 50%;
         animation: spin 1s linear infinite;
       }
@@ -339,7 +339,7 @@ ui <- fluidPage(
       }
       
       .modal-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #87CEEB 0%, #5F9EA0 100%);
         color: white;
         border-radius: 8px 8px 0 0;
         border-bottom: none;
@@ -440,7 +440,7 @@ ui <- fluidPage(
       id = "tabs",
       tabPanel("🏠 Home", 
         div(
-          style = "display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 60vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 48px; margin: 16px 0;",
+          style = "display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 60vh; background: linear-gradient(135deg, rgba(135, 206, 235, 0.6) 0%, rgba(95, 158, 160, 0.6) 100%); border-radius: 12px; padding: 48px; margin: 16px 0;",
           h3("Welcome to the Mouse Management System", style = "text-align: center; font-size: 2.5em; color: white; margin-bottom: 32px; font-weight: 700;"),
           div(
             style = "display: flex; justify-content: center; gap: 24px; flex-wrap;",
@@ -461,7 +461,7 @@ ui <- fluidPage(
         paste("📊 Database:", basename(DB_PATH))
       ),
       div(
-        HTML('💬 Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #1976d2; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol'),
+        HTML('💬 Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #5F9EA0; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol'),
         style = "text-align: center; font-size: 0.85em; color: #6c757d;"
       ),
       div(style = "width: 180px;") # Empty div for balance

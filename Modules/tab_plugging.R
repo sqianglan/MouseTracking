@@ -114,7 +114,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       style = "display: flex; align-items: center; gap: 16px;",
       div(
         style = "display: flex; flex-direction: column; margin-right: 16px;",
-        checkboxInput("show_finished_plugging_history", "Show Inactive Records", value = FALSE),
+        checkboxInput("show_finished_plugging_history", "Show Archived Records", value = FALSE),
         div(
           style = "font-size: 11px; color: #666; margin-left: 20px; margin-top: -12px;",
           "(Unsuccessful Plugs, Empty Plugs and Euthanized Mice)"
