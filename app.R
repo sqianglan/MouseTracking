@@ -52,9 +52,9 @@ ui <- fluidPage(
       
       /* Container and Layout Optimizations */
       .container-fluid {
-        padding: 16px !important;
+        padding: 0px !important;
         max-width: 1400px;
-        margin: 0 auto;
+        margin: 0px auto !important;
       }
       
       /* Modern Card-based Design */
@@ -72,38 +72,137 @@ ui <- fluidPage(
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
       }
       
-      /* Enhanced Navbar Styling */
+      /* Enhanced Navbar Styling - Real Tab Look */
       .navbar {
-        background: linear-gradient(135deg, rgba(135, 206, 235, 0.6) 0%, rgba(95, 158, 160, 0.6) 100%) !important;
+        background: #f8f9fa !important;
         border: none !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        margin-bottom: 16px !important;
+        margin-bottom: 0px !important;
+        margin-top: 0px !important;
         padding: 0 !important;
-        min-height: 48px !important;
+        min-height: 20px !important;
+        border-radius: 8px 8px 0 0 !important;
+      }
+      
+      /* Remove default spacing from navbarPage */
+      .navbar-page {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: auto !important;
+        min-height: 10px !important;
+        max-height: 20px !important;
+      }
+      
+      /* Remove default spacing from fluidRow containing title */
+      .fluid-row {
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      
+      /* Remove default spacing from column containing title */
+      .col-sm-12 {
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      
+      .navbar-nav {
+        display: flex !important;
+        flex-direction: row !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        justify-content: flex-start !important;
+      }
+      
+      .navbar-nav > li {
+        flex: 0 0 auto !important;
+        margin: 0 !important;
+        border-right: 1px solid #dee2e6 !important;
+      }
+      
+      .navbar-nav > li:last-child {
+        border-right: none !important;
       }
       
       .navbar-nav > li > a {
-        font-size: 16px !important;
-        padding: 12px 20px !important;
-        line-height: 1.4 !important;
+        font-size: 18px !important;
+        padding: 8px 12px !important;
+        line-height: 1.2 !important;
         font-weight: 500 !important;
-        color: rgba(128,128,128,0.9) !important;
+        color: #6c757d !important;
         transition: all 0.3s ease;
-        border-radius: 6px;
-        margin: 4px 8px !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+        text-align: center !important;
+        background: #f8f9fa !important;
+        border: none !important;
+        position: relative !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-decoration: none !important;
+        min-width: 120px !important;
       }
       
       .navbar-nav > li > a:hover {
-        background-color: rgba(255,255,255,0.2) !important;
-        color: rgba(64,64,64,0.9) !important;
-        transform: translateY(-1px);
+        background-color: #e9ecef !important;
+        color: #495057 !important;
+        transform: none !important;
+        box-shadow: inset 0 -3px 0 #5F9EA0 !important;
       }
       
       .navbar-nav > li.active > a {
-        background-color: rgba(255,255,255,0.25) !important;
-        color: rgba(64,64,64,0.9) !important;
+        background-color: white !important;
+        color: #2c3e50 !important;
         font-weight: 600 !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: inset 0 -3px 0 #5F9EA0, -3px -3px 6px rgba(0,0,0,0.15), 3px -3px 6px rgba(0,0,0,0.15) !important;
+        border-bottom: 3px solid #5F9EA0 !important;
+        position: relative !important;
+      }
+      
+      .navbar-nav > li.active > a::after {
+        content: '';
+        position: absolute;
+        bottom: -2px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: white;
+        z-index: 1;
+      }
+      
+      /* Tab content area styling */
+      .tab-content {
+        background: white !important;
+        border: 1px solid #dee2e6 !important;
+        border-top: none !important;
+        border-radius: 0 0 8px 8px !important;
+        padding: 10px !important;
+        width: 100% !important;
+        margin: 0 !important;
+      }
+      
+      .tab-pane {
+        background: transparent !important;
+      }
+      
+      /* Hide navbar-header space completely */
+      .navbar-header {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+      }
+      
+      /* Alternative: hide the entire navbar-brand area */
+      .navbar-brand {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: hidden !important;
       }
       
       /* Modern Button Styling */
@@ -420,12 +519,47 @@ ui <- fluidPage(
       ::-webkit-scrollbar-thumb:hover {
         background: #a8a8a8;
       }
+      
+      /* Welcome page button styling */
+      #welcome_search_btn {
+        background: linear-gradient(135deg, rgba(76, 175, 80, 0.7) 0%, rgba(56, 142, 60, 0.7) 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        font-size: 1.8em !important;
+        box-shadow: 0 6px 20px rgba(76, 175, 80, 0.2) !important;
+        transition: all 0.3s ease !important;
+      }
+      
+      #welcome_search_btn:hover {
+        background: linear-gradient(135deg, rgba(69, 160, 73, 0.8) 0%, rgba(46, 125, 50, 0.8) 100%) !important;
+        transform: translateY(-3px) !important;
+        box-shadow: 0 8px 25px rgba(76, 175, 80, 0.3) !important;
+      }
+      
+      #welcome_add_animals_btn {
+        background: linear-gradient(135deg, rgba(33, 150, 243, 0.7) 0%, rgba(25, 118, 210, 0.7) 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        font-size: 1.8em !important;
+        box-shadow: 0 6px 20px rgba(33, 150, 243, 0.2) !important;
+        transition: all 0.3s ease !important;
+      }
+      
+      #welcome_add_animals_btn:hover {
+        background: linear-gradient(135deg, rgba(30, 136, 229, 0.8) 0%, rgba(21, 101, 192, 0.8) 100%) !important;
+        transform: translateY(-3px) !important;
+        box-shadow: 0 8px 25px rgba(33, 150, 243, 0.3) !important;
+      }
     "))
   ),
   fluidRow(
     column(12, div(
-      style = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 8px 0;',
-      h2('Mouse Management System', style = "margin: 0; font-size: 2em; color: #2c3e50; font-weight: 700;"),
+      style = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 0px; padding: 20px 0;',
+      h2('Mouse Management System', style = "margin: 0; margin-bottom: 5px; font-size: 2.8em; color: #2c3e50; font-weight: 700; padding: 5px 0;"),
       div(
         style = 'display: flex; align-items: center; gap: 12px;',
         actionButton('set_timezone_btn', '🌍 Set Timezone', icon = icon('globe'), 
@@ -440,14 +574,14 @@ ui <- fluidPage(
       id = "tabs",
       tabPanel("🏠 Home", 
         div(
-          style = "display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 60vh; background: linear-gradient(135deg, rgba(135, 206, 235, 0.6) 0%, rgba(95, 158, 160, 0.6) 100%); border-radius: 12px; padding: 48px; margin: 16px 0;",
+          style = "display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 30vh; background: linear-gradient(135deg, rgba(135, 206, 235, 0.6) 0%, rgba(95, 158, 160, 0.6) 100%); border-radius: 12px; padding: 48px; margin: 16px 0;",
           h3("Welcome to the Mouse Management System", style = "text-align: center; font-size: 2.5em; color: white; margin-bottom: 32px; font-weight: 700;"),
           div(
-            style = "display: flex; justify-content: center; gap: 24px; flex-wrap;",
+            style = "display: flex; justify-content: center; gap: 24px; flex-wrap:",
             actionButton("welcome_search_btn", "🔍 Search Animals", 
-                        style = "font-size: 1.5em; padding: 20px 40px; background: rgba(255,255,255,0.2); color: white; border: 2px solid white; border-radius: 8px; font-weight: 600;"),
+                        style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3); transition: all 0.3s ease;"),
             actionButton("welcome_add_animals_btn", "➕ Add Animals", 
-                        style = "font-size: 1.5em; padding: 20px 40px; background: rgba(255,255,255,0.2); color: white; border: 2px solid white; border-radius: 8px; font-weight: 600;")
+                        style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(33, 150, 243, 0.3); transition: all 0.3s ease;")
           )
         )
       ),
@@ -1079,7 +1213,7 @@ server <- function(input, output, session) {
           protocol, study_plan, stock_category, status, date_of_death, age_at_death_weeks, 
           max_severity, procedure, stage, deceased_timestamp, notes, imported_from_excel, 
           date_created, last_updated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))",
         params = list(
           input_data$asu_id,
           if (is.null(input_data$animal_id) || input_data$animal_id == "") NA else input_data$animal_id,

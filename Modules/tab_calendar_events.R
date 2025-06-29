@@ -43,10 +43,10 @@ plugging_calendar_modal_ui <- function(id) {
         .calendar-controls {
           display: flex;
           justify-content: space-between;
-          align-items: flex-start;
+          align-items: center;
           flex-wrap: wrap;
           gap: 20px;
-          margin-bottom: 12px;
+          margin-bottom: 0px;
           width: 100%;
         }
         
@@ -85,17 +85,14 @@ plugging_calendar_modal_ui <- function(id) {
           box-shadow: none;
         }
         
-        .current-month, .current-year {
+        .current-month {
+          font-size: 20px;
+          min-width: 200px;
+          letter-spacing: -0.5px;
           font-weight: 700;
           color: #1e3a5f;
           text-align: center;
           text-shadow: 0 1px 2px rgba(0,0,0,0.1);
-        }
-        
-        .current-month {
-          font-size: 20px;
-          min-width: 140px;
-          letter-spacing: -0.5px;
         }
         
         .current-year {
@@ -126,8 +123,8 @@ plugging_calendar_modal_ui <- function(id) {
         .stats-panel {
           display: flex;
           flex-direction: row;
-          gap: 12px;
-          min-width: 400px;
+          gap: 8px;
+          min-width: 300px;
           flex-wrap: wrap;
         }
         
@@ -300,10 +297,10 @@ plugging_calendar_modal_ui <- function(id) {
         .stat-card {
           background: linear-gradient(135deg, rgba(135, 206, 235, 0.9) 0%, rgba(173, 216, 230, 0.9) 100%);
           color: #1e3a5f;
-          padding: 12px;
-          border-radius: 10px;
+          padding: 8px;
+          border-radius: 8px;
           text-align: center;
-          box-shadow: 0 4px 16px rgba(135, 206, 235, 0.2);
+          box-shadow: 0 2px 8px rgba(135, 206, 235, 0.2);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
           border: 1px solid rgba(135, 206, 235, 0.3);
@@ -312,12 +309,12 @@ plugging_calendar_modal_ui <- function(id) {
         .stat-number {
           font-size: 20px;
           font-weight: 700;
-          margin-bottom: 4px;
+          margin-bottom: 2px;
           letter-spacing: -0.3px;
         }
         
         .stat-label {
-          font-size: 11px;
+          font-size: 10px;
           opacity: 0.9;
           font-weight: 600;
           letter-spacing: 0.2px;
@@ -391,19 +388,13 @@ plugging_calendar_modal_ui <- function(id) {
       # Header with controls
       div(class = "calendar-header",
         div(class = "calendar-controls",
-          # Navigation container (Year and Month stacked vertically)
+          # Navigation container (Combined Year and Month navigation)
           div(class = "navigation-container",
-            # Year navigation
-            div(class = "year-navigation",
-              actionButton(ns("prev_year"), "◀", class = "nav-btn"),
-              div(class = "current-year", textOutput(ns("current_year_display"))),
-              actionButton(ns("next_year"), "▶", class = "nav-btn")
-            ),
-            
-            # Month navigation
+            # Combined month/year navigation
             div(class = "month-navigation",
               actionButton(ns("prev_month"), "◀", class = "nav-btn"),
-              div(class = "current-month", textOutput(ns("current_month_display"))),
+              div(class = "current-month", 
+                  textOutput(ns("current_month_year_display"))),
               actionButton(ns("next_month"), "▶", class = "nav-btn")
             )
           ),
@@ -469,22 +460,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
     current_year <- reactiveVal(as.integer(format(Sys.Date(), "%Y")))
 
     # Update current month display
-    output$current_month_display <- renderText({
-      month.name[current_month()]
-    })
-
-    # Update current year display
-    output$current_year_display <- renderText({
-      as.character(current_year())
-    })
-
-    # Year navigation handlers
-    observeEvent(input$prev_year, {
-      current_year(current_year() - 1)
-    })
-
-    observeEvent(input$next_year, {
-      current_year(current_year() + 1)
+    output$current_month_year_display <- renderText({
+      paste(month.name[current_month()], as.character(current_year()))
     })
 
     # Month navigation handlers
@@ -955,27 +932,45 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       # Create calendar grid
       calendar_data <- data.frame()
       
-      # Calculate starting position
-      start_pos <- first_day_of_week
-      if (start_pos == 7) start_pos <- 0  # Convert Sunday from 7 to 0
+      # Calculate starting position - no conversion needed since %u already gives 1-7
+      start_pos <- first_day_of_week - 1  # Convert to 0-based indexing
+      
+      # Calculate how many weeks are needed and find the last Sunday
+      total_positions <- start_pos + num_days - 1
+      num_weeks <- ceiling((total_positions + 1) / 7)
+      
+      # Find the last Sunday in the month
+      last_sunday_week <- 0
+      for (day in 1:num_days) {
+        grid_pos <- start_pos + day - 1
+        week <- floor(grid_pos / 7) + 1
+        day_of_week <- (grid_pos %% 7) + 1
+        if (day_of_week == 7) {  # Sunday
+          last_sunday_week <- week
+        }
+      }
       
       # Create grid positions
       for (day in 1:num_days) {
         # Calculate grid position
         grid_pos <- start_pos + day - 1
         week <- floor(grid_pos / 7) + 1
-        day_of_week <- grid_pos %% 7 + 1
+        day_of_week <- (grid_pos %% 7) + 1
         
         # Convert to our coordinate system (1-7 for days, 1-6 for weeks)
         x <- day_of_week
         y <- 7 - week  # Invert Y axis so week 1 is at the top
+        
+        # Determine if it's weekend (Saturday = 6, Sunday = 7)
+        is_weekend <- day_of_week >= 6
         
         calendar_data <- rbind(calendar_data, data.frame(
           day = day,
           x = x,
           y = y,
           date = as.Date(paste(year_num, month_num, day, sep = "-")),
-          is_today = as.Date(paste(year_num, month_num, day, sep = "-")) == Sys.Date()
+          is_today = as.Date(paste(year_num, month_num, day, sep = "-")) == Sys.Date(),
+          is_weekend = is_weekend
         ))
       }
       
@@ -1019,6 +1014,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
                   color = "#87CEEB", 
                   linewidth = 1, 
                   width = 0.95, height = 0.85) +
+    
         # Day numbers with Apple-style typography - moved above cells
         geom_text(aes(label = day, y = y + 0.25), 
                   size = 5.5, fontface = "bold", 
@@ -1038,7 +1034,9 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
         # Coordinate system
         scale_x_continuous(limits = c(0.5, 7.5), breaks = 1:7, 
                           labels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")) +
-        #scale_y_continuous(limits = c(1, 7), breaks = 1:6, labels = NULL) +
+        # Weekend background - light gray box from SAT/SUN text to last Sunday row
+        annotate("rect", xmin = 5.5, xmax = 7.5, ymin = 6.6 - last_sunday_week, ymax = 7.0, 
+                fill = "lightgray", alpha = 0.4, color = NA) +
         # Day labels with Apple-style styling - moved above cells
         annotate("text", x = 1:7, y = 6.8, 
                 label = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), 
