@@ -559,7 +559,7 @@ ui <- fluidPage(
   fluidRow(
     column(12, div(
       style = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 0px; padding: 20px 0;',
-      h2('Mouse Management System (beta)', style = "margin: 0; margin-bottom: 5px; font-size: 2.8em; color: #2c3e50; font-weight: 700; padding: 5px 0;"),
+      h2('Mouse Management System', style = "margin: 0; margin-bottom: 5px; font-size: 2.8em; color: #2c3e50; font-weight: 700; padding: 5px 0;"),
       div(
         style = 'display: flex; align-items: center; gap: 12px;',
         actionButton('set_timezone_btn', '🌍 Set Timezone', icon = icon('globe'), 
@@ -574,14 +574,31 @@ ui <- fluidPage(
       id = "tabs",
       tabPanel("🏠 Home", 
         div(
-          style = "display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 30vh; background: linear-gradient(135deg, rgba(135, 206, 235, 0.6) 0%, rgba(95, 158, 160, 0.6) 100%); border-radius: 12px; padding: 48px; margin: 16px 0;",
-          h3("Welcome to the Mouse Management System", style = "text-align: center; font-size: 2.5em; color: white; margin-bottom: 32px; font-weight: 700;"),
+          style = "position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; background: linear-gradient(135deg, rgba(135, 206, 235, 0.6) 0%, rgba(95, 158, 160, 0.6) 100%); border-radius: 12px; padding: 48px; overflow: hidden;",
           div(
-            style = "display: flex; justify-content: center; gap: 24px; flex-wrap:",
-            actionButton("welcome_search_btn", "🔍 Search Animals", 
-                        style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3); transition: all 0.3s ease;"),
-            actionButton("welcome_add_animals_btn", "➕ Add Animals", 
-                        style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(33, 150, 243, 0.3); transition: all 0.3s ease;")
+            style = "position: absolute; bottom: 20px; right: 190px; z-index: 2; text-align: center;",
+            h4("Plugging Status Flow", style = "margin: 0; color: white; font-weight: 600; font-size: 1.1em;")
+          ),
+          tags$img(
+            src = "Plugging_status_Diagram.svg",
+            style = "position: absolute; bottom: 60px; right: 0px; height: 400px; width: auto; opacity: 0.85; pointer-events: none; z-index: 1;",
+            alt = "Plugging Status Diagram"
+          ),
+                      div(
+              style = "position: relative; z-index: 2; width: 100%; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; margin-left: 0px;",
+              h3("Welcome to the Mouse Management System", style = "text-align: left; font-size: 2.5em; color: white; margin-bottom: 32px; margin-left: 0px; font-weight: 700;"),
+                            div(
+                style = "display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; margin-bottom: 32px; margin-left: 120px;",
+                actionButton("welcome_search_btn", "🔍 Search Animals", 
+                            style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3); transition: all 0.3s ease;"),
+                actionButton("welcome_add_animals_btn", "➕ Add Animals", 
+                            style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(33, 150, 243, 0.3); transition: all 0.3s ease;")
+              ),
+              div(
+                style = "margin-left: 40px; margin-bottom: 16px; max-width: 670px;",
+                p("This tool is designed to help tracking of mouse colony plugging records, which is missing from the current webtools used by Animal Facility. The standard workflow of plugging procedure is illustrated in the diagram (right).", 
+                  style = "color: white; font-size: 1.1em; line-height: 1.4; margin-bottom: 8px;")
+              )
           )
         )
       ),
@@ -598,7 +615,10 @@ ui <- fluidPage(
         HTML('💬 Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #5F9EA0; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol'),
         style = "text-align: center; font-size: 0.85em; color: #6c757d;"
       ),
-      div(style = "width: 180px;") # Empty div for balance
+      div(
+        style = "font-size: 0.8em; color: #6c757d; font-style: italic; text-align: right;",
+        "Copyright (c) 2025 Qiang Lan. All rights reserved."
+      )
     )
   )
 )
@@ -1429,6 +1449,8 @@ server <- function(input, output, session) {
     removeModal()
     showNotification(paste('Timezone set to', input$timezone_select), type = 'message')
   })
+
+
 }
 
 # Run the application 
