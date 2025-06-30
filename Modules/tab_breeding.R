@@ -284,7 +284,7 @@ breeding_tab_server <- function(input, output, session) {
     DT::datatable(
       mouse_rows_with_gaps[, c("group_id", "Status_Icon", "role", "mouse_id", "Age", "breeding_line", "genotype", "cage_id", "start_date", "End_Date_Display", "Breeding_Status_Display", "notes", "Litters")],
       options = list(
-        pageLength = 50,
+        pageLength = 100,
         scrollX = TRUE,
         columnDefs = list(list(visible = FALSE, targets = 0)),  # Hide group_id
         rowCallback = JS(

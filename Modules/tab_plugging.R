@@ -11,7 +11,7 @@ library(jsonlite)
 source("Modules/modal_add_plugging_event.R")
 
 # Constants
-PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Plug Confirmed", "Not Pregnant", "Not Observed (Waiting for confirmation)", "Empty", "Not Observed (Confirmed)")
+PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Plug Confirmed", "Not Pregnant", "Not Observed (Waiting for confirmation)", "Empty", "Not Observed (Confirmed)", "Surprising Plug!!")
 
 # UI Function
 plugging_tab_ui <- function() {
@@ -131,6 +131,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           style = "font-size: 11px; color: #666; margin-left: 20px; margin-top: -12px;",
           "(Entries by mistake)"
         )
+      ),
+      div(
+        style = "margin-left: auto;",
+        actionButton("refresh_plugging_table_btn", "🔄 Refresh Table", 
+                    class = "btn-secondary", 
+                    style = "padding: 6px 12px; font-size: 12px; border-radius: 4px;")
       )
     )
   })
@@ -159,7 +165,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
 
       ### Default values 
       filtered <- pluggings[
-          pluggings$plugging_status %in% c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Plug Confirmed") &
+          pluggings$plugging_status %in% c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Plug Confirmed", "Surprising Plug!!") &
           (is.na(pluggings$female_status) | pluggings$female_status == "Alive"),
         ]
       
@@ -215,11 +221,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       display_data$actions <- sapply(seq_len(nrow(display_data)), function(i) {
         row <- display_data[i, ]
         btns <- c()
-        if (row$plugging_status %in% c("Not Observed (Waiting for confirmation)", "Plugged")) {
-          btns <- c(btns, paste0('<button class="btn btn-sm btn-success quick-confirm-btn" data-id="', row$id, '">Confirm</button>'))
+        
+        # Add Update button for all active status mice
+        if (is_active_status(row$plugging_status)) {
+          btns <- c(btns, paste0('<button class="btn btn-sm btn-success quick-confirm-btn" data-id="', row$id, '">Update</button>'))
         }
-        # Add Delete button for all except already deleted or done, but only if system is unlocked
-        if (!row$plugging_status %in% c("Deleted", "Not Observed (Waiting for confirmation)") && !is_system_locked()) {
+        
+        # Add Delete button for all except already deleted or active statuses, but only if system is unlocked
+        if (!row$plugging_status %in% c("Deleted") && !is_active_status(row$plugging_status) && !is_system_locked()) {
           btns <- c(btns, paste0('<button class="btn btn-sm btn-danger quick-delete-plugging-btn" data-id="', row$id, '">Delete</button>'))
         }
         paste(btns, collapse = ' ')
@@ -236,7 +245,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       DT::datatable(
         display_data,
         options = list(
-          pageLength = 15,
+          pageLength = 100,
           scrollX = TRUE,
           order = list(list(0, 'desc')),
           columnDefs = list(list(visible = FALSE, targets = 0)) # hide id column
@@ -270,12 +279,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   
   # Helper to check if status is Plugged
   is_plugged_status <- function(status) {
-    is.null(status) || status %in% c("Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)")
+    is.null(status) || status %in% c("Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
   }
   
   # Helper to check if status allows further actions (not final states)
   is_active_status <- function(status) {
-    status %in% c("Ongoing", "Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)")
+    status %in% c("Ongoing", "Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
   }
   
   # Helper to check if status is Not Observed (Confirmed) or Not Pregnant
@@ -513,6 +522,10 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                   # Show "Mark as Plugged" for Ongoing status
                   if (row$plugging_status == "Ongoing") {
                     actionButton("mark_plug_observed_btn", "Plugged", class = "btn-success")
+                  },
+                  # Show "Surprising Plug!!" for Not Observed (Waiting for confirmation) status
+                  if (row$plugging_status == "Not Observed (Waiting for confirmation)") {
+                    actionButton("mark_surprising_plug_btn", "🎉 Surprising Plug!!", class = "btn-success", style = "background-color: #ff6b6b; border-color: #ff6b6b;")
                   },
                   # Show "Euthanized" for all active statuses (always allowed)
                   actionButton("euthanize_mice_btn", "Euthanized", class = "btn-warning"),
@@ -1210,34 +1223,84 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     plugging_id <- input$quick_confirm_plugging_btn
     if (is.null(plugging_id)) return()
     
+    # Get current plugging record to determine available options
+    con <- db_connect()
+    current_record <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+    db_disconnect(con)
+    
+    if (nrow(current_record) == 0) {
+      showNotification("Plugging record not found", type = "error")
+      return()
+    }
+    
+    current_status <- current_record$plugging_status[1]
+    
+    # Define available status options based on current status
+    status_choices <- switch(current_status,
+      "Ongoing" = c(
+        "Not Observed (Waiting for confirmation)" = "Not Observed (Waiting for confirmation)",
+        "Plugged" = "Plugged",
+        "Plug Confirmed" = "Plug Confirmed",
+        "Not Pregnant" = "Not Pregnant",
+        "Empty" = "Empty",
+        "Surprising Plug!!" = "Surprising Plug!!"
+      ),
+      "Plugged" = c(
+        "Plug Confirmed" = "Plug Confirmed",
+        "Not Pregnant" = "Not Pregnant",
+        "Empty" = "Empty",
+        "Surprising Plug!!" = "Surprising Plug!!"
+      ),
+      "Plug Confirmed" = c(
+        "Not Pregnant" = "Not Pregnant",
+        "Empty" = "Empty",
+        "Surprising Plug!!" = "Surprising Plug!!"
+      ),
+      "Not Observed (Waiting for confirmation)" = c(
+        "Not Observed (Confirmed)" = "Not Observed (Confirmed)",
+        "Plug Confirmed" = "Plug Confirmed",
+        "Not Pregnant" = "Not Pregnant",
+        "Surprising Plug!!" = "Surprising Plug!!"
+      ),
+      "Surprising Plug!!" = c(
+        "Plug Confirmed" = "Plug Confirmed",
+        "Not Pregnant" = "Not Pregnant",
+        "Not Observed (Confirmed)" = "Not Observed (Confirmed)"
+      ),
+      # Default options for any other active status
+      c(
+        "Plug Confirmed" = "Plug Confirmed",
+        "Not Pregnant" = "Not Pregnant",
+        "Empty" = "Empty",
+        "Not Observed (Confirmed)" = "Not Observed (Confirmed)",
+        "Surprising Plug!!" = "Surprising Plug!!"
+      )
+    )
+    
     # Show confirmation modal with status options
     showModal(modalDialog(
-      title = "Confirm Plugging Status",
+      title = paste("Update Plugging Status - Current:", current_status),
       size = "s",
       tagList(
         div(
           style = "margin-bottom: 15px;",
-          tags$strong("Please select the final status for this plugging record:")
+          tags$strong("Please select the new status for this plugging record:")
         ),
         div(
           style = "margin-bottom: 10px;",
           radioButtons("confirm_status_choice", "Status Options:",
-                      choices = c(
-                        "Not Pregnant" = "Not Pregnant",
-                        "Plug Confirmed" = "Plug Confirmed", 
-                        "Not Observed (Confirmed)" = "Not Observed (Confirmed)"
-                      ),
-                      selected = "Plug Confirmed"
+                      choices = status_choices,
+                      selected = status_choices[1]  # Select first option as default
           )
         ),
         div(
           style = "background-color: #e3f2fd; border: 1px solid #2196f3; padding: 10px; border-radius: 5px;",
-          tags$strong("Note:"), "This will finalize the plugging record status."
+          tags$strong("Note:"), "This will update the plugging record status."
         )
       ),
       footer = tagList(
         modalButton("Cancel"),
-        actionButton("confirm_status_btn", "Confirm Status", class = "btn-primary")
+        actionButton("confirm_status_btn", "Update Status", class = "btn-primary")
       )
     ))
     
@@ -1266,51 +1329,128 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       }
       
       # Check if status is eligible for confirmation
-      if (!current$plugging_status[1] %in% c("Not Observed (Waiting for confirmation)", "Plugged")) {
-        showNotification("This record is not eligible for confirmation", type = "error")
+      if (!is_active_status(current$plugging_status[1])) {
+        showNotification("This record is not eligible for status updates", type = "error")
         return()
       }
       
       old_values <- current[1, ]
       
-      # Update the plugging event
-      result <- DBI::dbExecute(con, 
-        "UPDATE plugging_history SET 
+      # Prepare update parameters based on selected status
+      if (selected_status == "Surprising Plug!!") {
+        # For Surprising Plug!!, set plug_observed_date to "Unknown"
+        update_query <- "UPDATE plugging_history SET 
+         plugging_status = ?,
+         plug_observed_date = 'Unknown',
+         updated_at = DATETIME('now'),
+         notes = CASE 
+           WHEN notes IS NULL OR notes = '' THEN ?
+           ELSE notes || '\n' || ?
+         END
+         WHERE id = ?"
+        update_params <- list(
+          selected_status,
+          paste0("[Status updated to '", selected_status, "' on ", as.character(Sys.Date()), " - plug_observed_date set to Unknown]"),
+          paste0("[Status updated to '", selected_status, "' on ", as.character(Sys.Date()), " - plug_observed_date set to Unknown]"),
+          plugging_id
+        )
+      } else if (selected_status == "Empty") {
+        # For Empty, set plug_observed_date to current date
+        update_query <- "UPDATE plugging_history SET 
+         plugging_status = ?,
+         plug_observed_date = ?,
+         updated_at = DATETIME('now'),
+         notes = CASE 
+           WHEN notes IS NULL OR notes = '' THEN ?
+           ELSE notes || '\n' || ?
+         END
+         WHERE id = ?"
+        update_params <- list(
+          selected_status,
+          as.character(Sys.Date()),
+          paste0("[Status updated to '", selected_status, "' on ", as.character(Sys.Date()), "]"),
+          paste0("[Status updated to '", selected_status, "' on ", as.character(Sys.Date()), "]"),
+          plugging_id
+        )
+      } else {
+        # For other statuses, keep existing plug_observed_date
+        update_query <- "UPDATE plugging_history SET 
          plugging_status = ?,
          updated_at = DATETIME('now'),
          notes = CASE 
            WHEN notes IS NULL OR notes = '' THEN ?
            ELSE notes || '\n' || ?
          END
-         WHERE id = ?",
-        params = list(
+         WHERE id = ?"
+        update_params <- list(
           selected_status,
-          paste0("[Status confirmed as '", selected_status, "' on ", as.character(Sys.Date()), "]"),
-          paste0("[Status confirmed as '", selected_status, "' on ", as.character(Sys.Date()), "]"),
+          paste0("[Status updated to '", selected_status, "' on ", as.character(Sys.Date()), "]"),
+          paste0("[Status updated to '", selected_status, "' on ", as.character(Sys.Date()), "]"),
           plugging_id
         )
-      )
+      }
+      
+      # Update the plugging event
+      result <- DBI::dbExecute(con, update_query, params = update_params)
       
       if (result > 0) {
         # Log to audit trail
-        log_audit_trail(
-          "plugging_history",
-          plugging_id,
-          "UPDATE",
-          old_values,
-          list(
-            plugging_status = selected_status,
-            confirmation_date = as.character(Sys.Date()),
-            notes = paste0("Status confirmed as '", selected_status, "' by ASU staff")
+        if (selected_status == "Surprising Plug!!") {
+          log_audit_trail(
+            "plugging_history",
+            plugging_id,
+            "UPDATE",
+            old_values,
+            list(
+              plugging_status = selected_status,
+              plug_observed_date = "Unknown",
+              confirmation_date = as.character(Sys.Date()),
+              notes = paste0("Status updated to '", selected_status, "' by ASU staff - plug_observed_date set to Unknown")
+            )
           )
-        )
+        } else if (selected_status == "Empty") {
+          log_audit_trail(
+            "plugging_history",
+            plugging_id,
+            "UPDATE",
+            old_values,
+            list(
+              plugging_status = selected_status,
+              plug_observed_date = as.character(Sys.Date()),
+              confirmation_date = as.character(Sys.Date()),
+              notes = paste0("Status updated to '", selected_status, "' by ASU staff")
+            )
+          )
+        } else {
+          log_audit_trail(
+            "plugging_history",
+            plugging_id,
+            "UPDATE",
+            old_values,
+            list(
+              plugging_status = selected_status,
+              confirmation_date = as.character(Sys.Date()),
+              notes = paste0("Status updated to '", selected_status, "' by ASU staff")
+            )
+          )
+        }
         
-        showNotification(paste("Plugging status confirmed as '", selected_status, "' successfully!", sep = ""), type = "message")
+        showNotification(paste("Plugging status updated to '", selected_status, "' successfully!", sep = ""), type = "message")
         removeModal()
         plugging_state$confirming_id <- NULL
-        ##Sys.sleep(1)
+        
+        # Force immediate refresh with multiple triggers
         auto_update_plugging_status_to_unknown()
         plugging_state$reload <- Sys.time()
+        
+        # Trigger global refresh for cross-module updates
+        if (!is.null(global_refresh_trigger)) {
+          global_refresh_trigger(Sys.time())
+        }
+        
+        # Force a small delay and then refresh again to ensure table updates
+        invalidateLater(100, session)
+        
       } else {
         showNotification("Failed to update plugging status", type = "error")
       }
@@ -1473,6 +1613,112 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     pending_delete_id(NULL)
   })
 
+  # Mark plug as Surprising Plug!!
+  observeEvent(input$mark_surprising_plug_btn, {
+    showModal(modalDialog(
+      title = "Mark as Surprising Plug!!",
+      size = "s",
+      tagList(
+        div(
+          style = "text-align: center; padding: 20px;",
+          tags$h4("🎉 Mark as Surprising Plug!!"),
+          tags$p("This will set the plug observed date to 'Unknown' and estimate the plug date using the pairing start date for calendar purposes."),
+          br(),
+          textInput("expected_age_for_harvesting_surprising_input", "Expected Age for Harvesting (weeks, e.g. 14)", value = "", width = "100%"),
+          br(),
+          textAreaInput("surprising_plug_notes_input", "Notes (optional)", value = "", rows = 3, width = "100%"),
+          br(),
+          tags$p("This will update the plugging status to 'Surprising Plug!!' and set the plug observed date to 'Unknown'.")
+        )
+      ),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_surprising_plug_btn", "Confirm Surprising Plug!!", class = "btn-success")
+      )
+    ))
+  })
+  
+  # Confirm Surprising Plug!!
+  observeEvent(input$confirm_surprising_plug_btn, {
+    plugging_id <- plugging_state$viewing_id
+    if (is.null(plugging_id)) return()
+    
+    con <- db_connect()
+    tryCatch({
+      # Get current values for audit trail
+      current <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+      
+      if (nrow(current) == 0) {
+        showNotification("Plugging event not found", type = "error")
+        return()
+      }
+      
+      old_values <- current[1, ]
+      
+      # Update the plugging event
+      result <- DBI::dbExecute(con, 
+        "UPDATE plugging_history SET 
+         plug_observed_date = 'Unknown',
+         plugging_status = 'Surprising Plug!!',
+         expected_age_for_harvesting = ?,
+         notes = CASE 
+           WHEN notes IS NULL OR notes = '' THEN ?
+           ELSE notes || '\n' || ?
+         END,
+         updated_at = DATETIME('now')
+         WHERE id = ?",
+        params = list(
+          input$expected_age_for_harvesting_surprising_input,
+          input$surprising_plug_notes_input,
+          input$surprising_plug_notes_input,
+          plugging_id
+        )
+      )
+      
+      if (result > 0) {
+        # Log to audit trail
+        log_audit_trail(
+          "plugging_history",
+          plugging_id,
+          "UPDATE",
+          old_values,
+          list(
+            plug_observed_date = "Unknown",
+            plugging_status = "Surprising Plug!!",
+            expected_age_for_harvesting = input$expected_age_for_harvesting_surprising_input,
+            notes = input$surprising_plug_notes_input
+          )
+        )
+        
+        showNotification("🎉 Marked as Surprising Plug!! successfully!", type = "message")
+        removeModal()
+        plugging_state$viewing_id <- NULL
+        plugging_state$reload <- Sys.time()
+        
+        # Trigger global refresh for cross-module updates
+        global_refresh_trigger(Sys.time())
+        
+        # Refresh all_mice_table if available
+        if (!is.null(all_mice_table)) {
+          con_refresh <- db_connect()
+          tryCatch({
+            all_data <- DBI::dbGetQuery(con_refresh, "SELECT * FROM mice_stock ORDER BY asu_id")
+            all_mice_table(all_data)
+          }, finally = {
+            db_disconnect(con_refresh)
+          })
+        }
+      } else {
+        showNotification("Failed to update plugging event", type = "error")
+      }
+      
+    }, error = function(e) {
+      showNotification(paste("Error updating plugging event:", e$message), type = "error")
+    }, finally = {
+      db_disconnect(con)
+    })
+  })
+
   # Remove the old modal logic and call the new module server
   add_plugging_modal_server(
     "add_plugging_modal",
@@ -1490,4 +1736,13 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     is_system_locked = is_system_locked,
     global_refresh_trigger = global_refresh_trigger
   )
+  
+  # Refresh button observer
+  observeEvent(input$refresh_plugging_table_btn, {
+    plugging_state$reload <- Sys.time()
+    if (!is.null(global_refresh_trigger)) {
+      global_refresh_trigger(Sys.time())
+    }
+    showNotification("Table refreshed!", type = "message")
+  })
 } 

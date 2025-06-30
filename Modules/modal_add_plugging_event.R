@@ -76,6 +76,10 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
       ))
     })
 
+    # Define active plugging statuses for each gender
+    active_plugging_statuses_male <- c("Ongoing", "Plugged")
+    active_plugging_statuses_female <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
+
     # Reactive expression to track warnings across all mice
     warnings_exist <- reactive({
       # Check male warnings
@@ -93,8 +97,7 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
           table_name = "mice_stock",
           status_column = "status"
         )
-        active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)")
-        active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
+        active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses_male)
         
         male_has_warnings <- (active_plugging_count >= 2) || 
                            (!any(stock_check$all_statuses == "Alive")) || 
@@ -116,8 +119,7 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
           table_name = "mice_stock",
           status_column = "status"
         )
-        active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)")
-        active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
+        active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses_female)
         
         female1_has_warnings <- (active_plugging_count >= 1) || 
                               (!any(stock_check$all_statuses == "Alive")) || 
@@ -139,8 +141,7 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
           table_name = "mice_stock",
           status_column = "status"
         )
-        active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)")
-        active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
+        active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses_female)
         
         female2_has_warnings <- (active_plugging_count >= 1) || 
                               (!any(stock_check$all_statuses == "Alive")) || 
@@ -170,11 +171,8 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
         status_column = "status"
       )
       
-      # Define active plugging statuses
-      active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)")
-      
-      # Filter active plugging records
-      active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
+      # Use correct active statuses for male
+      active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses_male)
       
       # Create warning messages
       warning_messages <- list()
@@ -237,11 +235,8 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
         status_column = "status"
       )
       
-      # Define active plugging statuses
-      active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)")
-      
-      # Filter active plugging records
-      active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
+      # Use correct active statuses for female
+      active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses_female)
       
       # Create warning messages
       warning_messages <- list()
@@ -304,11 +299,8 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
         status_column = "status"
       )
       
-      # Define active plugging statuses
-      active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)")
-      
-      # Filter active plugging records
-      active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
+      # Use correct active statuses for female
+      active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses_female)
       
       # Create warning messages
       warning_messages <- list()
@@ -359,7 +351,7 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
       if (warnings_value) {
         div(
           style = "color: #d32f2f; font-size: 11px; margin-bottom: 15px; text-align: left;",
-          "*Active plugging records include: Ongoing, Plugged and Not Observed (Waiting for confirmation)"
+          "*Active plugging records include: Ongoing and Plugged for males; Ongoing, Plugged, Not Observed (Waiting for confirmation), and Surprising Plug!! for females."
         )
       } else {
         NULL

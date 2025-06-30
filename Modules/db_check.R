@@ -206,7 +206,7 @@ add_plugging_tables <- function() {
     "pairing_start_date DATE,",
     "pairing_end_date DATE,",
     "plug_observed_date TEXT,",
-    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)')),",
+    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)', 'Surprising Plug!!')),",
     "notes TEXT,",
     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
     "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
@@ -234,7 +234,7 @@ add_plugging_tables <- function() {
   dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Ongoing' WHERE plugging_status IS NULL")
   dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Empty' WHERE plugging_status = ''")
   
-  # Update the CHECK constraint for plugging_status
+  # Update the CHECK constraint for plugging_status to include the new status
   tryCatch({
     existing_data <- dbGetQuery(con, "SELECT * FROM plugging_history")
     
@@ -251,7 +251,7 @@ add_plugging_tables <- function() {
       "pairing_start_date DATE,",
       "pairing_end_date DATE,",
       "plug_observed_date TEXT,",
-      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)')),",
+      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)', 'Surprising Plug!!')),",
       "notes TEXT,",
       "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
       "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",

@@ -483,7 +483,7 @@ validate_plugging_data <- function(data) {
   
   # Validate plugging status
   if (!is.null(data$plugging_status) && data$plugging_status != "") {
-    valid_statuses <- c("Ongoing", "Plugged", "Empty", "Deleted", "Plug Confirmed", "Not Pregnant", "Not Observed (Waiting for confirmation)", "Not Observed (Confirmed)")
+    valid_statuses <- c("Ongoing", "Plugged", "Empty", "Deleted", "Plug Confirmed", "Not Pregnant", "Not Observed (Waiting for confirmation)", "Not Observed (Confirmed)", "Surprising Plug!!")
     if (!data$plugging_status %in% valid_statuses) {
       errors[["plugging_status"]] <- "Invalid plugging status"
     }
@@ -725,12 +725,18 @@ mice_status_tag_all_mice <- function(asu_id) {
     mouse_role <- ifelse(mouse_info$gender == "Male", "male", "female")
     mouse_id_column <- ifelse(mouse_role == "male", "male_id", "female_id")
     
-    # Query active plugging records
+    # Use correct active statuses for each gender
+    if (mouse_role == "male") {
+      active_statuses <- c("Ongoing", "Plugged")
+    } else {
+      active_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
+    }
+    
     active_plugging_query <- paste0(
-      "SELECT COUNT(*) as active_count 
-       FROM plugging_history 
-       WHERE ", mouse_id_column, " = ? 
-       AND plugging_status IN ('Ongoing', 'Plugged', 'Not Observed (Waiting for confirmation)')"
+      "SELECT COUNT(*) as active_count \
+       FROM plugging_history \
+       WHERE ", mouse_id_column, " = ? \
+       AND plugging_status IN ('", paste(active_statuses, collapse = "', '"), "')"
     )
     
     active_count <- DBI::dbGetQuery(con, active_plugging_query, params = list(asu_id))$active_count

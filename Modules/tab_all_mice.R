@@ -52,6 +52,8 @@ all_mice_tab_ui <- function() {
             style = "margin-bottom: 10px;",
             actionButton("clear_search_btn", "🗑️ Clear Search", 
                         style = "background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%); color: white; border: none; padding: 5px 10px; font-size: 11px; border-radius: 6px;"),
+            actionButton("clear_selection_btn", "🔲 Clear Selection", 
+                        style = "background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white; border: none; padding: 5px 10px; font-size: 11px; border-radius: 6px;"),
             actionButton("bulk_edit_btn", "✏️ Edit Selected", 
                         style = "background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; border: none; padding: 5px 10px; font-size: 11px; border-radius: 6px;"),
             add_plugging_modal_ui("add_plugging_modal_all_mice"),
@@ -264,7 +266,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     DT::datatable(
       display_data,
       options = list(
-        pageLength = 25,
+        pageLength = 100,
         scrollX = TRUE,
         dom = '<"top"lf>rt<"bottom"ip><"clear">',
         columnDefs = list(
@@ -377,6 +379,16 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     DBI::dbDisconnect(con)
     filtered_data(alive_data)
     all_mice_table(alive_data)
+  })
+  
+  # Handle Clear Selection button
+  observeEvent(input$clear_selection_btn, {
+    # Clear all selected rows in the DataTable
+    # This will trigger the table to re-render with no selections
+    dataTableProxy("all_mice_table") %>% selectRows(NULL)
+    
+    # Show notification
+    showNotification("Selection cleared", type = "message", duration = 2)
   })
   
   # Populate responsible person dropdown for All Mice tab search
@@ -965,7 +977,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       )
       
       # Define active plugging statuses
-      active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)")
+      active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
       active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
       
       # Check for warnings based on gender

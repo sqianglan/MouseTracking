@@ -1073,7 +1073,7 @@ server <- function(input, output, session) {
     DT::datatable(
       display_data,
       options = list(
-        pageLength = 10,
+        pageLength = 100,
         scrollX = TRUE,
         dom = 't'
       ),

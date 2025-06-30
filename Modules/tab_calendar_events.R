@@ -563,6 +563,13 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
         if (!is.na(parsed_pairing_date)) {
           return(list(date = parsed_pairing_date + 1, is_estimated = TRUE))
         }
+      } else if (status == "Surprising Plug!!") {
+        # Use pairing_start_date + 1 for estimation (since plug_observed_date is "Unknown")
+        # Add 1 day to account for the day of pairing, then add embryonic age
+        parsed_pairing_date <- safe_parse_date(pairing_start_date)
+        if (!is.na(parsed_pairing_date)) {
+          return(list(date = parsed_pairing_date + 1, is_estimated = TRUE))
+        }
       }
       return(NULL)
     }
@@ -713,6 +720,9 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
                AND ph.pairing_end_date IS NOT NULL AND ph.pairing_end_date != '')
               OR 
               (ph.plugging_status = 'Not Observed (Waiting for confirmation)' 
+               AND ph.pairing_start_date IS NOT NULL AND ph.pairing_start_date != '')
+              OR 
+              (ph.plugging_status = 'Surprising Plug!!' 
                AND ph.pairing_start_date IS NOT NULL AND ph.pairing_start_date != '')
             )
         "
