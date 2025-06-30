@@ -629,6 +629,14 @@ server <- function(input, output, session) {
   # Global refresh trigger for cross-module data updates
   global_refresh_trigger <- reactiveVal(Sys.time())
   
+  # Shared plugging state for cross-module communication
+  shared_plugging_state <- reactiveValues(
+    reload = NULL,
+    viewing_id = NULL,
+    editing_id = NULL,
+    confirming_id = NULL
+  )
+  
   # Global lock system for deletion protection
   global_lock_state <- reactiveValues(
     is_locked = TRUE  # Start locked by default
@@ -720,9 +728,9 @@ server <- function(input, output, session) {
     all_mice_table(all_data)
   })
   
-  all_mice_tab_server(input, output, session, all_mice_table, is_system_locked, global_refresh_trigger)
+  all_mice_tab_server(input, output, session, all_mice_table, is_system_locked, global_refresh_trigger, shared_plugging_state)
   #breeding_tab_server(input, output, session)
-  plugging_tab_server(input, output, session, is_system_locked, global_refresh_trigger, all_mice_table)
+  plugging_tab_server(input, output, session, is_system_locked, global_refresh_trigger, all_mice_table, shared_plugging_state)
   #deceased_tab_server(input, output, session)
   #deleted_tab_server(input, output, session)
 
@@ -1316,7 +1324,7 @@ server <- function(input, output, session) {
         column(6, selectInput("search_stock_category", "Stock Category", choices = c("", "Experiment", "Breeding", "Charles River"), selected = ""))
       ),
       fluidRow(
-        column(6, selectInput("search_status", "Status", choices = c("Both", "Live", "Deceased"), selected = "Both")),
+        column(6, selectInput("search_status", "Status", choices = c("Both", "Live", "Deceased"), selected = "Live")),
         column(6, div()) # Empty column for spacing
       ),
       div(
@@ -1393,8 +1401,8 @@ server <- function(input, output, session) {
     # Close the search modal
     removeModal()
     
-    # Switch to All Mice tab
-    updateTabsetPanel(session, "tabs", selected = "All Mice")
+    # Switch to All Mice tab (with emoji)
+    updateTabsetPanel(session, "tabs", selected = "🐭 All Mice")
     
     # Show a brief notification about search results
     if (nrow(search_results) == 0) {

@@ -55,7 +55,7 @@ plugging_tab_ui <- function() {
 }
 
 # Server Function
-plugging_tab_server <- function(input, output, session, is_system_locked = NULL, global_refresh_trigger = NULL, all_mice_table = NULL) {
+plugging_tab_server <- function(input, output, session, is_system_locked = NULL, global_refresh_trigger = NULL, all_mice_table = NULL, shared_plugging_state = NULL) {
   
   # Default lock function if not provided
   if (is.null(is_system_locked)) {
@@ -72,13 +72,17 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     all_mice_table <- reactiveVal(NULL)
   }
   
-  # Reactive values for state management
-  plugging_state <- reactiveValues(
-    reload = NULL,
-    viewing_id = NULL,
-    editing_id = NULL,
-    confirming_id = NULL
-  )
+  # Use shared plugging state if provided, otherwise create a new one
+  if (is.null(shared_plugging_state)) {
+    plugging_state <- reactiveValues(
+      reload = NULL,
+      viewing_id = NULL,
+      editing_id = NULL,
+      confirming_id = NULL
+    )
+  } else {
+    plugging_state <- shared_plugging_state
+  }
   
   # Add a reactiveVal to store the pending delete plugging_id
   pending_delete_id <- reactiveVal(NULL)

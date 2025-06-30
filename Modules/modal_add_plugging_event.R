@@ -10,7 +10,7 @@ add_plugging_modal_ui <- function(id) {
   )
 }
 
-add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validate_mice_active_status, db_connect, db_disconnect, log_audit_trail, auto_update_plugging_status_to_unknown, plugging_state, is_system_locked, global_refresh_trigger) {
+add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validate_mice_active_status, db_connect, db_disconnect, log_audit_trail, auto_update_plugging_status_to_unknown, plugging_state, is_system_locked, global_refresh_trigger, force_refresh_all_mice_table = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
@@ -37,7 +37,7 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
       # Auto-preselect mice if available
       selected_male <- if(nrow(mice_data$males) > 0) mice_data$males$asu_id[1] else ""
       selected_female1 <- if(nrow(mice_data$females) > 0) mice_data$females$asu_id[1] else ""
-      selected_female2 <- ""  # Always start with empty for Female 2 (optional)
+      selected_female2 <- if(nrow(mice_data$females) == 2) mice_data$females$asu_id[2] else ""  # Only pre-select if exactly 2 females
       
       showModal(modalDialog(
         title = "Add Plugging Event",
@@ -380,6 +380,34 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
       }
     })
 
+    # Internal refresh function that can refresh both tables
+    refresh_all_tables <- function() {
+      # Refresh plugging tab
+      if (!is.null(plugging_state)) {
+        plugging_state$reload <- Sys.time()
+      }
+      
+      # Refresh All Mice tab via global trigger
+      if (!is.null(global_refresh_trigger)) {
+        global_refresh_trigger(Sys.time())
+      }
+      
+      # Call custom refresh function if provided
+      if (!is.null(force_refresh_all_mice_table) && is.function(force_refresh_all_mice_table)) {
+        force_refresh_all_mice_table()
+      }
+      
+      # Force immediate database refresh by re-querying
+      tryCatch({
+        con <- db_connect()
+        # Force a small database operation to ensure changes are committed
+        DBI::dbGetQuery(con, "SELECT COUNT(*) FROM plugging_history")
+        db_disconnect(con)
+      }, error = function(e) {
+        # Ignore errors in refresh
+      })
+    }
+
     # Add plugging event
     observeEvent(input$add_plugging_btn, {
       # Validation
@@ -466,10 +494,15 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
         }
         
         removeModal()
-        Sys.sleep(1)
+        
+        # Small delay to ensure database changes are committed
+        Sys.sleep(0.5)
+        
+        # Run auto-update function
         auto_update_plugging_status_to_unknown()
         
-        plugging_state$reload <- Sys.time()
+        # Refresh all tables
+        refresh_all_tables()
         
       }, error = function(e) {
         showNotification(paste("Error adding plugging event:", e$message), type = "error")
