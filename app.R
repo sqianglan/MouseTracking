@@ -559,7 +559,7 @@ ui <- fluidPage(
   fluidRow(
     column(12, div(
       style = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 0px; padding: 20px 0;',
-      h2('Mouse Management System', style = "margin: 0; margin-bottom: 5px; font-size: 2.8em; color: #2c3e50; font-weight: 700; padding: 5px 0;"),
+      h2('Mouse Management System (beta)', style = "margin: 0; margin-bottom: 5px; font-size: 2.8em; color: #2c3e50; font-weight: 700; padding: 5px 0;"),
       div(
         style = 'display: flex; align-items: center; gap: 12px;',
         actionButton('set_timezone_btn', '🌍 Set Timezone', icon = icon('globe'), 
