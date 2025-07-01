@@ -581,7 +581,7 @@ ui <- fluidPage(
   fluidRow(
     column(12, div(
       style = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 0px; padding: 20px 0;',
-      h2('Mouse Management System', style = "margin: 0; margin-bottom: 5px; font-size: 2.8em; color: #2c3e50; font-weight: 700; padding: 5px 0;"),
+      h2('Mouse Mating Tracking System', style = "margin: 0; margin-bottom: 5px; font-size: 2.8em; color: #2c3e50; font-weight: 700; padding: 5px 0;"),
       div(
         style = 'display: flex; align-items: center; gap: 12px;',
         actionButton('set_timezone_btn', '🌍 Set Timezone', icon = icon('globe'), 
@@ -611,7 +611,7 @@ ui <- fluidPage(
           ),
           div(
             style = "position: relative; z-index: 2; width: 100%; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; margin-left: 0px;",
-            h3("Welcome to the Mouse Management System", style = "text-align: left; font-size: 2.5em; color: white; margin-bottom: 32px; margin-left: 0px; font-weight: 700;"),
+            h3("Welcome to the Mouse Mating Tracking System", style = "text-align: left; font-size: 2.5em; color: white; margin-bottom: 32px; margin-left: 0px; font-weight: 700;"),
             div(
               style = "display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; margin-bottom: 32px; margin-left: 120px;",
               actionButton("welcome_search_btn", "🔍 Search Animals", 
