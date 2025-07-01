@@ -27,10 +27,7 @@ validate_asu_id <- function(asu_id) {
     return(list(valid = FALSE, message = "ASU ID can only contain letters, numbers, hyphens, and underscores"))
   }
   
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", asu_id)) {
-    return(list(valid = FALSE, message = "ASU ID contains invalid characters"))
-  }
+
   
   return(list(valid = TRUE, message = "Valid ASU ID"))
 }
@@ -47,10 +44,7 @@ validate_animal_id <- function(animal_id) {
     return(list(valid = FALSE, message = "Animal ID must be 50 characters or less"))
   }
   
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", animal_id)) {
-    return(list(valid = FALSE, message = "Animal ID contains invalid characters"))
-  }
+
   
   return(list(valid = TRUE, message = "Valid Animal ID"))
 }
@@ -114,10 +108,7 @@ validate_breeding_line <- function(breeding_line) {
     return(list(valid = FALSE, message = "Breeding line must be 100 characters or less"))
   }
   
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", breeding_line)) {
-    return(list(valid = FALSE, message = "Breeding line contains invalid characters"))
-  }
+
   
   return(list(valid = TRUE, message = "Valid breeding line"))
 }
@@ -134,10 +125,7 @@ validate_genotype <- function(genotype) {
     return(list(valid = FALSE, message = "Genotype must be 100 characters or less"))
   }
   
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", genotype)) {
-    return(list(valid = FALSE, message = "Genotype contains invalid characters"))
-  }
+
   
   return(list(valid = TRUE, message = "Valid genotype"))
 }
@@ -154,10 +142,7 @@ validate_responsible_person <- function(responsible_person) {
     return(list(valid = FALSE, message = "Responsible person must be 100 characters or less"))
   }
   
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", responsible_person)) {
-    return(list(valid = FALSE, message = "Responsible person contains invalid characters"))
-  }
+
   
   return(list(valid = TRUE, message = "Valid responsible person"))
 }
@@ -174,10 +159,7 @@ validate_project_code <- function(project_code) {
     return(list(valid = FALSE, message = "Project code must be 50 characters or less"))
   }
   
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", project_code)) {
-    return(list(valid = FALSE, message = "Project code contains invalid characters"))
-  }
+
   
   return(list(valid = TRUE, message = "Valid project code"))
 }
@@ -240,10 +222,7 @@ validate_cage_id <- function(cage_id) {
     return(list(valid = FALSE, message = "Cage ID must be 20 characters or less"))
   }
   
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", cage_id)) {
-    return(list(valid = FALSE, message = "Cage ID contains invalid characters"))
-  }
+
   
   return(list(valid = TRUE, message = "Valid cage ID"))
 }
@@ -260,10 +239,7 @@ validate_room <- function(room) {
     return(list(valid = FALSE, message = "Room must be 20 characters or less"))
   }
   
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", room)) {
-    return(list(valid = FALSE, message = "Room contains invalid characters"))
-  }
+
   
   return(list(valid = TRUE, message = "Valid room"))
 }
@@ -280,10 +256,7 @@ validate_notes <- function(notes) {
     return(list(valid = FALSE, message = "Notes must be 500 characters or less"))
   }
   
-  # Check for SQL injection patterns
-  if (grepl("['\"\\-;]", notes)) {
-    return(list(valid = FALSE, message = "Notes contain invalid characters"))
-  }
+
   
   return(list(valid = TRUE, message = "Valid notes"))
 }
@@ -305,7 +278,7 @@ validate_study_plan <- function(study_plan) {
 }
 
 # Comprehensive validation function for mouse data
-validate_mouse_data <- function(data) {
+validate_mouse_data <- function(data, require_all_fields = TRUE) {
   errors <- list()
   warnings <- list()
   standardized_data <- list()
@@ -328,7 +301,7 @@ validate_mouse_data <- function(data) {
       } else if (!is.null(validation_result$standardized)) {
         standardized_data[[field]] <- validation_result$standardized
       }
-    } else {
+    } else if (require_all_fields) {
       errors[[field]] <- paste("Required field", field, "is missing")
     }
   }

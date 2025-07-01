@@ -413,9 +413,13 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     # Get the displayed table as shown to the user (with only columns that exist in data)
     display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
     selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
-    selected_data <- data[data$asu_id %in% selected_asu_ids, , drop = FALSE]
-    # Get existing values from database for dropdowns (keep connection open)
+    
+    # Get complete data for selected animals from database to ensure all columns are available
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    selected_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " WHERE asu_id IN (", 
+                                                 paste(paste0("'", selected_asu_ids, "'"), collapse = ","), 
+                                                 ") ORDER BY asu_id"))
+    # Get existing values from database for dropdowns (keep connection open)
     breeding_lines <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT breeding_line FROM ", TABLE_NAME, " WHERE breeding_line IS NOT NULL"))$breeding_line)
     genotypes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT genotype FROM ", TABLE_NAME, " WHERE genotype IS NOT NULL"))$genotype)
     responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
@@ -526,48 +530,94 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     # Get the displayed table as shown to the user (with only columns that exist in data)
     display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
     selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
-    selected_data <- data[data$asu_id %in% selected_asu_ids, , drop = FALSE]
-    # Get existing values from database for dropdowns (keep connection open)
+    
+    # Get complete data for selected animals from database to ensure all columns are available
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    selected_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " WHERE asu_id IN (", 
+                                                 paste(paste0("'", selected_asu_ids, "'"), collapse = ","), 
+                                                 ") ORDER BY asu_id"))
+    # Get existing values from database for dropdowns (keep connection open)
     breeding_lines <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT breeding_line FROM ", TABLE_NAME, " WHERE breeding_line IS NOT NULL"))$breeding_line)
     genotypes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT genotype FROM ", TABLE_NAME, " WHERE genotype IS NOT NULL"))$genotype)
     responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
     project_codes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT project_code FROM ", TABLE_NAME, " WHERE project_code IS NOT NULL"))$project_code)
     DBI::dbDisconnect(con)
     
-    # Collect bulk edit data
-    bulk_edit_data <- list()
-    if (!is.null(input$bulk_edit_gender) && input$bulk_edit_gender != "") {
-      bulk_edit_data$gender <- input$bulk_edit_gender
-    }
-    if (!is.null(input$bulk_edit_status) && input$bulk_edit_status != "") {
-      bulk_edit_data$status <- input$bulk_edit_status
-    }
-    if (!is.null(input$bulk_edit_breeding_line) && input$bulk_edit_breeding_line != "") {
-      bulk_edit_data$breeding_line <- input$bulk_edit_breeding_line
-    }
-    if (!is.null(input$bulk_edit_genotype) && input$bulk_edit_genotype != "") {
-      bulk_edit_data$genotype <- input$bulk_edit_genotype
-    }
-    if (!is.null(input$bulk_edit_responsible_person) && input$bulk_edit_responsible_person != "") {
-      bulk_edit_data$responsible_person <- input$bulk_edit_responsible_person
-    }
-    if (!is.null(input$bulk_edit_protocol) && input$bulk_edit_protocol != "") {
-      bulk_edit_data$protocol <- input$bulk_edit_protocol
-    }
-    if (!is.null(input$bulk_edit_study_plan) && input$bulk_edit_study_plan != "") {
-      bulk_edit_data$study_plan <- input$bulk_edit_study_plan
-    }
-    if (!is.null(input$bulk_edit_project_code) && input$bulk_edit_project_code != "") {
-      bulk_edit_data$project_code <- input$bulk_edit_project_code
-    }
-    if (!is.null(input$bulk_edit_stock_category) && input$bulk_edit_stock_category != "") {
-      bulk_edit_data$stock_category <- input$bulk_edit_stock_category
+    # Collect bulk edit data for validation (only fields that are actually being changed)
+    validation_data <- list()
+    
+    # Check if any fields have actually changed by comparing with the first selected record
+    # (assuming all selected records have the same current values for common fields)
+    if (nrow(selected_data) > 0) {
+      first_record <- selected_data[1, ]
+      
+      # Gender
+      current_gender <- ifelse(is.na(first_record$gender), "", first_record$gender)
+      form_gender <- ifelse(is.null(input$bulk_edit_gender), "", input$bulk_edit_gender)
+      if (form_gender != "" && form_gender != current_gender) {
+        validation_data$gender <- form_gender
+      }
+      
+      # Status
+      current_status <- ifelse(is.na(first_record$status), "", first_record$status)
+      form_status <- ifelse(is.null(input$bulk_edit_status), "", input$bulk_edit_status)
+      if (form_status != "" && form_status != current_status) {
+        validation_data$status <- form_status
+      }
+      
+      # Breeding Line
+      current_breeding_line <- ifelse(is.na(first_record$breeding_line), "", first_record$breeding_line)
+      form_breeding_line <- ifelse(is.null(input$bulk_edit_breeding_line), "", input$bulk_edit_breeding_line)
+      if (form_breeding_line != "" && form_breeding_line != current_breeding_line) {
+        validation_data$breeding_line <- form_breeding_line
+      }
+      
+      # Genotype
+      current_genotype <- ifelse(is.na(first_record$genotype), "", first_record$genotype)
+      form_genotype <- ifelse(is.null(input$bulk_edit_genotype), "", input$bulk_edit_genotype)
+      if (form_genotype != "" && form_genotype != current_genotype) {
+        validation_data$genotype <- form_genotype
+      }
+      
+      # Responsible Person
+      current_responsible_person <- ifelse(is.na(first_record$responsible_person), "", first_record$responsible_person)
+      form_responsible_person <- ifelse(is.null(input$bulk_edit_responsible_person), "", input$bulk_edit_responsible_person)
+      if (form_responsible_person != "" && form_responsible_person != current_responsible_person) {
+        validation_data$responsible_person <- form_responsible_person
+      }
+      
+      # Protocol
+      current_protocol <- ifelse(is.na(first_record$protocol), "", first_record$protocol)
+      form_protocol <- ifelse(is.null(input$bulk_edit_protocol), "", input$bulk_edit_protocol)
+      if (form_protocol != "" && form_protocol != current_protocol) {
+        validation_data$protocol <- form_protocol
+      }
+      
+      # Study Plan
+      current_study_plan <- ifelse(is.na(first_record$study_plan), "", first_record$study_plan)
+      form_study_plan <- ifelse(is.null(input$bulk_edit_study_plan), "", input$bulk_edit_study_plan)
+      if (form_study_plan != "" && form_study_plan != current_study_plan) {
+        validation_data$study_plan <- form_study_plan
+      }
+      
+      # Project Code
+      current_project_code <- ifelse(is.na(first_record$project_code), "", first_record$project_code)
+      form_project_code <- ifelse(is.null(input$bulk_edit_project_code), "", input$bulk_edit_project_code)
+      if (form_project_code != "" && form_project_code != current_project_code) {
+        validation_data$project_code <- form_project_code
+      }
+      
+      # Stock Category
+      current_stock_category <- ifelse(is.na(first_record$stock_category), "", first_record$stock_category)
+      form_stock_category <- ifelse(is.null(input$bulk_edit_stock_category), "", input$bulk_edit_stock_category)
+      if (form_stock_category != "" && form_stock_category != current_stock_category) {
+        validation_data$stock_category <- form_stock_category
+      }
     }
     
     # Validate bulk edit data
-    if (length(bulk_edit_data) > 0) {
-      validation_result <- validate_mouse_data(bulk_edit_data)
+    if (length(validation_data) > 0) {
+      validation_result <- validate_mouse_data(validation_data, require_all_fields = FALSE)
       
       if (!validation_result$valid) {
         error_html <- display_validation_errors(validation_result)
@@ -584,57 +634,95 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     update_count <- 0
     record_ids <- c()
     
+    # Create a new connection for the update operations
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    
     for (i in 1:nrow(selected_data)) {
       asu_id <- selected_data$asu_id[i]
       update_fields <- c()
       old_values <- list()
       new_values <- list()
       
-      # Check each field and add to update if not empty
-      if (!is.null(input$bulk_edit_gender) && input$bulk_edit_gender != "") {
-        update_fields <- c(update_fields, paste0("gender = '", input$bulk_edit_gender, "'"))
-        old_values$gender <- selected_data$gender[i]
-        new_values$gender <- input$bulk_edit_gender
+      # Check each field and add to update if it has actually changed
+      # Gender
+      current_gender <- ifelse(is.na(selected_data$gender[i]), "", selected_data$gender[i])
+      form_gender <- ifelse(is.null(input$bulk_edit_gender), "", input$bulk_edit_gender)
+      if (form_gender != "" && form_gender != current_gender) {
+        update_fields <- c(update_fields, paste0("gender = '", form_gender, "'"))
+        old_values$gender <- current_gender
+        new_values$gender <- form_gender
       }
-      if (!is.null(input$bulk_edit_status) && input$bulk_edit_status != "") {
-        update_fields <- c(update_fields, paste0("status = '", input$bulk_edit_status, "'"))
-        old_values$status <- selected_data$status[i]
-        new_values$status <- input$bulk_edit_status
+      
+      # Status
+      current_status <- ifelse(is.na(selected_data$status[i]), "", selected_data$status[i])
+      form_status <- ifelse(is.null(input$bulk_edit_status), "", input$bulk_edit_status)
+      if (form_status != "" && form_status != current_status) {
+        update_fields <- c(update_fields, paste0("status = '", form_status, "'"))
+        old_values$status <- current_status
+        new_values$status <- form_status
       }
-      if (!is.null(input$bulk_edit_breeding_line) && input$bulk_edit_breeding_line != "") {
-        update_fields <- c(update_fields, paste0("breeding_line = '", input$bulk_edit_breeding_line, "'"))
-        old_values$breeding_line <- selected_data$breeding_line[i]
-        new_values$breeding_line <- input$bulk_edit_breeding_line
+      
+      # Breeding Line
+      current_breeding_line <- ifelse(is.na(selected_data$breeding_line[i]), "", selected_data$breeding_line[i])
+      form_breeding_line <- ifelse(is.null(input$bulk_edit_breeding_line), "", input$bulk_edit_breeding_line)
+      if (form_breeding_line != "" && form_breeding_line != current_breeding_line) {
+        update_fields <- c(update_fields, paste0("breeding_line = '", form_breeding_line, "'"))
+        old_values$breeding_line <- current_breeding_line
+        new_values$breeding_line <- form_breeding_line
       }
-      if (!is.null(input$bulk_edit_genotype) && input$bulk_edit_genotype != "") {
-        update_fields <- c(update_fields, paste0("genotype = '", input$bulk_edit_genotype, "'"))
-        old_values$genotype <- selected_data$genotype[i]
-        new_values$genotype <- input$bulk_edit_genotype
+      
+      # Genotype
+      current_genotype <- ifelse(is.na(selected_data$genotype[i]), "", selected_data$genotype[i])
+      form_genotype <- ifelse(is.null(input$bulk_edit_genotype), "", input$bulk_edit_genotype)
+      if (form_genotype != "" && form_genotype != current_genotype) {
+        update_fields <- c(update_fields, paste0("genotype = '", form_genotype, "'"))
+        old_values$genotype <- current_genotype
+        new_values$genotype <- form_genotype
       }
-      if (!is.null(input$bulk_edit_responsible_person) && input$bulk_edit_responsible_person != "") {
-        update_fields <- c(update_fields, paste0("responsible_person = '", input$bulk_edit_responsible_person, "'"))
-        old_values$responsible_person <- selected_data$responsible_person[i]
-        new_values$responsible_person <- input$bulk_edit_responsible_person
+      
+      # Responsible Person
+      current_responsible_person <- ifelse(is.na(selected_data$responsible_person[i]), "", selected_data$responsible_person[i])
+      form_responsible_person <- ifelse(is.null(input$bulk_edit_responsible_person), "", input$bulk_edit_responsible_person)
+      if (form_responsible_person != "" && form_responsible_person != current_responsible_person) {
+        update_fields <- c(update_fields, paste0("responsible_person = '", form_responsible_person, "'"))
+        old_values$responsible_person <- current_responsible_person
+        new_values$responsible_person <- form_responsible_person
       }
-      if (!is.null(input$bulk_edit_protocol) && input$bulk_edit_protocol != "") {
-        update_fields <- c(update_fields, paste0("protocol = '", input$bulk_edit_protocol, "'"))
-        old_values$protocol <- selected_data$protocol[i]
-        new_values$protocol <- input$bulk_edit_protocol
+      
+      # Protocol
+      current_protocol <- ifelse(is.na(selected_data$protocol[i]), "", selected_data$protocol[i])
+      form_protocol <- ifelse(is.null(input$bulk_edit_protocol), "", input$bulk_edit_protocol)
+      if (form_protocol != "" && form_protocol != current_protocol) {
+        update_fields <- c(update_fields, paste0("protocol = '", form_protocol, "'"))
+        old_values$protocol <- current_protocol
+        new_values$protocol <- form_protocol
       }
-      if (!is.null(input$bulk_edit_study_plan) && input$bulk_edit_study_plan != "") {
-        update_fields <- c(update_fields, paste0("study_plan = '", input$bulk_edit_study_plan, "'"))
-        old_values$study_plan <- selected_data$study_plan[i]
-        new_values$study_plan <- input$bulk_edit_study_plan
+      
+      # Study Plan
+      current_study_plan <- ifelse(is.na(selected_data$study_plan[i]), "", selected_data$study_plan[i])
+      form_study_plan <- ifelse(is.null(input$bulk_edit_study_plan), "", input$bulk_edit_study_plan)
+      if (form_study_plan != "" && form_study_plan != current_study_plan) {
+        update_fields <- c(update_fields, paste0("study_plan = '", form_study_plan, "'"))
+        old_values$study_plan <- current_study_plan
+        new_values$study_plan <- form_study_plan
       }
-      if (!is.null(input$bulk_edit_project_code) && input$bulk_edit_project_code != "") {
-        update_fields <- c(update_fields, paste0("project_code = '", input$bulk_edit_project_code, "'"))
-        old_values$project_code <- selected_data$project_code[i]
-        new_values$project_code <- input$bulk_edit_project_code
+      
+      # Project Code
+      current_project_code <- ifelse(is.na(selected_data$project_code[i]), "", selected_data$project_code[i])
+      form_project_code <- ifelse(is.null(input$bulk_edit_project_code), "", input$bulk_edit_project_code)
+      if (form_project_code != "" && form_project_code != current_project_code) {
+        update_fields <- c(update_fields, paste0("project_code = '", form_project_code, "'"))
+        old_values$project_code <- current_project_code
+        new_values$project_code <- form_project_code
       }
-      if (!is.null(input$bulk_edit_stock_category) && input$bulk_edit_stock_category != "") {
-        update_fields <- c(update_fields, paste0("stock_category = '", input$bulk_edit_stock_category, "'"))
-        old_values$stock_category <- selected_data$stock_category[i]
-        new_values$stock_category <- input$bulk_edit_stock_category
+      
+      # Stock Category
+      current_stock_category <- ifelse(is.na(selected_data$stock_category[i]), "", selected_data$stock_category[i])
+      form_stock_category <- ifelse(is.null(input$bulk_edit_stock_category), "", input$bulk_edit_stock_category)
+      if (form_stock_category != "" && form_stock_category != current_stock_category) {
+        update_fields <- c(update_fields, paste0("stock_category = '", form_stock_category, "'"))
+        old_values$stock_category <- current_stock_category
+        new_values$stock_category <- form_stock_category
       }
       
       # Add last_updated timestamp
@@ -761,7 +849,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       asu_id <- selected_data$asu_id[i]
       old_status <- selected_data$status[i]
       
-      query <- paste0("UPDATE ", TABLE_NAME, " SET status = 'Deleted', last_updated = CURRENT_TIMESTAMP WHERE asu_id = '", asu_id, "'")
+              query <- paste0("UPDATE ", TABLE_NAME, " SET status = 'Deleted', last_updated = CURRENT_TIMESTAMP WHERE asu_id = ?")
+        result <- DBI::dbExecute(con, query, params = list(asu_id))
       
       tryCatch({
         result <- DBI::dbExecute(con, query)
@@ -820,7 +909,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       asu_id <- selected_data$asu_id[i]
       old_status <- selected_data$status[i]
       
-      query <- paste0("UPDATE ", TABLE_NAME, " SET status = 'Deceased', last_updated = CURRENT_TIMESTAMP WHERE asu_id = '", asu_id, "'")
+              query <- paste0("UPDATE ", TABLE_NAME, " SET status = 'Deceased', last_updated = CURRENT_TIMESTAMP WHERE asu_id = ?")
+        result <- DBI::dbExecute(con, query, params = list(asu_id))
       
       tryCatch({
         result <- DBI::dbExecute(con, query)

@@ -1227,7 +1227,7 @@ server <- function(input, output, session) {
     
     # Check if ASU ID already exists
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    existing_asu_id <- DBI::dbGetQuery(con, paste0("SELECT asu_id FROM ", TABLE_NAME, " WHERE asu_id = '", input_data$asu_id, "'"))
+    existing_asu_id <- DBI::dbGetQuery(con, paste0("SELECT asu_id FROM ", TABLE_NAME, " WHERE asu_id = ?"), params = list(input_data$asu_id))
     
     if (nrow(existing_asu_id) > 0) {
       DBI::dbDisconnect(con)

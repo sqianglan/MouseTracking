@@ -460,7 +460,7 @@ process_duplicates <- function(parsed_df, comparison_data, import_duplicates, db
     } else if (action == "Overwrite") {
       # Delete existing record and add new one
       con <- dbConnect(SQLite(), DB_PATH)
-      dbExecute(con, paste0("DELETE FROM ", TABLE_NAME, " WHERE asu_id = '", asu_id, "'"))
+      dbExecute(con, paste0("DELETE FROM ", TABLE_NAME, " WHERE asu_id = ?"), params = list(asu_id))
       dbDisconnect(con)
       
       row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
