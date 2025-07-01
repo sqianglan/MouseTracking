@@ -535,6 +535,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
                               choices = stock_category_choices, 
                               selected = common_stock_category))
       ),
+      fluidRow(
+        column(12, textAreaInput("bulk_edit_notes", "Notes", value = get_common_value(selected_data$notes), rows = 3, placeholder = "Enter notes (leave blank to keep current notes)", width = "100%"))
+      ),
       div(
         style = "margin-top: 15px; font-size: 12px; color: #666;",
         "Empty fields will not change the current values"
@@ -640,6 +643,13 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_stock_category <- ifelse(is.null(input$bulk_edit_stock_category), "", input$bulk_edit_stock_category)
       if (form_stock_category != "" && form_stock_category != current_stock_category) {
         validation_data$stock_category <- form_stock_category
+      }
+      
+      # Notes
+      current_notes <- ifelse(is.na(first_record$notes), "", first_record$notes)
+      form_notes <- ifelse(is.null(input$bulk_edit_notes), "", input$bulk_edit_notes)
+      if (form_notes != "" && form_notes != current_notes) {
+        validation_data$notes <- form_notes
       }
     }
     
@@ -752,6 +762,15 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         update_fields <- c(update_fields, paste0("stock_category = '", form_stock_category, "'"))
         record_old_values$stock_category <- current_stock_category
         record_new_values$stock_category <- form_stock_category
+      }
+      
+      # Notes
+      current_notes <- ifelse(is.na(selected_data$notes[i]), "", selected_data$notes[i])
+      form_notes <- ifelse(is.null(input$bulk_edit_notes), "", input$bulk_edit_notes)
+      if (form_notes != "" && form_notes != current_notes) {
+        update_fields <- c(update_fields, paste0("notes = '", gsub("'", "''", form_notes), "'"))
+        record_old_values$notes <- current_notes
+        record_new_values$notes <- form_notes
       }
       
       # Add last_updated timestamp
@@ -869,12 +888,28 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     
     DBI::dbDisconnect(con)
     
-    # Refresh the table data
+    # Refresh the table data using the current status filter
+    current_status_filter <- input$all_mice_search_status
+    if (is.null(current_status_filter)) current_status_filter <- "Live"
+    where_conditions <- c()
+    if (current_status_filter != "Both") {
+      if (current_status_filter == "Live") {
+        where_conditions <- c(where_conditions, "status == 'Alive'")
+      } else if (current_status_filter == "Deceased") {
+        where_conditions <- c(where_conditions, "status == 'Deceased'")
+      }
+    }
+    # Add other filters here if you want to persist more search fields after edit (optional)
+    if (length(where_conditions) == 0) {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
+    } else {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
+    }
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    all_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id"))
+    refreshed_data <- DBI::dbGetQuery(con, query)
     DBI::dbDisconnect(con)
-    filtered_data(all_data)
-    all_mice_table(all_data)
+    filtered_data(refreshed_data)
+    all_mice_table(refreshed_data)
     
     removeModal()
     
@@ -990,12 +1025,28 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     
     DBI::dbDisconnect(con)
     
-    # Refresh the table data
+    # Refresh the table data using the current status filter
+    current_status_filter <- input$all_mice_search_status
+    if (is.null(current_status_filter)) current_status_filter <- "Live"
+    where_conditions <- c()
+    if (current_status_filter != "Both") {
+      if (current_status_filter == "Live") {
+        where_conditions <- c(where_conditions, "status == 'Alive'")
+      } else if (current_status_filter == "Deceased") {
+        where_conditions <- c(where_conditions, "status == 'Deceased'")
+      }
+    }
+    # Add other filters here if you want to persist more search fields after edit (optional)
+    if (length(where_conditions) == 0) {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
+    } else {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
+    }
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    all_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id"))
+    refreshed_data <- DBI::dbGetQuery(con, query)
     DBI::dbDisconnect(con)
-    filtered_data(all_data)
-    all_mice_table(all_data)
+    filtered_data(refreshed_data)
+    all_mice_table(refreshed_data)
     
     removeModal()
     
@@ -1050,12 +1101,28 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     
     DBI::dbDisconnect(con)
     
-    # Refresh the table data
+    # Refresh the table data using the current status filter
+    current_status_filter <- input$all_mice_search_status
+    if (is.null(current_status_filter)) current_status_filter <- "Live"
+    where_conditions <- c()
+    if (current_status_filter != "Both") {
+      if (current_status_filter == "Live") {
+        where_conditions <- c(where_conditions, "status == 'Alive'")
+      } else if (current_status_filter == "Deceased") {
+        where_conditions <- c(where_conditions, "status == 'Deceased'")
+      }
+    }
+    # Add other filters here if you want to persist more search fields after edit (optional)
+    if (length(where_conditions) == 0) {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
+    } else {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
+    }
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    all_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id"))
+    refreshed_data <- DBI::dbGetQuery(con, query)
     DBI::dbDisconnect(con)
-    filtered_data(all_data)
-    all_mice_table(all_data)
+    filtered_data(refreshed_data)
+    all_mice_table(refreshed_data)
     
     removeModal()
     

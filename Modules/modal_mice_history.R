@@ -219,21 +219,21 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     ),
     
     # Breeding History Section
-    div(
-      style = "margin-bottom: 30px;",
-      h4("Breeding History", style = "color: #1976d2; border-bottom: 2px solid #1976d2; padding-bottom: 5px;"),
-      if (nrow(breeding_history) > 0) {
-        div(
-          style = "overflow-x: auto;",
-          HTML(breeding_table_html)
-        )
-      } else {
-        div(
-          style = "padding: 20px; text-align: center; color: #666; background-color: #f9f9f9; border-radius: 5px;",
-          "No breeding history found for this mouse."
-        )
-      }
-    ),
+    # div(
+    #   style = "margin-bottom: 30px;",
+    #   h4("Breeding History", style = "color: #1976d2; border-bottom: 2px solid #1976d2; padding-bottom: 5px;"),
+    #   if (nrow(breeding_history) > 0) {
+    #     div(
+    #       style = "overflow-x: auto;",
+    #       HTML(breeding_table_html)
+    #     )
+    #   } else {
+    #     div(
+    #       style = "padding: 20px; text-align: center; color: #666; background-color: #f9f9f9; border-radius: 5px;",
+    #       "No breeding history found for this mouse."
+    #     )
+    #   }
+    # ),
     
     # Plugging History Section
     div(
