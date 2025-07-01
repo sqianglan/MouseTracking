@@ -18,6 +18,17 @@ suppressPackageStartupMessages({
   library(ggsci)
 })
 
+# Helper function to shorten long file paths for display
+shorten_path <- function(path, keep = 2) {
+  parts <- strsplit(normalizePath(path), .Platform$file.sep)[[1]]
+  n <- length(parts)
+  if (n <= keep + 1) {
+    return(path)
+  }
+  paste0(parts[1], .Platform$file.sep, "...", .Platform$file.sep, 
+         paste(parts[(n-keep):n], collapse = .Platform$file.sep))
+}
+
 # --- Module sourcing for development ---
 # NOTE: For hot-reloading during development, source() calls are moved inside the server function below.
 # For production, move these source() calls back to the global section (outside server) for better performance.
@@ -505,6 +516,13 @@ ui <- fluidPage(
         }
       }
       
+      /* Hide Plugging Status Diagram and text on small screens */
+      @media (max-width: 1500px) {
+        .plugging-status-diagram-container {
+          display: none !important;
+        }
+      }
+      
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
         width: 8px;
@@ -580,29 +598,39 @@ ui <- fluidPage(
         div(
           style = "position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; background: linear-gradient(135deg, rgba(135, 206, 235, 0.6) 0%, rgba(95, 158, 160, 0.6) 100%); border-radius: 12px; padding: 48px; overflow: hidden;",
           div(
-            style = "position: absolute; bottom: 20px; right: 190px; z-index: 2; text-align: center;",
-            h4("Plugging Status Flow", style = "margin: 0; color: white; font-weight: 600; font-size: 1.1em;")
+            class = "plugging-status-diagram-container",
+            div(
+              style = "position: absolute; bottom: 20px; right: 190px; z-index: 2; text-align: center;",
+              h4("Plugging Status Flow", style = "margin: 0; color: white; font-weight: 600; font-size: 1.1em;")
+            ),
+            tags$img(
+              src = "Plugging_status_Diagram.svg",
+              style = "position: absolute; bottom: 60px; right: 0px; height: 400px; width: auto; opacity: 0.85; pointer-events: none; z-index: 1;",
+              alt = "Plugging Status Diagram"
+            )
           ),
-          tags$img(
-            src = "Plugging_status_Diagram.svg",
-            style = "position: absolute; bottom: 60px; right: 0px; height: 400px; width: auto; opacity: 0.85; pointer-events: none; z-index: 1;",
-            alt = "Plugging Status Diagram"
-          ),
-                      div(
-              style = "position: relative; z-index: 2; width: 100%; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; margin-left: 0px;",
-              h3("Welcome to the Mouse Management System", style = "text-align: left; font-size: 2.5em; color: white; margin-bottom: 32px; margin-left: 0px; font-weight: 700;"),
-                            div(
-                style = "display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; margin-bottom: 32px; margin-left: 120px;",
-                actionButton("welcome_search_btn", "🔍 Search Animals", 
-                            style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3); transition: all 0.3s ease;"),
-                actionButton("welcome_add_animals_btn", "➕ Add Animals", 
-                            style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(33, 150, 243, 0.3); transition: all 0.3s ease;")
-              ),
-              div(
-                style = "margin-left: 40px; margin-bottom: 16px; max-width: 670px;",
-                p("This tool is designed to help tracking of mouse colony plugging records, which is missing from the current webtools used by Animal Facility. The standard workflow of plugging procedure is illustrated in the diagram (right).", 
-                  style = "color: white; font-size: 1.1em; line-height: 1.4; margin-bottom: 8px;")
-              )
+          div(
+            style = "position: relative; z-index: 2; width: 100%; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; margin-left: 0px;",
+            h3("Welcome to the Mouse Management System", style = "text-align: left; font-size: 2.5em; color: white; margin-bottom: 32px; margin-left: 0px; font-weight: 700;"),
+            div(
+              style = "display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; margin-bottom: 32px; margin-left: 120px;",
+              actionButton("welcome_search_btn", "🔍 Search Animals", 
+                          style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3); transition: all 0.3s ease;"),
+              actionButton("welcome_add_animals_btn", "➕ Add Animals", 
+                          style = "font-size: 1.5em; padding: 20px 40px; background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%); color: white; border: none; border-radius: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(33, 150, 243, 0.3); transition: all 0.3s ease;")
+            ),
+            div(
+              style = "margin-left: 40px; margin-bottom: 16px; max-width: 690px;",
+              HTML('
+                <span style="color: white; font-size: 1.1em; line-height: 1.4;">
+                  This tool is designed to track mouse plugging records and summarize the current and past plugging histories, which is missing from the current webtools used by Animal Facility of the UoB. The defalut workflow for plugging procedure used in this tool is illustrated in the diagram (right).
+                  <br><br>
+                  <span style="color: white; font-size: 1.1em;">
+                  Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #1565c0; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol
+                  </span>
+                </span>
+              ')
+            )
           )
         )
       ),
@@ -610,10 +638,10 @@ ui <- fluidPage(
       tabPanel("🐭⚤🐭 Plugging", plugging_tab_ui()),
     ),
     div(
-      style = "display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 12px 16px; margin-top: 32px; border-radius: 0 0 8px 8px;",
+      style = "display: grid; grid-template-columns: auto 1fr auto; align-items: center; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 12px 16px; margin-top: 32px; border-radius: 0 0 8px 8px;",
       div(
-        style = "font-size: 0.9em; color: #6c757d; font-style: italic;",
-        paste("📊 Database:", basename(DB_PATH))
+        style = "font-size: 0.9em; color: #6c757d; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+        paste("📊 Database:", shorten_path(DB_PATH))
       ),
       div(
         HTML('💬 Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #5F9EA0; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol'),

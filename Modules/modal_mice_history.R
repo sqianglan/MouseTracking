@@ -16,9 +16,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
   
   # Get complete mouse information including last_updated
   mouse_details_query <- paste0(
-    "SELECT asu_id, animal_id, gender, dob, breeding_line, genotype, responsible_person, stock_category, status, last_updated
-     FROM mice_stock 
-     WHERE asu_id = '", asu_id, "'"
+    "SELECT asu_id, animal_id, gender, dob, breeding_line, genotype, responsible_person, stock_category, status, last_updated, notes\n     FROM mice_stock \n     WHERE asu_id = '", asu_id, "'"
   )
   
   mouse_details <- tryCatch({
@@ -207,6 +205,16 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
           strong("Stock Category:"), ifelse(is.na(mouse_info$stock_category), "N/A", mouse_info$stock_category), br(),
           strong("Last Updated:"), ifelse(is.na(mouse_info$last_updated) || mouse_info$last_updated == "", "N/A", mouse_info$last_updated)
         )
+      ),
+      # Notes Section
+      div(
+        style = "margin: 10px 0 20px 0; padding: 10px; background: #f8f9fa; border-left: 4px solid #1976d2; border-radius: 6px; color: #333;",
+        h4("Notes", style = "font-size: 1.1em; color: #1976d2; margin-bottom: 6px;"),
+        if (!is.null(mouse_info$notes) && !is.na(mouse_info$notes) && mouse_info$notes != "") {
+          div(style = "white-space: pre-line; font-size: 1em;", mouse_info$notes)
+        } else {
+          div(style = "color: #888; font-size: 0.95em; font-style: italic;", "No notes for this mouse.")
+        }
       )
     ),
     

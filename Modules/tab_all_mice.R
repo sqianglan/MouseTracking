@@ -49,7 +49,7 @@ all_mice_tab_ui <- function() {
           style = "background: white; border-radius: 8px; padding: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);",
           div(
             class = "action-buttons",
-            style = "margin-bottom: 10px;",
+            style = "margin-bottom: 10px; display: flex; align-items: center;",
             actionButton("clear_search_btn", "🗑️ Clear Search", 
                         style = "background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%); color: white; border: none; padding: 5px 10px; font-size: 11px; border-radius: 6px;"),
             actionButton("clear_selection_btn", "🔲 Clear Selection", 
@@ -57,7 +57,25 @@ all_mice_tab_ui <- function() {
             actionButton("bulk_edit_btn", "✏️ Edit Selected", 
                         style = "background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; border: none; padding: 5px 10px; font-size: 11px; border-radius: 6px;"),
             add_plugging_modal_ui("add_plugging_modal_all_mice"),
-            uiOutput("bulk_delete_btn_ui")
+            uiOutput("bulk_delete_btn_ui"),
+            div(
+              style = "margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px;",
+              span(
+                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 10px;",
+                span(class = "status-indicator status-free", style = "background-color: #4CAF50; width: 12px; height: 12px; display: inline-block; border-radius: 50%; margin-right: 0px;"),
+                "Free"
+              ),
+              span(
+                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 10px;",
+                span(class = "status-indicator status-busy", style = "background-color: #FF9800; width: 12px; height: 12px; display: inline-block; border-radius: 50%;margin-right: 0px;"),
+                "Busy"
+              ),
+              span(
+                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 10px;",
+                span(class = "status-indicator status-deceased", style = "background-color: #F44336; width: 12px; height: 12px; display: inline-block; border-radius: 50%; margin-right: 0px;"),
+                "Deceased (Not shown in the default view)"
+              )
+            )
           ),
           div(
             style = "margin-bottom: 6px; padding: 5px 8px; background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); border-radius: 6px; border-left: 4px solid #2196f3; font-size: 11px;",
@@ -212,7 +230,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     }
     
     # Select columns including timestamps
-    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
+    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "notes")]
     
     # Calculate age in weeks
     display_data$age_weeks <- floor(as.numeric(Sys.Date() - as.Date(data$dob)) / 7) 
@@ -237,7 +255,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     })
     
     # Reorder columns for display (replace asu_id with asu_id_with_light, exclude dob and last_updated)
-    col_order <- c("asu_id_with_light", "animal_id", "gender", "age_weeks", "breeding_line", "genotype", "responsible_person", "stock_category", "status")
+    col_order <- c("asu_id_with_light", "animal_id", "gender", "age_weeks", "breeding_line", "genotype", "responsible_person", "notes")
     display_data <- display_data[, col_order]
     
     # Format dates
@@ -250,6 +268,13 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       display_data$last_updated <- sapply(display_data$last_updated, format_timestamp)
     }
     
+    # Truncate Notes to one row with ellipsis for display
+    display_data$notes <- sapply(display_data$notes, function(note) {
+      if (is.na(note) || note == "") return("")
+      # Limit to 80 characters, add ellipsis if longer
+      if (nchar(note) > 100) paste0(substr(note, 1, 95), "...") else note
+    })
+    
     colnames(display_data) <- c(
       "ASU ID",
       "Animal ID", 
@@ -258,9 +283,11 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       "Breeding Line",
       "Genotype",
       "Responsible Person",
-      "Stock Category",
-      "Status"
+      "Notes"
     )
+    
+    # Find the index of the Notes column (last column)
+    notes_col_index <- ncol(display_data) - 1  # 0-based for JS
     
     # Enhanced DataTable with better styling and functionality
     DT::datatable(
@@ -270,8 +297,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         scrollX = TRUE,
         dom = '<"top"lf>rt<"bottom"ip><"clear">',
         columnDefs = list(
-          list(width = '120px', targets = 0),  # ASU ID column - give it more width
-          list(width = '80px', targets = 3)    # Age column - make it smaller
+          list(width = '75px', targets = 0),  # ASU ID column - 10% less (was 120px)
+          list(width = '40px', targets = 3),   # Age column - 50% less (was 80px)
+          list(width = '400px', targets = notes_col_index)  # Notes column - extra width
         ),
         language = list(
           search = "🔍 Search:",
@@ -411,7 +439,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       return()
     }
     # Get the displayed table as shown to the user (with only columns that exist in data)
-    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
+    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "notes")]
     selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
     
     # Get complete data for selected animals from database to ensure all columns are available
@@ -528,7 +556,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       return()
     }
     # Get the displayed table as shown to the user (with only columns that exist in data)
-    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status")]
+    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "notes")]
     selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
     
     # Get complete data for selected animals from database to ensure all columns are available
