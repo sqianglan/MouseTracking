@@ -1,8 +1,10 @@
 # audit_trail.R - Enhanced audit trail system for Mouse Management System
 
-library(DBI)
-library(RSQLite)
-library(jsonlite)
+suppressPackageStartupMessages({
+  library(DBI)
+  library(RSQLite)
+  library(jsonlite)
+})
 
 # Enhanced audit trail table structure
 create_enhanced_audit_trail_table <- function(db_path = DB_PATH) {

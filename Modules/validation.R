@@ -1,7 +1,9 @@
 # validation.R - Comprehensive data validation for Mouse Management System
 
-library(stringr)
-library(lubridate)
+suppressPackageStartupMessages({
+  library(stringr)
+  library(lubridate)
+})
 
 
 

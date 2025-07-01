@@ -1,11 +1,13 @@
 # Optimized Plugging Tab Module
 # This module provides comprehensive plugging event management with improved performance
 
-library(shiny)
-library(DBI)
-library(RSQLite)
-library(DT)
-library(jsonlite)
+suppressPackageStartupMessages({
+  library(shiny)
+  library(DBI)
+  library(RSQLite)
+  library(DT)
+  library(jsonlite)
+})
 
 # Source the new modal module
 source("Modules/modal_add_plugging_event.R")
@@ -583,15 +585,20 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       
       # Show edit modal
       showModal(modalDialog(
-        title = paste("Edit Plugging Event (", row$female_id, ")"),
+        title = paste("Edit Plugging Event - Female: ", row$female_id),
         size = "l",
         tagList(
-          fluidRow(
-            column(6, selectInput("edit_plugging_male", "Male", choices = male_choices, selected = row$male_id)),
-            column(6, selectInput("edit_plugging_female1", "Female 1", choices = female_choices, selected = row$female_id))
+          div(
+            style = "background-color: #e3f2fd; border-left: 4px solid #2196f3; padding: 10px; margin-bottom: 15px; border-radius: 4px;",
+            tags$strong("Note: "), 
+            "This edit modal is for the specific plugging event with female ", tags$code(row$female_id), 
+            ". For trio mating, each female has a separate plugging record."
           ),
           fluidRow(
-            column(6, selectInput("edit_plugging_female2", "Female 2 - Optional", choices = c("Optional" = "", female_choices), selected = if(row$female_id != "" && row$female_id != "Optional") row$female_id else "Optional")),
+            column(6, selectInput("edit_plugging_male", "Male", choices = male_choices, selected = row$male_id)),
+            column(6, selectInput("edit_plugging_female", "Female", choices = female_choices, selected = row$female_id))
+          ),
+          fluidRow(
             column(6, dateInput("edit_pairing_start_date", "Pairing Start Date", 
                                 value = if(!is.na(row$pairing_start_date) && row$pairing_start_date != "") as.Date(row$pairing_start_date) else Sys.Date())),
             column(6, dateInput("edit_pairing_end_date", "Pairing End Date", 
@@ -638,12 +645,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       return()
     }
     
-    if (is.null(input$edit_plugging_female1) || input$edit_plugging_female1 == "") {
+    if (is.null(input$edit_plugging_female) || input$edit_plugging_female == "") {
       showNotification("Please select a female", type = "error")
       return()
     }
     
-    if (input$edit_plugging_male == input$edit_plugging_female1) {
+    if (input$edit_plugging_male == input$edit_plugging_female) {
       showNotification("Male and female cannot be the same mouse", type = "error")
       return()
     }
@@ -681,7 +688,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
          WHERE id = ?",
         params = list(
           input$edit_plugging_male,
-          input$edit_plugging_female1,
+          input$edit_plugging_female,
           as.character(input$edit_pairing_start_date),
           as.character(input$edit_pairing_end_date),
           plug_observed_date_value,
@@ -700,7 +707,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           old_values,
           list(
             male_id = input$edit_plugging_male,
-            female_id = input$edit_plugging_female1,
+            female_id = input$edit_plugging_female,
             pairing_start_date = as.character(input$edit_pairing_start_date),
             pairing_end_date = as.character(input$edit_pairing_end_date),
             plug_observed_date = plug_observed_date_value,

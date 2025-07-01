@@ -1,13 +1,15 @@
 # Modules/tab_calendar_events.R
 # Modern Calendar UI for plugging events with enhanced UX
 
-library(shiny)
-library(ggplot2)
-library(DBI)
-library(RSQLite)
-library(ggsci)
-library(dplyr)
-library(lubridate)
+suppressPackageStartupMessages({
+  library(shiny)
+  library(ggplot2)
+  library(DBI)
+  library(RSQLite)
+  library(ggsci)
+  library(dplyr)
+  library(lubridate)
+})
 
 # Modern UI for the plugging calendar modal
 plugging_calendar_modal_ui <- function(id) {

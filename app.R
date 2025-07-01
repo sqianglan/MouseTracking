@@ -7,12 +7,16 @@
 #    https://shiny.posit.co/
 #
 rm(list=ls())
-library(shiny)
-library(shinyFiles)
-library(tidyverse)
-library(DT)
-library(calendR)
-library(ggsci)
+
+# Suppress package loading messages
+suppressPackageStartupMessages({
+  library(shiny)
+  library(shinyFiles)
+  library(tidyverse)
+  library(DT)
+  library(calendR)
+  library(ggsci)
+})
 
 # --- Module sourcing for development ---
 # NOTE: For hot-reloading during development, source() calls are moved inside the server function below.

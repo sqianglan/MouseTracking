@@ -1,7 +1,9 @@
 # db_check.R
-library(DBI)
-library(RSQLite)
-library(stringr)
+suppressPackageStartupMessages({
+  library(DBI)
+  library(RSQLite)
+  library(stringr)
+})
 
 # Set default database path and name
 if (Sys.getenv("MOUSE_DB_DIR") != "") {
