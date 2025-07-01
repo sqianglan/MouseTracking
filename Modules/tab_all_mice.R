@@ -633,6 +633,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     # Build update queries for each selected animal
     update_count <- 0
     record_ids <- c()
+    all_changes_summary <- list()  # Track all changes for bulk audit
     
     # Create a new connection for the update operations
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
@@ -640,8 +641,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     for (i in 1:nrow(selected_data)) {
       asu_id <- selected_data$asu_id[i]
       update_fields <- c()
-      old_values <- list()
-      new_values <- list()
+      record_old_values <- list()  # Per-record old values
+      record_new_values <- list()  # Per-record new values
       
       # Check each field and add to update if it has actually changed
       # Gender
@@ -649,8 +650,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_gender <- ifelse(is.null(input$bulk_edit_gender), "", input$bulk_edit_gender)
       if (form_gender != "" && form_gender != current_gender) {
         update_fields <- c(update_fields, paste0("gender = '", form_gender, "'"))
-        old_values$gender <- current_gender
-        new_values$gender <- form_gender
+        record_old_values$gender <- current_gender
+        record_new_values$gender <- form_gender
       }
       
       # Status
@@ -658,8 +659,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_status <- ifelse(is.null(input$bulk_edit_status), "", input$bulk_edit_status)
       if (form_status != "" && form_status != current_status) {
         update_fields <- c(update_fields, paste0("status = '", form_status, "'"))
-        old_values$status <- current_status
-        new_values$status <- form_status
+        record_old_values$status <- current_status
+        record_new_values$status <- form_status
       }
       
       # Breeding Line
@@ -667,8 +668,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_breeding_line <- ifelse(is.null(input$bulk_edit_breeding_line), "", input$bulk_edit_breeding_line)
       if (form_breeding_line != "" && form_breeding_line != current_breeding_line) {
         update_fields <- c(update_fields, paste0("breeding_line = '", form_breeding_line, "'"))
-        old_values$breeding_line <- current_breeding_line
-        new_values$breeding_line <- form_breeding_line
+        record_old_values$breeding_line <- current_breeding_line
+        record_new_values$breeding_line <- form_breeding_line
       }
       
       # Genotype
@@ -676,8 +677,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_genotype <- ifelse(is.null(input$bulk_edit_genotype), "", input$bulk_edit_genotype)
       if (form_genotype != "" && form_genotype != current_genotype) {
         update_fields <- c(update_fields, paste0("genotype = '", form_genotype, "'"))
-        old_values$genotype <- current_genotype
-        new_values$genotype <- form_genotype
+        record_old_values$genotype <- current_genotype
+        record_new_values$genotype <- form_genotype
       }
       
       # Responsible Person
@@ -685,8 +686,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_responsible_person <- ifelse(is.null(input$bulk_edit_responsible_person), "", input$bulk_edit_responsible_person)
       if (form_responsible_person != "" && form_responsible_person != current_responsible_person) {
         update_fields <- c(update_fields, paste0("responsible_person = '", form_responsible_person, "'"))
-        old_values$responsible_person <- current_responsible_person
-        new_values$responsible_person <- form_responsible_person
+        record_old_values$responsible_person <- current_responsible_person
+        record_new_values$responsible_person <- form_responsible_person
       }
       
       # Protocol
@@ -694,8 +695,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_protocol <- ifelse(is.null(input$bulk_edit_protocol), "", input$bulk_edit_protocol)
       if (form_protocol != "" && form_protocol != current_protocol) {
         update_fields <- c(update_fields, paste0("protocol = '", form_protocol, "'"))
-        old_values$protocol <- current_protocol
-        new_values$protocol <- form_protocol
+        record_old_values$protocol <- current_protocol
+        record_new_values$protocol <- form_protocol
       }
       
       # Study Plan
@@ -703,8 +704,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_study_plan <- ifelse(is.null(input$bulk_edit_study_plan), "", input$bulk_edit_study_plan)
       if (form_study_plan != "" && form_study_plan != current_study_plan) {
         update_fields <- c(update_fields, paste0("study_plan = '", form_study_plan, "'"))
-        old_values$study_plan <- current_study_plan
-        new_values$study_plan <- form_study_plan
+        record_old_values$study_plan <- current_study_plan
+        record_new_values$study_plan <- form_study_plan
       }
       
       # Project Code
@@ -712,8 +713,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_project_code <- ifelse(is.null(input$bulk_edit_project_code), "", input$bulk_edit_project_code)
       if (form_project_code != "" && form_project_code != current_project_code) {
         update_fields <- c(update_fields, paste0("project_code = '", form_project_code, "'"))
-        old_values$project_code <- current_project_code
-        new_values$project_code <- form_project_code
+        record_old_values$project_code <- current_project_code
+        record_new_values$project_code <- form_project_code
       }
       
       # Stock Category
@@ -721,8 +722,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       form_stock_category <- ifelse(is.null(input$bulk_edit_stock_category), "", input$bulk_edit_stock_category)
       if (form_stock_category != "" && form_stock_category != current_stock_category) {
         update_fields <- c(update_fields, paste0("stock_category = '", form_stock_category, "'"))
-        old_values$stock_category <- current_stock_category
-        new_values$stock_category <- form_stock_category
+        record_old_values$stock_category <- current_stock_category
+        record_new_values$stock_category <- form_stock_category
       }
       
       # Add last_updated timestamp
@@ -736,10 +737,75 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
           record_ids <- c(record_ids, asu_id)
           
           # Log individual field changes for detailed audit trail
-          for (field_name in names(new_values)) {
-            log_field_change(con, TABLE_NAME, asu_id, field_name, 
-                           old_values[[field_name]], new_values[[field_name]], 
-                           user = 'system', operation_details = "Bulk edit via UI")
+          for (field_name in names(record_new_values)) {
+            old_val <- record_old_values[[field_name]]
+            new_val <- record_new_values[[field_name]]
+            
+            # Ensure we have single values, not lists or vectors
+            if (is.list(old_val) || length(old_val) > 1) {
+              old_val <- paste(as.character(old_val), collapse = ", ")
+            } else {
+              old_val <- as.character(old_val)
+            }
+            
+            if (is.list(new_val) || length(new_val) > 1) {
+              new_val <- paste(as.character(new_val), collapse = ", ")
+            } else {
+              new_val <- as.character(new_val)
+            }
+            
+            # Ensure we have single character values
+            if (length(old_val) == 0) old_val <- ""
+            if (length(new_val) == 0) new_val <- ""
+            
+            # Ensure all values are single characters
+            old_val <- as.character(old_val)[1]
+            new_val <- as.character(new_val)[1]
+            
+            # Skip logging if values are the same
+            if (old_val == new_val) next
+            
+            # Use direct SQL insert for field-level audit logging
+            tryCatch({
+              dbExecute(con, 
+                "INSERT INTO audit_trail (table_name, record_id, action, field_name, old_value, new_value, timestamp, user_id, operation_details) 
+                 VALUES (?, ?, 'UPDATE', ?, ?, ?, DATETIME('now'), ?, ?)",
+                params = list(
+                  TABLE_NAME,
+                  asu_id,
+                  field_name,
+                  old_val,
+                  new_val,
+                  'system',
+                  "Bulk edit via UI"
+                )
+              )
+            }, error = function(e) {
+              cat("Field-level audit logging failed:", e$message, "\n")
+            })
+          }
+          
+          # Add to summary for bulk audit
+          for (field_name in names(record_new_values)) {
+            if (!field_name %in% names(all_changes_summary)) {
+              old_summary <- record_old_values[[field_name]]
+              new_summary <- record_new_values[[field_name]]
+              
+              # Ensure single values for summary
+              if (is.list(old_summary) || length(old_summary) > 1) {
+                old_summary <- paste(as.character(old_summary), collapse = ", ")
+              } else {
+                old_summary <- as.character(old_summary)
+              }
+              
+              if (is.list(new_summary) || length(new_summary) > 1) {
+                new_summary <- paste(as.character(new_summary), collapse = ", ")
+              } else {
+                new_summary <- as.character(new_summary)
+              }
+              
+              all_changes_summary[[field_name]] <- paste0("Changed from '", old_summary, "' to '", new_summary, "'")
+            }
           }
         }, error = function(e) {
           warning(paste("Error updating", asu_id, ":", e$message))
@@ -747,11 +813,30 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       }
     }
     
-    # Log bulk operation summary
+    # Log bulk operation summary - use a simpler approach
     if (length(record_ids) > 0) {
-      log_bulk_audit_action(con, TABLE_NAME, "UPDATE", record_ids, 
-                           list(old = old_values, new = new_values), 
-                           user = 'system', operation_details = "Bulk edit operation")
+      # Convert summary to a simple string for the audit log
+      summary_text <- if (length(all_changes_summary) > 0) {
+        paste(names(all_changes_summary), ":", unlist(all_changes_summary), collapse = "; ")
+      } else {
+        "Bulk edit operation completed"
+      }
+      
+      # Log a simple bulk operation record instead of using the complex function
+      tryCatch({
+        dbExecute(con, 
+          "INSERT INTO audit_trail (table_name, record_id, action, operation_details, timestamp, user_id) 
+           VALUES (?, 'BULK_OPERATION', ?, ?, DATETIME('now'), ?)",
+          params = list(
+            TABLE_NAME,
+            "BULK_UPDATE",
+            summary_text,
+            'system'
+          )
+        )
+      }, error = function(e) {
+        cat("Bulk audit logging failed:", e$message, "\n")
+      })
     }
     
     DBI::dbDisconnect(con)
