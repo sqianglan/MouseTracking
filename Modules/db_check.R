@@ -208,7 +208,7 @@ add_plugging_tables <- function() {
     "pairing_start_date DATE,",
     "pairing_end_date DATE,",
     "plug_observed_date TEXT,",
-    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)', 'Surprising Plug!!')),",
+    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)', 'Surprising Plug!!', 'Collected')),",
     "notes TEXT,",
     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
     "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
@@ -235,6 +235,7 @@ add_plugging_tables <- function() {
   dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Not Observed (Waiting for confirmation)' WHERE plugging_status = 'Not Plugged'")
   dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Ongoing' WHERE plugging_status IS NULL")
   dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Empty' WHERE plugging_status = ''")
+  dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Collected' WHERE plugging_status = 'Collected'")
   
   # Update the CHECK constraint for plugging_status to include the new status
   tryCatch({
@@ -253,7 +254,7 @@ add_plugging_tables <- function() {
       "pairing_start_date DATE,",
       "pairing_end_date DATE,",
       "plug_observed_date TEXT,",
-      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)', 'Surprising Plug!!')),",
+      "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)', 'Surprising Plug!!', 'Collected')),",
       "notes TEXT,",
       "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
       "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",

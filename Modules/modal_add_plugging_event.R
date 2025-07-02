@@ -488,7 +488,7 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
         removeModal()
         
         # Small delay to ensure database changes are committed
-        Sys.sleep(0.5)
+        Sys.sleep(1)
         
         # Run auto-update function
         auto_update_plugging_status_to_unknown()

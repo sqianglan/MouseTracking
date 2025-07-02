@@ -439,6 +439,7 @@ get_plugging_modification_history <- function(plugging_id, db_path = DB_PATH, li
         formatted_time = character(0),
         old_values_parsed = character(0),
         new_values_parsed = character(0),
+        source_event_id = character(0),
         stringsAsFactors = FALSE
       ))
     }
@@ -446,11 +447,46 @@ get_plugging_modification_history <- function(plugging_id, db_path = DB_PATH, li
     female_id <- female_id$female_id[1]
     
     # Get audit trail records for both plugging_history and mice_stock (for the female mouse)
+    # Include all plugging_history records for this ID, and mice_stock records with matching source_event_id
     history <- DBI::dbGetQuery(con, 
-      "SELECT * FROM audit_trail WHERE (table_name = 'plugging_history' AND record_id = ?) OR (table_name = 'mice_stock' AND record_id = ?) ORDER BY timestamp DESC LIMIT ?", 
+      "SELECT * FROM audit_trail WHERE 
+        (table_name = 'plugging_history' AND record_id = ?) OR 
+        (table_name = 'mice_stock' AND record_id = ? AND new_values LIKE '%\"source\":\"Plugging Tab\"%')
+       ORDER BY timestamp DESC LIMIT ?", 
       params = list(plugging_id, female_id, limit))
     
     if (nrow(history) > 0) {
+      # Extract source_event_id from mice_stock entries and add it to the data frame
+      history$source_event_id <- sapply(seq_len(nrow(history)), function(i) {
+        if (history$table_name[i] == "mice_stock") {
+          new_vals <- tryCatch({
+            if (!is.null(history$new_values[i]) && history$new_values[i] != "" && !is.na(history$new_values[i])) {
+              jsonlite::fromJSON(history$new_values[i])
+            } else {
+              list()
+            }
+          }, error = function(e) list())
+          
+          if (!is.null(new_vals$source_event_id)) {
+            as.character(new_vals$source_event_id)
+          } else {
+            NA_character_
+          }
+        } else {
+          # For plugging_history entries, use the record_id as source_event_id
+          as.character(history$record_id[i])
+        }
+      })
+      
+      # Filter: Only include plugging_history records, or mice_stock records with source == 'Plugging Tab' and matching source_event_id
+      history <- history[
+        history$table_name == 'plugging_history' |
+          (history$table_name == 'mice_stock' & 
+           grepl('"source":"Plugging Tab"', history$new_values, fixed = TRUE) &
+           history$source_event_id == as.character(plugging_id)),
+        , drop = FALSE
+      ]
+      
       # Get timezone
       tz <- tryCatch({
         if (exists('user_timezone', envir = .GlobalEnv)) {
@@ -546,7 +582,135 @@ get_plugging_modification_history <- function(plugging_id, db_path = DB_PATH, li
       formatted_time = character(0),
       old_values_parsed = character(0),
       new_values_parsed = character(0),
+      source_event_id = character(0),
       stringsAsFactors = FALSE
     )
+  })
+}
+
+# Function to get plugging status summary for display in the UI
+get_plugging_status_summary <- function(plugging_id, db_path = DB_PATH) {
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  tryCatch({
+    # Get the plugging record
+    plugging_record <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+    
+    if (nrow(plugging_record) == 0) {
+      return(list(
+        current_status = "Unknown",
+        status_label = "Unknown",
+        has_euthanasia = FALSE,
+        last_modified = NA
+      ))
+    }
+    
+    female_id <- plugging_record$female_id[1]
+    
+    # Get audit trail records for both plugging_history and mice_stock
+    # Include all plugging_history records for this ID, and mice_stock records with matching source_event_id
+    history <- DBI::dbGetQuery(con, 
+      "SELECT * FROM audit_trail WHERE 
+        (table_name = 'plugging_history' AND record_id = ?) OR 
+        (table_name = 'mice_stock' AND record_id = ? AND new_values LIKE '%\"source\":\"Plugging Tab\"%')
+       ORDER BY timestamp DESC", 
+      params = list(plugging_id, female_id))
+    
+    if (nrow(history) == 0) {
+      return(list(
+        current_status = plugging_record$status[1],
+        status_label = plugging_record$status[1],
+        has_euthanasia = FALSE,
+        last_modified = NA
+      ))
+    }
+    
+    # Extract source_event_id from mice_stock entries
+    history$source_event_id <- sapply(seq_len(nrow(history)), function(i) {
+      if (history$table_name[i] == "mice_stock") {
+        new_vals <- tryCatch({
+          if (!is.null(history$new_values[i]) && history$new_values[i] != "" && !is.na(history$new_values[i])) {
+            jsonlite::fromJSON(history$new_values[i])
+          } else {
+            list()
+          }
+        }, error = function(e) list())
+        
+        if (!is.null(new_vals$source_event_id)) {
+          as.character(new_vals$source_event_id)
+        } else {
+          NA_character_
+        }
+      } else {
+        # For plugging_history entries, use the record_id as source_event_id
+        as.character(history$record_id[i])
+      }
+    })
+    
+    # Filter: Only include plugging_history records, or mice_stock records with source == 'Plugging Tab' and matching source_event_id
+    history <- history[
+      history$table_name == 'plugging_history' |
+        (history$table_name == 'mice_stock' & 
+         grepl('"source":"Plugging Tab"', history$new_values, fixed = TRUE) &
+         history$source_event_id == as.character(plugging_id)),
+      , drop = FALSE
+    ]
+    
+    if (nrow(history) == 0) {
+      return(list(
+        current_status = plugging_record$status[1],
+        status_label = plugging_record$status[1],
+        has_euthanasia = FALSE,
+        last_modified = NA
+      ))
+    }
+    
+    # Check if any mice_stock entries in this plugging event show euthanasia
+    euthanasia_found <- any(sapply(history$new_values, function(new_val) {
+      if (new_val != "" && !is.na(new_val)) {
+        tryCatch({
+          parsed <- jsonlite::fromJSON(new_val)
+          return(!is.null(parsed$status) && parsed$status == "Deceased")
+        }, error = function(e) FALSE)
+      } else {
+        FALSE
+      }
+    }))
+    
+    # Get current status from the plugging record
+    current_status <- plugging_record$status[1]
+    
+    # Create status label
+    if (current_status == "Empty" && euthanasia_found) {
+      status_label <- "Empty (Euthanized)"
+    } else if (current_status == "Empty") {
+      status_label <- "Empty (Alive)"
+    } else {
+      status_label <- current_status
+    }
+    
+    # Get the most recent timestamp
+    last_modified <- if (nrow(history) > 0) {
+      max(history$timestamp)
+    } else {
+      NA
+    }
+    
+    return(list(
+      current_status = current_status,
+      status_label = status_label,
+      has_euthanasia = euthanasia_found,
+      last_modified = last_modified
+    ))
+    
+  }, error = function(e) {
+    cat("Error in get_plugging_status_summary:", e$message, "\n")
+    return(list(
+      current_status = "Error",
+      status_label = "Error",
+      has_euthanasia = FALSE,
+      last_modified = NA
+    ))
   })
 } 

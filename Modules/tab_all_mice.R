@@ -1247,7 +1247,11 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       )
       
       # Define active plugging statuses
-      active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
+      if (mouse_info$gender == "Male") {
+        active_plugging_statuses <- c("Ongoing")
+      } else {
+        active_plugging_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
+      }
       active_plugging_count <- sum(plugging_check$all_statuses %in% active_plugging_statuses)
       
       # Check for warnings based on gender

@@ -52,10 +52,9 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
   
   # Get plugging history where this mouse is involved
   plugging_query <- paste0(
-    "SELECT * FROM plugging_history 
-     WHERE (male_id = '", asu_id, "' OR female_id = '", asu_id, "')
-     AND plugging_status != 'Deleted'
-     ORDER BY pairing_start_date DESC"
+    "SELECT * FROM plugging_history \
+     WHERE (male_id = '", asu_id, "' OR female_id = '", asu_id, "')\
+     AND plugging_status != 'Deleted'"
   )
   
   plugging_history <- tryCatch({
@@ -63,6 +62,17 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
   }, error = function(e) {
     data.frame()
   })
+  
+  # Sort plugging_history by updated_at (or last_updated/created_at) descending
+  if (nrow(plugging_history) > 0) {
+    if ("updated_at" %in% colnames(plugging_history)) {
+      plugging_history <- plugging_history[order(as.POSIXct(plugging_history$updated_at, tz = "UTC"), decreasing = TRUE), ]
+    } else if ("last_updated" %in% colnames(plugging_history)) {
+      plugging_history <- plugging_history[order(as.POSIXct(plugging_history$last_updated, tz = "UTC"), decreasing = TRUE), ]
+    } else if ("created_at" %in% colnames(plugging_history)) {
+      plugging_history <- plugging_history[order(as.POSIXct(plugging_history$created_at, tz = "UTC"), decreasing = TRUE), ]
+    }
+  }
   
   DBI::dbDisconnect(con)
   
@@ -127,10 +137,40 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
   # Create plugging history table HTML
   plugging_table_html <- ""
   if (nrow(plugging_history) > 0) {
-    # Format plugging history for display (removed plugging_id and cage)
+    # Create simplified summary classification
+    summary_classification <- sapply(plugging_history$plugging_status, function(status) {
+      if (status == "Collected") {
+        "Success"
+      } else if (status == "Empty" || status == "Not Pregnant (Confirmed)" || status == "Not Pregnant") {
+        "Failed"
+      } else {
+        "Pending"
+      }
+    })
+    
+    # Compute summary counts
+    summary_counts <- table(factor(summary_classification, levels = c("Success", "Failed", "Pending")))
+    
+    # Create summary bar
+    summary_bar <- div(
+      style = "display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 1.1em; align-items: center; width: 100%;",
+      div(style = "background: #e8f5e9; border-radius: 10px; flex: 1; margin: 0 8px; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 1px 4px #388e3c22; border: 2px solid #388e3c;",
+        span(style = "font-weight: bold; color: #388e3c; font-size: 1.2em;", summary_counts[["Success"]]),
+        span(style = "color: #388e3c; font-size: 0.95em;", "Success")
+      ),
+      div(style = "background: #ffebee; border-radius: 10px; flex: 1; margin: 0 8px; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 1px 4px #d32f2f22; border: 2px solid #d32f2f;",
+        span(style = "font-weight: bold; color: #d32f2f; font-size: 1.2em;", summary_counts[["Failed"]]),
+        span(style = "color: #d32f2f; font-size: 0.95em;", "Failed")
+      ),
+      div(style = "background: #fffde7; border-radius: 10px; flex: 1; margin: 0 8px; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 1px 4px #ff980022; border: 2px solid #ff9800;",
+        span(style = "font-weight: bold; color: #ff9800; font-size: 1.2em;", summary_counts[["Pending"]]),
+        span(style = "color: #ff9800; font-size: 0.95em;", "Pending")
+      )
+    )
+    
     display_plugging <- plugging_history[, c("male_id", "female_id", "pairing_start_date", "pairing_end_date", "plug_observed_date", "plugging_status")]
     colnames(display_plugging) <- c("Male", "Female", "Pairing Start", "Pairing End", "Plug Date", "Status")
-    
+
     # Format dates
     display_plugging$`Pairing Start` <- sapply(display_plugging$`Pairing Start`, function(date) {
       if (is.na(date) || date == "" || date == "Unknown") {
@@ -239,6 +279,9 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     div(
       style = "margin-bottom: 20px;",
       h4("Plugging History", style = "color: #ff9800; border-bottom: 2px solid #ff9800; padding-bottom: 5px;"),
+      if (nrow(plugging_history) > 0) {
+        summary_bar
+      },
       if (nrow(plugging_history) > 0) {
         div(
           style = "overflow-x: auto;",
