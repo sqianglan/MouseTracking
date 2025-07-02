@@ -456,33 +456,35 @@ get_plugging_modification_history <- function(plugging_id, db_path = DB_PATH, li
       params = list(plugging_id, female_id, limit))
     
     if (nrow(history) > 0) {
-      # Extract source_event_id from mice_stock entries and add it to the data frame
-      history$source_event_id <- sapply(seq_len(nrow(history)), function(i) {
-        if (history$table_name[i] == "mice_stock") {
-          new_vals <- tryCatch({
-            if (!is.null(history$new_values[i]) && history$new_values[i] != "" && !is.na(history$new_values[i])) {
-              jsonlite::fromJSON(history$new_values[i])
-            } else {
-              list()
-            }
-          }, error = function(e) list())
-          
-          if (!is.null(new_vals$source_event_id)) {
-            as.character(new_vals$source_event_id)
+          # Extract source_event_id from mice_stock entries and add it to the data frame
+    history$source_event_id <- sapply(seq_len(nrow(history)), function(i) {
+      if (history$table_name[i] == "mice_stock") {
+        new_vals <- tryCatch({
+          if (!is.null(history$new_values[i]) && history$new_values[i] != "" && !is.na(history$new_values[i])) {
+            jsonlite::fromJSON(history$new_values[i])
           } else {
-            NA_character_
+            list()
           }
+        }, error = function(e) list())
+        
+        if (!is.null(new_vals$source_event_id)) {
+          as.character(new_vals$source_event_id)
         } else {
-          # For plugging_history entries, use the record_id as source_event_id
-          as.character(history$record_id[i])
+          NA_character_
         }
-      })
-      
-      # Filter: Only include plugging_history records, or mice_stock records with source == 'Plugging Tab' and matching source_event_id
+      } else {
+        # For plugging_history entries, use the record_id as source_event_id
+        as.character(history$record_id[i])
+      }
+        })
+    
+    # Filter: Only include plugging_history records, or mice_stock records with source == 'Plugging Tab' and matching source_event_id
+      # Handle NA values in source_event_id to prevent "missing value where TRUE/FALSE needed" error
       history <- history[
         history$table_name == 'plugging_history' |
           (history$table_name == 'mice_stock' & 
            grepl('"source":"Plugging Tab"', history$new_values, fixed = TRUE) &
+           !is.na(history$source_event_id) & 
            history$source_event_id == as.character(plugging_id)),
         , drop = FALSE
       ]
@@ -649,10 +651,12 @@ get_plugging_status_summary <- function(plugging_id, db_path = DB_PATH) {
     })
     
     # Filter: Only include plugging_history records, or mice_stock records with source == 'Plugging Tab' and matching source_event_id
+    # Handle NA values in source_event_id to prevent "missing value where TRUE/FALSE needed" error
     history <- history[
       history$table_name == 'plugging_history' |
         (history$table_name == 'mice_stock' & 
          grepl('"source":"Plugging Tab"', history$new_values, fixed = TRUE) &
+         !is.na(history$source_event_id) & 
          history$source_event_id == as.character(plugging_id)),
       , drop = FALSE
     ]

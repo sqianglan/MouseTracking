@@ -118,7 +118,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           ),
           column(6,
             dateInput(confirm_id, "Date of Confirmation", value = default_date),
-            textAreaInput(paste0(confirm_id, "_notes"), "Notes (optional)", value = default_notes, rows = 2)
+            textAreaInput(paste0(confirm_id, "_notes"), "Notes", value = default_notes, rows = 2)
           )
         ),
         div(
@@ -393,7 +393,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             
             if (!is.null(new_vals$status) && new_vals$status == "Deceased" && 
                 !is.null(new_vals$source) && new_vals$source == "Plugging Tab" &&
-                !is.null(new_vals$source_event_id) && new_vals$source_event_id == plugging_state$viewing_id) {
+                !is.null(new_vals$source_event_id) && as.character(new_vals$source_event_id) == as.character(plugging_state$viewing_id)) {
               has_euthanasia <- TRUE
               break
             }
@@ -487,12 +487,16 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       df <- data.frame(
         User = sapply(filtered, function(x) x$user),
         Date = sapply(filtered, function(x) {
-          if (!is.null(history$formatted_time)) {
-            idx <- which(history$timestamp == x$date)
-            if (length(idx) > 0) history$formatted_time[idx[1]] else as.character(x$date)
-          } else {
+          tryCatch({
+            if (!is.null(history$formatted_time)) {
+              idx <- which(history$timestamp == x$date)
+              if (length(idx) > 0) history$formatted_time[idx[1]] else as.character(x$date)
+            } else {
+              as.character(x$date)
+            }
+          }, error = function(e) {
             as.character(x$date)
-          }
+          })
         }),
         Action = sapply(filtered, function(x) x$action),
         stringsAsFactors = FALSE
@@ -825,6 +829,21 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   
   # Mark plug as observed
   observeEvent(input$mark_plug_observed_btn, {
+    plugging_id <- plugging_state$viewing_id
+    if (is.null(plugging_id)) return()
+    
+    # Get current notes for the modal
+    con <- db_connect()
+    current_notes <- ""
+    tryCatch({
+      current_record <- DBI::dbGetQuery(con, "SELECT notes FROM plugging_history WHERE id = ?", params = list(plugging_id))
+      if (nrow(current_record) > 0) {
+        current_notes <- ifelse(is.na(current_record$notes) || current_record$notes == "", "", current_record$notes)
+      }
+    }, finally = {
+      db_disconnect(con)
+    })
+    
     showModal(modalDialog(
       title = "Mark Plug as Observed",
       size = "m",
@@ -849,8 +868,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           ),
           column(6,
             div(style = "margin-bottom: 12px;",
-              tags$h5("Notes (optional)"),
-              textAreaInput("plug_observed_notes_input", NULL, value = "", rows = 5, width = "100%")
+              tags$h5("Notes"),
+              textAreaInput("plug_observed_notes_input", NULL, value = current_notes, rows = 5, width = "100%")
             ),
             div(style = "margin-top: 18px; color: #888; font-size: 0.98em;",
               tags$p("This will update the plugging status to 'Plugged' and set the plug observed date.")
@@ -996,7 +1015,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             ),
             column(6,
               dateInput("euthanasia_date_input", "Date of Death", value = Sys.Date()),
-              textAreaInput("euthanasia_notes_input", "Notes (optional)", value = "", rows = 2),
+              textAreaInput("euthanasia_notes_input", "Notes", value = ifelse(is.na(plugging$notes) || plugging$notes == "", "", plugging$notes), rows = 2),
               radioButtons("euthanasia_status_choice", "Plugging Status after Euthanasia:",
                 choices = c("Empty" = "Empty", "Sample Collected" = "Collected"),
                 selected = "Collected"
@@ -1227,6 +1246,18 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       )
     )
     
+    # Get current notes for the modal
+    con <- db_connect()
+    current_notes <- ""
+    tryCatch({
+      current_record <- DBI::dbGetQuery(con, "SELECT notes FROM plugging_history WHERE id = ?", params = list(plugging_id))
+      if (nrow(current_record) > 0) {
+        current_notes <- ifelse(is.na(current_record$notes) || current_record$notes == "", "", current_record$notes)
+      }
+    }, finally = {
+      db_disconnect(con)
+    })
+    
     # Show confirmation modal with status options
     showModal(modalDialog(
       title = paste("Update Plugging Status - Current:", current_status),
@@ -1250,6 +1281,10 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                       # See: https://github.com/rstudio/shiny/issues/2337
                       # and use shiny::HTML in UI if needed
                       )
+        ),
+        div(
+          style = "margin-bottom: 10px;",
+          textAreaInput("quick_status_notes_input", "Notes", value = current_notes, rows = 3, width = "100%")
         ),
         div(
           style = "font-size: 12px; color: #555; margin-bottom: 10px;",
@@ -1310,6 +1345,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       }
       db_disconnect(con)
       if (status == "Plugged") {
+        # Get current notes for the modal
+        current_notes <- ""
+        if (!is.null(plugging_row) && nrow(plugging_row) > 0) {
+          current_notes <- ifelse(is.na(plugging_row$notes) || plugging_row$notes == "", "", plugging_row$notes)
+        }
+        
         showModal(modalDialog(
           title = "Mark Plug as Observed",
           size = "m",
@@ -1334,8 +1375,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               ),
               column(6,
                 div(style = "margin-bottom: 12px;",
-                  tags$h5("Notes (optional)"),
-                  textAreaInput("plug_observed_notes_input", NULL, value = "", rows = 5, width = "100%")
+                  tags$h5("Notes"),
+                  textAreaInput("plug_observed_notes_input", NULL, value = current_notes, rows = 5, width = "100%")
                 ),
                 div(style = "margin-top: 18px; color: #888; font-size: 0.98em;",
                   tags$p("This will update the plugging status to 'Plugged' and set the plug observed date.")
@@ -1349,6 +1390,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           )
         ))
       } else if (status == "Surprising Plug!!") {
+        # Get current notes for the modal
+        current_notes <- ""
+        if (!is.null(plugging_row) && nrow(plugging_row) > 0) {
+          current_notes <- ifelse(is.na(plugging_row$notes) || plugging_row$notes == "", "", plugging_row$notes)
+        }
+        
         showModal(modalDialog(
           title = "Mark as Surprising Plug!!😱😮‍💨",
           size = "m",
@@ -1359,7 +1406,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               br(),
               textInput("expected_age_for_harvesting_surprising_input_quick", "Expected Age for Harvesting (Embryonic Days, e.g. 14)", value = "", width = "100%"),
               br(),
-              textAreaInput("surprising_plug_notes_input_quick", "Notes (optional)", value = "", rows = 3, width = "100%"),
+              textAreaInput("surprising_plug_notes_input_quick", "Notes", value = current_notes, rows = 3, width = "100%"),
               br(),
               tags$p("This will update the plugging status to 'Surprising Plug!!' and set the plug observed date to 'Unknown'.")
             )
@@ -1370,11 +1417,23 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           )
         ))
       } else if (status == "Empty_Alive_UI") {
+        # Get current notes for the modal
+        current_notes <- ""
+        if (!is.null(plugging_row) && nrow(plugging_row) > 0) {
+          current_notes <- ifelse(is.na(plugging_row$notes) || plugging_row$notes == "", "", plugging_row$notes)
+        }
+        
         showModal(show_empty_alive_modal(
-          female_info, female_age, Sys.Date(), "", 
+          female_info, female_age, Sys.Date(), current_notes, 
           "quick_empty_alive_date_input", "confirm_quick_empty_alive_btn"
         ))
       } else if (status %in% c("Empty", "Collected")) {
+        # Get current notes for the modal
+        current_notes <- ""
+        if (!is.null(plugging_row) && nrow(plugging_row) > 0) {
+          current_notes <- ifelse(is.na(plugging_row$notes) || plugging_row$notes == "", "", plugging_row$notes)
+        }
+        
         showModal(modalDialog(
           title = ifelse(status == "Empty", "Confirm Set Status to Empty (Euthanized)", "Confirm Sample Collected (Euthanized)"),
           size = "m",
@@ -1391,7 +1450,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               ),
               column(6,
                 dateInput("quick_euthanasia_date_input", "Date of Death", value = Sys.Date()),
-                textAreaInput("quick_euthanasia_notes_input", "Notes (optional)", value = "", rows = 2)
+                textAreaInput("quick_euthanasia_notes_input", "Notes", value = current_notes, rows = 2)
               )
             ),
             div(
@@ -1494,7 +1553,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           female_age <- floor(as.numeric(Sys.Date() - as.Date(dob)) / 7)
         }
       }
-      showModal(show_empty_alive_modal(female_info, female_age, Sys.Date(), "", "set_status_empty_date_input", "confirm_set_status_empty_btn"))
+      # Get current notes for the modal
+      current_notes <- ifelse(is.na(plugging_row$notes) || plugging_row$notes == "", "", plugging_row$notes)
+      showModal(show_empty_alive_modal(female_info, female_age, Sys.Date(), current_notes, "set_status_empty_date_input", "confirm_set_status_empty_btn"))
     }, finally = {
       db_disconnect(con)
     })
@@ -1640,6 +1701,21 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
 
   # Mark plug as Surprising Plug!!
   observeEvent(input$mark_surprising_plug_btn, {
+    plugging_id <- plugging_state$viewing_id
+    if (is.null(plugging_id)) return()
+    
+    # Get current notes for the modal
+    con <- db_connect()
+    current_notes <- ""
+    tryCatch({
+      current_record <- DBI::dbGetQuery(con, "SELECT notes FROM plugging_history WHERE id = ?", params = list(plugging_id))
+      if (nrow(current_record) > 0) {
+        current_notes <- ifelse(is.na(current_record$notes) || current_record$notes == "", "", current_record$notes)
+      }
+    }, finally = {
+      db_disconnect(con)
+    })
+    
     showModal(modalDialog(
       title = "Mark as Surprising Plug!!😱😮‍💨",
       size = "m",
@@ -1650,7 +1726,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           br(),
           textInput("expected_age_for_harvesting_surprising_input", "Expected Age for Harvesting (Embryonic Days, e.g. 14)", value = "", width = "100%"),
           br(),
-          textAreaInput("surprising_plug_notes_input", "Notes (optional)", value = "", rows = 3, width = "100%"),
+          textAreaInput("surprising_plug_notes_input", "Notes", value = current_notes, rows = 3, width = "100%"),
           br(),
           tags$p("This will update the plugging status to 'Surprising Plug!!' and set the plug observed date to 'Unknown'.")
         )
