@@ -11,8 +11,9 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     return()
   }
   
-  # Fetch additional mouse details from database (including last_updated)
+  # Use a single DB connection for all queries
   con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
   
   # Get complete mouse information including last_updated
   mouse_details_query <- paste0(
@@ -31,17 +32,13 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     mouse_info <- mouse_details[1, ]
   }
   
-  # Fetch breeding history
-  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-  
   # Get breeding history where this mouse is involved
   breeding_query <- paste0(
     "SELECT bh.*, 
             l.dob as litter_dob, l.num_pups, l.notes as litter_notes
      FROM breeding_history bh
      LEFT JOIN litter l ON bh.id = l.breeding_id
-     WHERE bh.male_id = '", asu_id, "' OR bh.female1_id = '", asu_id, "' OR bh.female2_id = '", asu_id, "'
-     ORDER BY bh.start_date DESC, l.dob DESC"
+     WHERE bh.male_id = '", asu_id, "' OR bh.female1_id = '", asu_id, "' OR bh.female2_id = '", asu_id, "'\n     ORDER BY bh.start_date DESC, l.dob DESC"
   )
   
   breeding_history <- tryCatch({
@@ -73,8 +70,6 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
       plugging_history <- plugging_history[order(as.POSIXct(plugging_history$created_at, tz = "UTC"), decreasing = TRUE), ]
     }
   }
-  
-  DBI::dbDisconnect(con)
   
   # Create breeding history table HTML
   breeding_table_html <- ""

@@ -624,9 +624,6 @@ ui <- fluidPage(
               HTML('
                 <span style="color: white; font-size: 1.1em; line-height: 1.4;">
                   This tool is designed to track mouse plugging records and summarize the current and past plugging histories, which is missing from the current webtools used by Animal Facility of the UoB. The defalut workflow for plugging procedure used in this tool is illustrated in the diagram (right).
-                  <br><br>
-                  <span style="color: white; font-size: 1.1em;">
-                  Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #1565c0; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol
                   </span>
                 </span>
               ')
