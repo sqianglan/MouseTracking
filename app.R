@@ -629,7 +629,9 @@ ui <- fluidPage(
                     This project is licensed under the BSD 3-Clause License. The source code is available in 
                     <a href="https://github.com/sqianglan/MouseTracking.git" target="_blank" style="color: white; text-decoration: underline;">GitHub.</a>
                   </span>
-                  </span>
+                  <br><br>
+                  <span style="color: white; font-size: 1em; line-height: 1.4;">
+                    This tool is still under development. Any feedback is welcome. The database is for test only, and will be rest every time opening the tool or efreshing the page.
                   </span>
                 </span>
               ')
