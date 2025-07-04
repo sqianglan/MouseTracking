@@ -624,6 +624,11 @@ ui <- fluidPage(
               HTML('
                 <span style="color: white; font-size: 1.1em; line-height: 1.4;">
                   This tool is designed to track mouse plugging records and summarize the current and past plugging histories, which is missing from the current webtools used by Animal Facility of the UoB. The defalut workflow for plugging procedure used in this tool is illustrated in the diagram (right).
+                  <br><br>
+                  <span style="color: white; font-size: 0.9em; line-height: 1.3; opacity: 0.8;">
+                    This project is licensed under the BSD 3-Clause License. The source code is available in 
+                    <a href="https://github.com/sqianglan/MouseTracking.git" target="_blank" style="color: #white; text-decoration: underline;">GitHub.</a>
+                  </span>
                   </span>
                 </span>
               ')
@@ -635,18 +640,18 @@ ui <- fluidPage(
       tabPanel("🐭⚤🐭 Plugging", plugging_tab_ui()),
     ),
     div(
-      style = "display: grid; grid-template-columns: auto 1fr auto; align-items: center; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 12px 16px; margin-top: 32px; border-radius: 0 0 8px 8px;",
+      style = "display: grid; grid-template-columns: auto 1fr auto; align-items: center; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 12px 16px; margin-top: 32px; border-radius: 0 0 8px 8px; margin-left: 0px; margin-right: 50px;",
       div(
         style = "font-size: 0.9em; color: #6c757d; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
         paste("📊 Database:", shorten_path(DB_PATH))
       ),
       div(
-        HTML('💬 Any inquiries please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #5F9EA0; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol'),
+        HTML('💬 Please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #5F9EA0; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol for any inquiries.'),
         style = "text-align: center; font-size: 0.85em; color: #6c757d;"
       ),
       div(
         style = "font-size: 0.8em; color: #6c757d; font-style: italic; text-align: right;",
-        "Copyright (c) 2025 Qiang Lan. All rights reserved."
+        "Copyright (c) 2025 Qiang Lan"
       )
     )
   )
