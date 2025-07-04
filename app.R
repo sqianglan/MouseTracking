@@ -631,7 +631,9 @@ ui <- fluidPage(
                   </span>
                   <br><br>
                   <span style="color: white; font-size: 1em; line-height: 1.4;">
-                    This tool is still under development. Any feedback is welcome. The database is for test only, and will be rest every time opening the tool or efreshing the page.
+                    This tool is still under development. Any feedback is welcome.
+                    <br>
+                    The database is for test only, and will be reset every time opening the tool or refreshing the page.
                   </span>
                 </span>
               ')
