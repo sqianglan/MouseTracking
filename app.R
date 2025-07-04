@@ -625,9 +625,10 @@ ui <- fluidPage(
                 <span style="color: white; font-size: 1.1em; line-height: 1.4;">
                   This tool is designed to track mouse plugging records and summarize the current and past plugging histories, which is missing from the current webtools used by Animal Facility of the UoB. The defalut workflow for plugging procedure used in this tool is illustrated in the diagram (right).
                   <br><br>
-                  <span style="color: white; font-size: 0.9em; line-height: 1.3; opacity: 0.8;">
+                  <span style="color: white; font-size: 1em; line-height: 1.4;">
                     This project is licensed under the BSD 3-Clause License. The source code is available in 
-                    <a href="https://github.com/sqianglan/MouseTracking.git" target="_blank" style="color: #white; text-decoration: underline;">GitHub.</a>
+                    <a href="https://github.com/sqianglan/MouseTracking.git" target="_blank" style="color: white; text-decoration: underline;">GitHub.</a>
+                  </span>
                   </span>
                   </span>
                 </span>
