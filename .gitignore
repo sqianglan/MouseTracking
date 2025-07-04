@@ -21,9 +21,9 @@ ehthumbs.db
 Thumbs.db
 
 # Database files (exclude from version control for security)
-*.db
-*.sqlite
-*.sqlite3
+#*.db
+#*.sqlite
+#*.sqlite3
 
 # Excel files (often contain sensitive data)
 *.xls
