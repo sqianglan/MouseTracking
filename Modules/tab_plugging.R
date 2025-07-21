@@ -1930,7 +1930,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   })
 
   # Quick update modal: Confirm Plugged
-  observeEvent(input$confirm_plug_observed_btn, {
+  observeEvent(input$confirm_plug_observed_btn_quick, {
     plugging_id <- plugging_state$confirming_id
     if (is.null(plugging_id)) return()
     con <- db_connect()
