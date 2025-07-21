@@ -777,6 +777,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
          pairing_end_date = ?,
          plug_observed_date = ?, 
          plugging_status = ?, 
+         expected_age_for_harvesting = ?,
          notes = ?,
          updated_at = DATETIME('now')
          WHERE id = ?",
@@ -787,6 +788,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           as.character(input$edit_pairing_end_date),
           plug_observed_date_value,
           input$edit_plugging_status,
+          input$edit_expected_age_for_harvesting,
           input$edit_plugging_notes,
           plugging_id
         )
@@ -806,6 +808,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             pairing_end_date = as.character(input$edit_pairing_end_date),
             plug_observed_date = plug_observed_date_value,
             plugging_status = input$edit_plugging_status,
+            expected_age_for_harvesting = input$edit_expected_age_for_harvesting,
             notes = input$edit_plugging_notes
           )
         )
@@ -1219,6 +1222,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       "Not Observed (Waiting for confirmation)" = c(
         "Not Observed (Confirmed)" = "Not Observed (Confirmed)",
         "Not Pregnant" = "Not Pregnant",
+        "Plugged (Report Delayed)" = "Plugged",
         "Surprising Plug!! 😱" = "Surprising Plug!!",
         #"Empty Plug! (Euthanized) 🔴" = "Empty",
         "Sample Collected" = "Collected"
