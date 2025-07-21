@@ -1291,7 +1291,9 @@ show_plugging_calendar_modal <- function(id = "plugging_calendar_modal", db_path
     size = "l",
     plugging_calendar_modal_ui(id),
     easyClose = TRUE,
-    footer = NULL
+    footer = tagList(
+      modalButton("Cancel")
+    )
   ))
   plugging_calendar_modal_server(id, db_path)
 }

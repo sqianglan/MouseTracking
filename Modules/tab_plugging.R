@@ -1250,17 +1250,25 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       )
     )
     
-    # Get current notes for the modal
+    # Get current notes, expected age, and plug observed date for the modal
     con <- db_connect()
     current_notes <- ""
+    current_expected_age <- ""
+    current_plug_observed_date <- ""
     tryCatch({
-      current_record <- DBI::dbGetQuery(con, "SELECT notes FROM plugging_history WHERE id = ?", params = list(plugging_id))
+      current_record <- DBI::dbGetQuery(con, "SELECT notes, expected_age_for_harvesting, plug_observed_date FROM plugging_history WHERE id = ?", params = list(plugging_id))
       if (nrow(current_record) > 0) {
         current_notes <- ifelse(is.na(current_record$notes) || current_record$notes == "", "", current_record$notes)
+        current_expected_age <- ifelse(is.na(current_record$expected_age_for_harvesting) || current_record$expected_age_for_harvesting == "", "", current_record$expected_age_for_harvesting)
+        current_plug_observed_date <- ifelse(is.na(current_record$plug_observed_date) || current_record$plug_observed_date == "", "", current_record$plug_observed_date)
       }
     }, finally = {
       db_disconnect(con)
     })
+    
+    # Determine default radio selection for plug observed date
+    plug_observed_type_default <- if (current_plug_observed_date == "Unknown" || current_plug_observed_date == "") "unknown" else "date"
+    plug_observed_date_value <- if (plug_observed_type_default == "date") current_plug_observed_date else as.character(Sys.Date())
     
     # Show confirmation modal with status options
     showModal(modalDialog(
@@ -1277,14 +1285,23 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                       choices = status_choices,
                       selected = names(status_choices)[1],
                       width = NULL,
-                      inline = FALSE,
-                      # Enable HTML rendering for labels
-                      # This is a workaround for shiny radioButtons
-                      # so the HTML tags in the label are rendered
-                      # correctly in the UI
-                      # See: https://github.com/rstudio/shiny/issues/2337
-                      # and use shiny::HTML in UI if needed
-                      )
+                      inline = FALSE
+          ),
+          # Show expected age and plug observed date input only if Plugged (Report Delayed) is selected
+          conditionalPanel(
+            condition = "input.confirm_status_choice == 'Plugged'",
+            tagList(
+              radioButtons("confirm_plug_observed_type", "Plug Observed Date Type", 
+                choices = c("Specific Date" = "date", "Unknown" = "unknown"),
+                selected = plug_observed_type_default
+              ),
+              conditionalPanel(
+                condition = "input.confirm_plug_observed_type == 'date'",
+                dateInput("confirm_plug_observed_date", "Plug Observed Date", value = plug_observed_date_value, width = "100%")
+              ),
+              textInput("confirm_expected_age_for_harvesting", "Expected Age for Harvesting (Embryonic Days, e.g. 14)", value = current_expected_age, width = "100%")
+            )
+          )
         ),
         div(
           style = "margin-bottom: 10px;",
@@ -1472,6 +1489,68 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
 
     # Determine if the selected status requires extra info
     if (selected_status %in% c("Plugged", "Surprising Plug!!", "Euthanized", "Empty", "Empty_Alive_UI", "Collected")) {
+      # For Plugged, if coming from quick confirm, update expected_age_for_harvesting and plug_observed_date as well
+      if (selected_status == "Plugged" && (!is.null(input$confirm_expected_age_for_harvesting) || !is.null(input$confirm_plug_observed_type))) {
+        con <- db_connect()
+        tryCatch({
+          current <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+          if (nrow(current) == 0) {
+            showNotification("Plugging event not found", type = "error")
+            return()
+          }
+          old_values <- current[1, ]
+          notes_input <- if (is.null(input$quick_status_notes_input) || length(input$quick_status_notes_input) == 0) {
+            ""
+          } else {
+            as.character(input$quick_status_notes_input)
+          }
+          expected_age <- input$confirm_expected_age_for_harvesting
+          plug_observed_date_value <- if (input$confirm_plug_observed_type == "unknown") {
+            "Unknown"
+          } else {
+            as.character(input$confirm_plug_observed_date)
+          }
+          result <- DBI::dbExecute(con, 
+            "UPDATE plugging_history SET plugging_status = ?, expected_age_for_harvesting = ?, plug_observed_date = ?, updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?",
+            params = list(
+              selected_status,
+              expected_age,
+              plug_observed_date_value,
+              notes_input,
+              notes_input,
+              plugging_id
+            )
+          )
+          log_audit_trail(
+            "plugging_history",
+            plugging_id,
+            "UPDATE",
+            old_values,
+            list(
+              plugging_status = selected_status,
+              expected_age_for_harvesting = expected_age,
+              plug_observed_date = plug_observed_date_value,
+              confirmation_date = as.character(Sys.Date()),
+              notes = notes_input
+            )
+          )
+          showNotification(paste("Plugging status updated to '", selected_status, "' successfully!", sep = ""), type = "message")
+          removeModal()
+          plugging_state$confirming_id <- NULL
+          Sys.sleep(1)
+          auto_update_plugging_status_to_unknown()
+          plugging_state$reload <- Sys.time()
+          if (!is.null(global_refresh_trigger)) {
+            global_refresh_trigger(Sys.time())
+          }
+          invalidateLater(100, session)
+        }, error = function(e) {
+          showNotification(paste("Error updating plugging status:", e$message), type = "error")
+        }, finally = {
+          db_disconnect(con)
+        })
+        return()
+      }
       open_status_detail_modal(selected_status)
       return()
     }
