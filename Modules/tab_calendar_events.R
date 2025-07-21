@@ -867,7 +867,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
-      as.character(nrow(events))
+      as.character(length(unique(events$asu_id)))
     })
 
     output$confirmed_events <- renderText({
@@ -875,7 +875,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
-      as.character(sum(events$status_category == "confirmed", na.rm = TRUE))
+      as.character(length(unique(events$asu_id[events$status_category == "confirmed"])))
     })
 
     output$estimated_events <- renderText({
@@ -883,7 +883,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
-      as.character(sum(events$status_category == "estimated", na.rm = TRUE))
+      as.character(length(unique(events$asu_id[events$status_category == "estimated"])))
     })
 
     output$waiting_events <- renderText({
@@ -891,7 +891,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
-      as.character(sum(events$status_category == "waiting", na.rm = TRUE))
+      as.character(length(unique(events$asu_id[events$status_category == "waiting"])))
     })
 
     # Render the calendar plot
