@@ -77,8 +77,8 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
     })
 
     # Define active plugging statuses for each gender
-    active_plugging_statuses_male <- c("Ongoing", "Plugged")
-    active_plugging_statuses_female <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
+    active_plugging_statuses_male <- c("Ongoing")
+    active_plugging_statuses_female <- c("Ongoing", "Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
 
     # Reactive expression to track warnings across all mice
     warnings_exist <- reactive({
@@ -351,7 +351,13 @@ add_plugging_modal_server <- function(id, get_live_mice, get_mouse_info, validat
       if (warnings_value) {
         div(
           style = "color: #d32f2f; font-size: 11px; margin-bottom: 15px; text-align: left;",
-          "*Active plugging records include: Ongoing and Plugged for males; Ongoing, Plugged, Not Observed (Waiting for confirmation), and Surprising Plug!! for females."
+          tagList(
+            "*Active plugging records include:",
+            br(),
+            " - For Males: Ongoing",
+            br(),
+            " - For Females: Ongoing, Plugged, Plug Confirmed, Not Observed (Waiting for confirmation), and Surprising Plug!!"
+          )
         )
       } else {
         NULL

@@ -1,51 +1,46 @@
 # Mouse Management System - Feature Summary
 
 ## Overview
-The Mouse Management System is a comprehensive web-based application built with R Shiny, designed specifically for tracking and managing mouse colony plugging records in animal research facilities. This system addresses the critical gap in current webtools used by Animal Facilities by providing a dedicated platform for breeding pair management and plugging event tracking.
-
-## Core Features
+The Mouse Management System is a comprehensive web-based application built with R Shiny, designed specifically for tracking and managing mouse colony plugging records used. **This is not a replacement of facility mouse managment syste, rather then for personal or small group using.** This system addresses the critical gap in current webtools used by Animal Facilities by providing a clear tracking recordes for breeding or plugging mice and provide a summarizing table to highlight the successful rate of a given mouse.
 
 ### 🏠 Home Dashboard
-- **Welcome Interface**: Modern, intuitive landing page with visual plugging status workflow diagram
-- **Quick Actions**: Direct access to search animals and add new animals functionality
-- **Visual Workflow**: Embedded SVG diagram illustrating the standard plugging procedure workflow
-- **Responsive Design**: Modern UI with gradient backgrounds and professional styling
+- **Global Lock Functionality**: The system features a  global lock mechanism to prevent accidental deletions and modifications. Unlocking requires explicit user action, ensuring data safety and auditability. Meanwhile, all the deleting actions are performed as soft-delete. It only set the status as delet, without removing it from database.
+- **Time Zone Awareness**: All date and time records are automatically adjusted to the user's local time zone, providing accurate event tracking and consistency across different users and locations. It is possible to set the timezone during travelling to match the working place.
+- **Single Entry Form**: Add individual mice with comprehensive validation
+- **Excel Import**: Bulk import from Excel files with column mapping with manul confirmation
+
 
 ### 🐭 All Mice Management
 - **Comprehensive Search & Filter**: Advanced search capabilities with wildcard support (* and ?)
-- **Real-time Filtering**: Filter by ASU ID, Animal ID, Gender, Breeding Line, Responsible Person, Stock Category, and Status
+- **Real-time Filtering**: Filter by ASU ID, Animal ID, Gender, Breeding Line, Responsible Person, Stock Category, and Status. ASU ID was automatically extracted from Animal ID by detecting the longest number separted by "/", or " ".
 - **Interactive DataTable**: Sortable, searchable table with pagination and row selection
 - **Bulk Operations**: Edit multiple selected mice simultaneously
-- **Mouse History**: Double-click functionality to view detailed modification history
+- **Mouse History**: Double-click functionality to view summary of past or ongoing plugging events and final stages. This would be helpful to decide the fertility of the mice. 
 - **Status Indicators**: Visual status lights for live/deceased mice
-- **Export Capabilities**: Download filtered data in various formats
+- **Add Plugging Pairs/Trios** By selecting maxium 3 mice and at least one male and one female, and clicking "Add Plugging Event" button, will generate plugging events for each female. The sytem will check the status of each mice, and pop out warning message if the mice is not alive, busy (two or more active plugging event for male, and one for female). 
 
 ### 🐭⚤🐭 Plugging Management
-- **Breeding Pair Management**: Create and manage breeding pairs or trios
-- **Plugging Event Tracking**: Record and track plugging events through multiple status stages:
-  - Ongoing
-  - Plugged
-  - Plug Confirmed
+- **Mice Pairing Management**: Create and manage Pairing pairs or trios
+- **Plugging Event Tracking**: Record and track plugging events through multiple status stages (🔵 = active plugging event):
+  - Ongoing 🔵
+  - Plugged 🔵
+  - Plug Confirmed 🔵
   - Not Pregnant
-  - Not Observed (Waiting for confirmation)
+  - Not Observed (Waiting for confirmation) 🔵
   - Empty
   - Not Observed (Confirmed)
-  - Surprising Plug!!
+  - Surprising Plug!! 🔵
 - **Status Workflow**: Visual progression through plugging stages with automatic date tracking
-- **Historical Records**: View archived and deleted plugging records
+- **Show Archived/Deleted Records**: View archived and deleted plugging records
 - **Cross-module Integration**: Seamless integration with All Mice tab for data consistency
 
 ### 📅 Event Calendar
-- **Interactive Calendar View**: Monthly calendar visualization of plugging events
+- **Interactive Calendar View**: Monthly calendar visualization summarizing the plugging events
 - **Event Color Coding**: Different colors for various plugging statuses
-- **Navigation Controls**: Easy month/year navigation with Apple-style design
 - **Statistics Panel**: Real-time statistics for current month/year
-- **Export Functionality**: Export calendar data and statistics
-- **Responsive Design**: Modern UI with backdrop blur effects and gradient styling
+- **Export Functionality**: Export calendar data into your own
 
 ### 🔍 Advanced Search & Import
-- **Single Entry Form**: Add individual mice with comprehensive validation
-- **Excel Import**: Bulk import from Excel files with column mapping
 - **Duplicate Detection**: Intelligent duplicate checking with conflict resolution options:
   - Skip duplicates
   - Modify (generate new ASU ID)
@@ -66,27 +61,6 @@ The Mouse Management System is a comprehensive web-based application built with 
 - **SQL Injection Protection**: Input sanitization and validation
 - **Backup & Recovery**: Database integrity checks and recovery mechanisms
 
-### 📊 Data Management
-- **SQLite Database**: Lightweight, reliable database with full ACID compliance
-- **Schema Management**: Automatic database initialization and schema updates
-- **Data Consistency**: Referential integrity and constraint enforcement
-- **Performance Optimization**: Indexed queries and efficient data retrieval
-- **Timezone Support**: User-configurable timezone settings
-
-### 🎨 User Experience
-- **Modern UI Design**: Professional interface with gradient backgrounds and modern styling
-- **Responsive Layout**: Works seamlessly on different screen sizes
-- **Intuitive Navigation**: Clear tab-based navigation with emoji icons
-- **Loading States**: Visual feedback during data operations
-- **Error Handling**: Comprehensive error messages and validation feedback
-- **Accessibility**: High contrast design and keyboard navigation support
-
-### 🔧 Technical Features
-- **Modular Architecture**: Clean separation of concerns with dedicated modules
-- **Reactive Programming**: Real-time data updates across all components
-- **Cross-module Communication**: Shared state management for consistent data
-- **Hot-reloading Support**: Development-friendly with automatic module reloading
-- **Performance Monitoring**: Efficient data handling for large datasets
 
 ## Database Schema
 
@@ -112,11 +86,10 @@ The Mouse Management System is a comprehensive web-based application built with 
 ## System Requirements
 - **R Environment**: R 4.0+ with Shiny framework
 - **Dependencies**: tidyverse, DT, calendR, ggsci, DBI, RSQLite
-- **Browser Support**: Modern web browsers with JavaScript enabled
 - **Storage**: SQLite database with automatic backup capabilities
 
 ## Copyright Notice
-**Copyright (c) 2025 Qiang Lan. All rights reserved.**
+**Copyright (c) 2025 Qiang Lan. This project is licensed under the BSD 3-Clause License.**
 
 This software is proprietary and confidential. Unauthorized copying, distribution, or use of this software is strictly prohibited. For inquiries regarding licensing or usage rights, please contact qiang.lan@bristol.ac.uk.
 
@@ -128,4 +101,4 @@ This software is proprietary and confidential. Unauthorized copying, distributio
 
 ---
 
-*This system represents a significant advancement in animal research facility management, providing a dedicated solution for the critical but previously underserved area of mouse breeding and plugging record management.* 
+*This system represents a significant advancement in animal research facility management, providing a dedicated solution for the critical but previously underserved area of mouse  plugging record tracking.* 

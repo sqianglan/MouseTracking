@@ -495,28 +495,51 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
 
     # Helper function to parse expected ages
     parse_expected_ages <- function(exp_ages) {
+      # Default case: Return E13.5 if input is invalid
       if (is.null(exp_ages) || length(exp_ages) == 0 || is.na(exp_ages) || exp_ages == "") {
-        return(13.5) # Default to E13.5
+        return(13.5)
       }
       
-      ages_split <- unlist(strsplit(exp_ages, "[,; ]"))
+      # Step 1: Split into parts, keeping hyphenated ranges together
+      # Split on commas/semicolons/spaces but NOT hyphens
+      ages_split <- unlist(strsplit(exp_ages, "[,;]|(?<=[0-9]) +", perl = TRUE))
       ages_split <- trimws(ages_split)
-      ages_split <- ages_split[grepl("[0-9]", ages_split)]
+      ages_split <- ages_split[ages_split != "" & grepl("[0-9]", ages_split)]
       
+      # If no valid parts, return default
       if (length(ages_split) == 0) {
-        return(13.5) # Default to E13.5
+        return(13.5)
       }
       
-      # Convert to numeric and filter valid values
-      ages_numeric <- suppressWarnings(as.numeric(gsub("[^0-9.]", "", ages_split)))
-      ages_numeric <- ages_numeric[!is.na(ages_numeric) & ages_numeric > 0]
+      # Step 2: Process each part (expand ranges if hyphen exists)
+      process_part <- function(x) {
+        if (grepl("-", x)) {  # Handle ranges (e.g., "E13-E16" → 13:16)
+          nums <- as.numeric(gsub("[^0-9.]", "", unlist(strsplit(x, "-"))))
+          if (length(nums) == 2 && !any(is.na(nums))) {
+            return(seq(nums[1], nums[2]))
+          } else {
+            return(numeric(0))  # Invalid range → ignore
+          }
+        } else {  # Single value (e.g., "E13" → 13)
+          num <- suppressWarnings(as.numeric(gsub("[^0-9.]", "", x)))
+          if (!is.na(num) && num > 0) {
+            return(num)
+          } else {
+            return(numeric(0))  # Invalid → ignore
+          }
+        }
+      }
       
+      # Apply processing and flatten results
+      ages_numeric <- unlist(lapply(ages_split, process_part))
+      
+      # If no valid numbers, return default
       if (length(ages_numeric) == 0) {
-        return(13.5) # Default to E13.5
+        return(13.5)
       }
       
-      # Ensure we return an unnamed vector
-      return(unname(ages_numeric))
+      # Return unique, sorted, unnamed values
+      return(sort(unique(unname(ages_numeric))))
     }
 
     # Helper function to safely parse dates
@@ -844,7 +867,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
-      as.character(nrow(events))
+      as.character(length(unique(events$asu_id)))
     })
 
     output$confirmed_events <- renderText({
@@ -852,7 +875,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
-      as.character(sum(events$status_category == "confirmed", na.rm = TRUE))
+      as.character(length(unique(events$asu_id[events$status_category == "confirmed"])))
     })
 
     output$estimated_events <- renderText({
@@ -860,7 +883,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
-      as.character(sum(events$status_category == "estimated", na.rm = TRUE))
+      as.character(length(unique(events$asu_id[events$status_category == "estimated"])))
     })
 
     output$waiting_events <- renderText({
@@ -868,7 +891,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
-      as.character(sum(events$status_category == "waiting", na.rm = TRUE))
+      as.character(length(unique(events$asu_id[events$status_category == "waiting"])))
     })
 
     # Render the calendar plot
@@ -1268,7 +1291,9 @@ show_plugging_calendar_modal <- function(id = "plugging_calendar_modal", db_path
     size = "l",
     plugging_calendar_modal_ui(id),
     easyClose = TRUE,
-    footer = NULL
+    footer = tagList(
+      modalButton("Cancel")
+    )
   ))
   plugging_calendar_modal_server(id, db_path)
 }
