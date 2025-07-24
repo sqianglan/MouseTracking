@@ -275,15 +275,9 @@ add_plugging_tables <- function() {
 add_body_weight_table <- function() {
   con <- dbConnect(SQLite(), DEFAULT_DB_NAME)
   
-  # Check if table exists and recreate with correct schema
-  if (dbExistsTable(con, "body_weight_history")) {
-    # Drop existing table since there's no data anyway
-    dbExecute(con, "DROP TABLE body_weight_history")
-  }
-  
-  # Create body weight history table with correct column names
+  # Create body weight history table with correct column names (only if it doesn't exist)
   dbExecute(con, paste0(
-    "CREATE TABLE body_weight_history (",
+    "CREATE TABLE IF NOT EXISTS body_weight_history (",
     "id INTEGER PRIMARY KEY AUTOINCREMENT,",
     "asu_id TEXT NOT NULL,",
     "weight_grams REAL NOT NULL,",

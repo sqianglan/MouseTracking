@@ -268,16 +268,16 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     
     # Body Weight History Section
     div(
-      style = "margin-bottom: 20px;",
+      style = "margin-bottom: 5px;",
       h4("Body Weight History", style = "color: #2196f3; border-bottom: 2px solid #2196f3; padding-bottom: 5px;"),
       if (nrow(body_weight_history) > 0) {
         div(
-          style = "height: 300px; margin-bottom: 20px;",
+          style = "height: 400px; margin-bottom: 5px;",
           plotlyOutput(paste0("body_weight_plot_", asu_id))
         )
       } else {
         div(
-          style = "padding: 20px; text-align: center; color: #666; background-color: #f9f9f9; border-radius: 5px;",
+          style = "padding: 20px; text-align: center; color: #666; background-color: #f9f9f9; border-radius: 5px; margin-bottom: 5px;",
           "No body weight records found for this mouse. Click 'Add Body Weight' to start tracking."
         )
       }
@@ -324,39 +324,127 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
   # Render body weight plot if data exists
   if (nrow(body_weight_history) > 0) {
     output[[paste0("body_weight_plot_", asu_id)]] <- renderPlotly({
-      # Create the plot
+      # Prepare body weight data
+      weight_data <- body_weight_history
+      weight_data$measurement_date <- as.Date(weight_data$measurement_date)
+      
+      # Create the base plotly chart
       p <- plot_ly(
-        data = body_weight_history,
-        x = ~as.Date(measurement_date),
+        data = weight_data,
+        x = ~measurement_date,
         y = ~weight_grams,
         type = 'scatter',
         mode = 'lines+markers',
         marker = list(size = 8, color = '#2196f3'),
-        line = list(color = '#2196f3', width = 2),
+        line = list(color = '#2196f3', width = 3),
+        name = 'Body Weight',
         hovertemplate = paste(
           '<b>Date:</b> %{x}<br>',
           '<b>Weight:</b> %{y} grams<br>',
           '<extra></extra>'
         )
-      ) %>%
-      layout(
-        title = list(
-          text = paste("Body Weight Trend for", asu_id),
-          font = list(size = 16)
-        ),
+      )
+      
+      # Add plugging events if they exist
+      if (nrow(plugging_history) > 0) {
+        # Get y-axis range for event marker placement
+        y_range <- range(weight_data$weight_grams)
+        y_top <- y_range[2] + (y_range[2] - y_range[1]) * 0.15
+        
+        # Collect shapes for layout
+        shapes_list <- list()
+        
+        # Process each plugging record
+        for (i in 1:nrow(plugging_history)) {
+          row <- plugging_history[i, ]
+          
+          # Create gray shaded area for pairing period
+          start_date <- NULL
+          end_date <- NULL
+          
+          if (!is.na(row$pairing_start_date) && row$pairing_start_date != "") {
+            start_date <- as.Date(row$pairing_start_date)
+          }
+          
+          if (!is.na(row$pairing_end_date) && row$pairing_end_date != "") {
+            end_date <- as.Date(row$pairing_end_date)
+          }
+          
+          # Add gray shaded area for pairing period
+          if (!is.null(start_date)) {
+            # If no end date, extend to current date or last weight measurement
+            if (is.null(end_date)) {
+              end_date <- max(weight_data$measurement_date, Sys.Date())
+            }
+            
+            # Add rectangle shape for pairing period
+            shapes_list[[length(shapes_list) + 1]] <- list(
+              type = 'rect',
+              x0 = start_date, x1 = end_date,
+              y0 = y_range[1], y1 = y_range[2],
+              fillcolor = 'rgba(128, 128, 128, 0.2)',
+              line = list(color = 'rgba(0,0,0,0)', width = 0),
+              layer = 'below'
+            )
+          }
+          
+          # Plug observed - Arrow with color based on plugging status
+          if (!is.na(row$plug_observed_date) && row$plug_observed_date != "") {
+            plug_date <- as.Date(row$plug_observed_date)
+            
+            # Determine color based on plugging status (same as summary)
+            plug_color <- if (row$plugging_status == "Collected") {
+              "#388e3c"  # Success - Green
+            } else if (row$plugging_status %in% c("Empty", "Not Pregnant (Confirmed)", "Not Pregnant")) {
+              "#d32f2f"  # Failed - Red
+            } else {
+              "#ff9800"  # Pending - Orange
+            }
+            
+            p <- p %>% add_trace(
+              x = plug_date,
+              y = y_top,
+              type = 'scatter',
+              mode = 'markers+text',
+              marker = list(size = 15, color = plug_color, symbol = 'triangle-down'),
+              text = 'Plug Observed',
+              textposition = 'top center',
+              textfont = list(color = plug_color, size = 10, family = 'Arial Black'),
+              name = 'Plug Observed',
+              hovertemplate = paste('<b>Plug Observed</b><br>Date: %{x}<br>Status: ', row$plugging_status, '<extra></extra>'),
+              showlegend = FALSE
+            )
+            
+            # Add line shape for vertical line
+            shapes_list[[length(shapes_list) + 1]] <- list(
+              type = 'line',
+              x0 = plug_date, x1 = plug_date,
+              y0 = y_range[1], y1 = y_range[2],
+              line = list(color = plug_color, width = 3)
+            )
+          }
+        }
+      }
+      
+      # Apply layout with shapes
+      p <- p %>% layout(
+        
         xaxis = list(
-          title = "Date",
+          title = "",
           showgrid = TRUE,
-          gridcolor = '#e0e0e0'
+          gridcolor = '#e0e0e0',
+          tickformat = '%Y-%m-%d'
         ),
         yaxis = list(
           title = "Weight (grams)",
           showgrid = TRUE,
           gridcolor = '#e0e0e0'
         ),
+        shapes = shapes_list,
         hovermode = 'closest',
         plot_bgcolor = 'rgba(0,0,0,0)',
-        paper_bgcolor = 'rgba(0,0,0,0)'
+        paper_bgcolor = 'rgba(0,0,0,0)',
+        margin = list(t = 20, b = 15, l = 60, r = 40)
       )
       
       return(p)
@@ -374,10 +462,11 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     footer = div(
       style = "display: flex; justify-content: space-between; align-items: center;",
       actionButton(
-        inputId = paste0("add_body_weight_", asu_id),
+        inputId = "add_body_weight_btn",
         label = "Add Body Weight",
         class = "btn-primary",
-        style = "margin-right: 10px;"
+        style = "margin-right: 10px;",
+        onclick = paste0("Shiny.setInputValue('add_body_weight_clicked', '", asu_id, "', {priority: 'event'});")
       ),
       modalButton("Close")
     )
@@ -427,9 +516,10 @@ show_body_weight_input <- function(input, output, session, asu_id) {
       style = "display: flex; justify-content: flex-end; gap: 10px;",
       modalButton("Cancel"),
       actionButton(
-        inputId = paste0("save_body_weight_", asu_id),
+        inputId = "save_body_weight_btn",
         label = "Save Record",
-        class = "btn-success"
+        class = "btn-success",
+        onclick = paste0("Shiny.setInputValue('save_body_weight_clicked', '", asu_id, "', {priority: 'event'});")
       )
     )
   ))
