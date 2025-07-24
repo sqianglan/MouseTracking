@@ -36,8 +36,9 @@ The Mouse Management System addresses the critical gap in current webtools used 
 - **Real-time Filtering**: Filter by ASU ID, Animal ID, Gender, Breeding Line, Responsible Person, Stock Category, and Status
 - **Interactive DataTable**: Sortable, searchable table with pagination
 - **Bulk Operations**: Edit multiple selected mice simultaneously
-- **Mouse History**: Double-click to view detailed modification history
+- **Mouse History**: Double-click to view detailed modification history with body weight tracking
 - **Status Indicators**: Visual status lights for live/deceased mice
+- **Body Weight Management**: Track and visualize body weight over time with integrated charts
 
 ### 🐭⚤🐭 Plugging Management
 - **Breeding Pair Management**: Create and manage breeding pairs or trios
@@ -51,7 +52,19 @@ The Mouse Management System addresses the critical gap in current webtools used 
   - Not Observed (Confirmed)
   - Surprising Plug!!
 - **Status Workflow**: Visual progression through plugging stages
+- **Intelligent Date Management**: Automatic date synchronization for consistent record keeping
+  - Pairing end date automatically matches plug observed date for quick updates
+  - Plug observed date automatically set to "Unknown" for non-observational statuses
+  - Manual override available in Edit modal for complex scenarios
 - **Historical Records**: View archived and deleted plugging records
+
+### 📊 Body Weight Tracking
+- **Individual Weight Records**: Track body weight measurements over time
+- **Interactive Charts**: Visualize weight trends with professional plotting
+- **Data Validation**: Automatic validation of weight values and measurement dates
+- **Historical Overview**: Complete weight history with timestamps
+- **Easy Data Entry**: Quick add/edit/delete functionality for weight records
+- **Integration**: Seamlessly integrated within mouse history modal
 
 ### 📅 Event Calendar
 - Interactive monthly calendar visualization
@@ -148,9 +161,23 @@ The Mouse Management System addresses the critical gap in current webtools used 
 | `id` | INTEGER | Primary key - auto-increment |
 | `male_id` | TEXT | Male mouse ASU ID |
 | `female_id` | TEXT | Female mouse ASU ID |
-| `plugging_date` | DATE | Date of plugging event |
-| `status` | TEXT | Current plugging status |
+| `pairing_start_date` | DATE | Date when pairing started |
+| `pairing_end_date` | DATE | Date when pairing ended |
+| `plug_observed_date` | DATE | Date when plug was observed |
+| `plugging_status` | TEXT | Current plugging status |
+| `expected_age_for_harvesting` | TEXT | Expected embryonic age for harvesting |
 | `notes` | TEXT | Additional notes |
+| `created_at` | TIMESTAMP | Record creation time |
+| `updated_at` | TIMESTAMP | Last update time |
+
+#### Body Weight Table (`body_weight`)
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | INTEGER | Primary key - auto-increment |
+| `asu_id` | TEXT | Mouse ASU ID (foreign key) |
+| `measurement_date` | DATE | Date of weight measurement |
+| `weight_grams` | REAL | Body weight in grams |
+| `notes` | TEXT | Optional measurement notes |
 | `created_at` | TIMESTAMP | Record creation time |
 | `updated_at` | TIMESTAMP | Last update time |
 
@@ -241,6 +268,32 @@ Ongoing → Plugged → Plug Confirmed → [Multiple Outcomes]
 1. Double-click any row in the mice table
 2. A modal will show the complete modification history
 3. View all changes with timestamps and details
+4. Access body weight tracking from the history modal
+
+#### Managing Body Weight Records
+1. **Access Body Weight Management**:
+   - Double-click a mouse in the All Mice tab
+   - Click "Body Weight" tab in the mouse history modal
+
+2. **Adding Weight Records**:
+   - Click "Add New Weight" button
+   - Enter measurement date and weight in grams
+   - Add optional notes about the measurement
+   - Click "Add Weight Record" to save
+
+3. **Viewing Weight History**:
+   - View all weight records in chronological order
+   - Interactive chart shows weight trends over time
+   - Hover over chart points for detailed information
+
+4. **Editing Weight Records**:
+   - Click "Edit" button next to any weight record
+   - Modify date, weight, or notes as needed
+   - Click "Save Changes" to update
+
+5. **Deleting Weight Records**:
+   - Click "Delete" button next to unwanted records
+   - Confirm deletion in the popup dialog
 
 ### Managing Plugging Events
 
@@ -257,6 +310,11 @@ Ongoing → Plugged → Plug Confirmed → [Multiple Outcomes]
 3. Select the new status from the dropdown
 4. Add any relevant notes
 5. Click "Update Status" to confirm
+
+**Intelligent Date Management**:
+- When marking as "Plugged" via quick buttons, the pairing end date automatically matches the plug observed date
+- When changing to non-observational statuses ("Ongoing", "Not Observed", "Not Pregnant"), the plug observed date automatically resets to "Unknown"
+- Use the "Edit" button for manual control over all dates when needed
 
 #### Status Progression
 - **Ongoing**: Initial status when breeding pair is set up
@@ -353,9 +411,35 @@ Ongoing → Plugged → Plug Confirmed → [Multiple Outcomes]
    - Use "✏️ Edit Selected" for bulk updates
    - Update responsible person or other fields for all selected mice
 
-### Tutorial 3: Advanced Plugging Management
+### Tutorial 3: Body Weight Tracking
 
-**Objective**: Manage complex breeding scenarios with multiple females
+**Objective**: Track and analyze body weight changes over time
+
+**Steps**:
+1. **Set Up Weight Tracking**
+   - Go to "🐭 All Mice" tab
+   - Double-click on a mouse (e.g., `M001`) to open history modal
+   - Click "Body Weight" tab
+
+2. **Add Initial Weight Records**
+   - Click "Add New Weight" button
+   - Enter initial weight (e.g., `25.5` grams) with today's date
+   - Add note: "Baseline measurement"
+   - Click "Add Weight Record"
+
+3. **Track Weight Over Time**
+   - Add weekly weight measurements
+   - Include notes about mouse condition or experimental timeline
+   - Observe the interactive weight chart updating
+
+4. **Analyze Weight Trends**
+   - Review the weight trend chart
+   - Hover over data points for detailed information
+   - Export data if needed for further analysis
+
+### Tutorial 4: Advanced Plugging Management
+
+**Objective**: Manage complex breeding scenarios with intelligent date management
 
 **Steps**:
 1. **Create Breeding Trio**
@@ -363,10 +447,10 @@ Ongoing → Plugged → Plug Confirmed → [Multiple Outcomes]
    - Create plugging events for male + female1 and male + female2
    - Track both events independently
 
-2. **Status Management**
-   - Update statuses based on observations
-   - Use notes to record specific details
-   - Monitor both events in the plugging history table
+2. **Experience Intelligent Date Management**
+   - Mark one pair as "Plugged" using quick button - notice pairing end date auto-updates
+   - Change another pair to "Not Pregnant" - notice plug observed date resets to "Unknown"
+   - Use "Edit" button for manual date control when needed
 
 3. **Calendar Integration**
    - Click "📅 Event Calendar" to view all events
@@ -385,9 +469,10 @@ app.R (Main Application)
 │   ├── audit_trail.R (Audit logging system)
 │   ├── db_check.R (Database initialization and management)
 │   ├── modal_add_plugging_event.R (Plugging event modal)
-│   ├── modal_mice_history.R (Mouse history modal)
+│   ├── modal_body_weight.R (Body weight tracking modal)
+│   ├── modal_mice_history.R (Mouse history modal with body weight integration)
 │   ├── tab_all_mice.R (Mice management interface)
-│   ├── tab_plugging.R (Plugging management interface)
+│   ├── tab_plugging.R (Plugging management with intelligent date handling)
 │   ├── tab_calendar_events.R (Calendar view)
 │   └── validation.R (Data validation functions)
 ├── www/ (Static assets)
@@ -410,6 +495,18 @@ app.R (Main Application)
 - `validate_asu_id()`: Validates ASU ID format
 - `validate_date()`: Validates date inputs
 - `check_duplicates()`: Identifies duplicate records
+- `validate_body_weight()`: Validates weight measurements and dates
+
+#### Body Weight Management
+- `add_body_weight_record()`: Adds new weight measurements
+- `get_body_weight_history()`: Retrieves weight history for charts
+- `update_body_weight_record()`: Modifies existing weight records
+- `delete_body_weight_record()`: Removes weight measurements
+
+#### Intelligent Date Management
+- `auto_sync_pairing_dates()`: Synchronizes pairing end dates with plug observation
+- `reset_plug_observed_date()`: Automatically sets plug dates to "Unknown" for non-observational statuses
+- `maintain_date_consistency()`: Ensures logical date relationships in plugging records
 
 ### Configuration Options
 
@@ -458,6 +555,16 @@ Sys.setenv("MOUSE_DB_NAME" = "database_name.db")
 2. **Browser Issues**: Clear browser cache and refresh
 3. **Memory Usage**: Restart R session if memory usage is high
 
+#### Body Weight Issues
+1. **Chart Not Loading**: Ensure mouse has weight records; check JavaScript console for errors
+2. **Invalid Weight Values**: Weight must be positive numbers in grams
+3. **Date Conflicts**: Ensure measurement dates are valid and not in the future
+
+#### Date Management Issues
+1. **Dates Not Auto-Updating**: Check that you're using quick status buttons, not Edit modal
+2. **Inconsistent Dates**: Use "Edit" modal for manual date control when needed
+3. **Unknown Date Values**: This is normal for non-observational statuses
+
 ### Error Messages
 
 | Error | Cause | Solution |
@@ -466,6 +573,9 @@ Sys.setenv("MOUSE_DB_NAME" = "database_name.db")
 | "ASU ID already exists" | Duplicate ASU ID | Use different ASU ID or handle duplicates |
 | "Invalid date format" | Date not in YYYY-MM-DD format | Correct date format in input |
 | "Required field missing" | Missing required data | Fill in all required fields |
+| "Invalid weight value" | Weight is not a positive number | Enter weight as positive number in grams |
+| "Future measurement date" | Date is in the future | Use current or past date for measurements |
+| "Body weight chart error" | No weight data or chart rendering issue | Add weight records and refresh browser |
 
 ### Getting Help
 

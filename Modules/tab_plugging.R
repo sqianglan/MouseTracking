@@ -969,10 +969,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         as.character(input$plug_observed_date_input)
       }
       
+      # Auto-set pairing end date to match plug observed date for quick updates
+      pairing_end_date_value <- plug_observed_date_value
+      
       # Update the plugging event
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET 
          plug_observed_date = ?,
+         pairing_end_date = ?,
          plugging_status = 'Plugged',
          expected_age_for_harvesting = ?,
          notes = CASE 
@@ -983,6 +987,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
          WHERE id = ?",
         params = list(
           plug_observed_date_value,
+          pairing_end_date_value,
           input$expected_age_for_harvesting_input,
           input$plug_observed_notes_input,
           input$plug_observed_notes_input,
@@ -999,6 +1004,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           old_values,
           list(
             plug_observed_date = plug_observed_date_value,
+            pairing_end_date = pairing_end_date_value,
             plugging_status = "Plugged",
             expected_age_for_harvesting = input$expected_age_for_harvesting_input,
             notes = input$plug_observed_notes_input
@@ -1568,12 +1574,17 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           } else {
             as.character(input$confirm_plug_observed_date)
           }
+          
+          # Auto-set pairing end date to match plug observed date for quick updates
+          pairing_end_date_value <- plug_observed_date_value
+          
           result <- DBI::dbExecute(con, 
-            "UPDATE plugging_history SET plugging_status = ?, expected_age_for_harvesting = ?, plug_observed_date = ?, updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?",
+            "UPDATE plugging_history SET plugging_status = ?, expected_age_for_harvesting = ?, plug_observed_date = ?, pairing_end_date = ?, updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?",
             params = list(
               selected_status,
               expected_age,
               plug_observed_date_value,
+              pairing_end_date_value,
               notes_input,
               notes_input,
               plugging_id
@@ -1588,6 +1599,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               plugging_status = selected_status,
               expected_age_for_harvesting = expected_age,
               plug_observed_date = plug_observed_date_value,
+              pairing_end_date = pairing_end_date_value,
               confirmation_date = as.character(Sys.Date()),
               notes = notes_input
             )
@@ -1629,13 +1641,27 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         as.character(input$quick_status_notes_input)
       }
       
-      update_query <- "UPDATE plugging_history SET plugging_status = ?, updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?"
-      update_params <- list(
-        selected_status,
-        notes_input,
-        notes_input,
-        plugging_id
-      )
+      # Auto-set plug_observed_date to "Unknown" for specific statuses in quick updates
+      statuses_requiring_unknown_plug_date <- c("Ongoing", "Not Observed (Confirmed)", "Not Observed (Waiting for confirmation)", "Not Pregnant")
+      
+      if (selected_status %in% statuses_requiring_unknown_plug_date) {
+        # For these statuses, only set plug_observed_date to Unknown (pairing_end_date unchanged)
+        update_query <- "UPDATE plugging_history SET plugging_status = ?, plug_observed_date = 'Unknown', updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?"
+        update_params <- list(
+          selected_status,
+          notes_input,
+          notes_input,
+          plugging_id
+        )
+      } else {
+        update_query <- "UPDATE plugging_history SET plugging_status = ?, updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?"
+        update_params <- list(
+          selected_status,
+          notes_input,
+          notes_input,
+          plugging_id
+        )
+      }
       result <- DBI::dbExecute(con, update_query, params = update_params)
       if (result > 0) {
         # If status is set to Collected, also set female mouse to Deceased
@@ -1646,16 +1672,24 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             params = list(as.character(Sys.Date()), female_id)
           )
         }
+        # Build audit trail data based on what was actually updated
+        audit_data <- list(
+          plugging_status = selected_status,
+          confirmation_date = as.character(Sys.Date()),
+          notes = notes_input
+        )
+        
+        # Add plug_observed_date to audit if it was auto-set to Unknown
+        if (selected_status %in% statuses_requiring_unknown_plug_date) {
+          audit_data$plug_observed_date <- "Unknown"
+        }
+        
         log_audit_trail(
           "plugging_history",
           plugging_id,
           "UPDATE",
           old_values,
-          list(
-            plugging_status = selected_status,
-            confirmation_date = as.character(Sys.Date()),
-            notes = notes_input
-          )
+          audit_data
         )
         showNotification(paste("Plugging status updated to '", selected_status, "' successfully!", sep = ""), type = "message")
         removeModal()
@@ -1775,8 +1809,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       records <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE plugging_status = 'Ongoing' AND pairing_end_date IS NOT NULL AND pairing_end_date < ?", params = list(today))
       for (i in seq_len(nrow(records))) {
         rec <- records[i, ]
-        # Update status to Not Observed (Waiting for confirmation)
-        DBI::dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Not Observed (Waiting for confirmation)', updated_at = DATETIME('now') WHERE id = ?", params = list(rec$id))
+        # Update status to Not Observed (Waiting for confirmation) and set plug_observed_date to Unknown
+        DBI::dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Not Observed (Waiting for confirmation)', plug_observed_date = 'Unknown', updated_at = DATETIME('now') WHERE id = ?", params = list(rec$id))
         # Log to audit trail (use list for new_values, just like user actions, use user_id = 'system(auto)' )
         log_audit_trail(
           "plugging_history",
@@ -1785,6 +1819,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           as.list(rec),
           list(
             plugging_status = "Not Observed (Waiting for confirmation)",
+            plug_observed_date = "Unknown",
             confirmation_date = as.character(Sys.Date()),
             notes = NULL
           ),
@@ -2004,9 +2039,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       } else {
         as.character(input$plug_observed_date_input)
       }
+      
+      # Auto-set pairing end date to match plug observed date for quick updates
+      pairing_end_date_value <- plug_observed_date_value
+      
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET \
          plug_observed_date = ?,\
+         pairing_end_date = ?,\
          plugging_status = 'Plugged',\
          expected_age_for_harvesting = ?,\
          notes = CASE \
@@ -2017,6 +2057,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
          WHERE id = ?",
         params = list(
           plug_observed_date_value,
+          pairing_end_date_value,
           input$expected_age_for_harvesting_input,
           input$plug_observed_notes_input,
           input$plug_observed_notes_input,
@@ -2031,6 +2072,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           old_values,
           list(
             plug_observed_date = plug_observed_date_value,
+            pairing_end_date = pairing_end_date_value,
             plugging_status = "Plugged",
             expected_age_for_harvesting = input$expected_age_for_harvesting_input,
             notes = input$plug_observed_notes_input
