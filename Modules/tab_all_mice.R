@@ -1158,6 +1158,52 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       showNotification("Could not retrieve mouse information. Please try again.", type = "error", duration = 3)
     }
   })
+  
+  # Body weight functionality - dynamic event handler for "Add Body Weight" buttons
+  observe({
+    # Get all input IDs and find the body weight buttons
+    input_ids <- names(reactiveValuesToList(input))
+    body_weight_buttons <- input_ids[grepl("^add_body_weight_", input_ids)]
+    
+    # Create event handlers for each body weight button
+    lapply(body_weight_buttons, function(button_id) {
+      observeEvent(input[[button_id]], {
+        # Extract ASU ID from the button ID
+        asu_id <- sub("^add_body_weight_", "", button_id)
+        show_body_weight_input(input, output, session, asu_id)
+      }, ignoreInit = TRUE)
+    })
+  })
+  
+  # Body weight functionality - dynamic event handler for "Save Body Weight" buttons
+  observe({
+    # Get all input IDs and find the save body weight buttons
+    input_ids <- names(reactiveValuesToList(input))
+    save_buttons <- input_ids[grepl("^save_body_weight_", input_ids)]
+    
+    # Create event handlers for each save button
+    lapply(save_buttons, function(button_id) {
+      observeEvent(input[[button_id]], {
+        # Extract ASU ID from the button ID
+        asu_id <- sub("^save_body_weight_", "", button_id)
+        
+        # Get the input values
+        weight_grams <- input$body_weight_grams
+        measurement_date <- input$body_weight_date
+        notes <- input$body_weight_notes
+        
+        # Save the record
+        if (save_body_weight_record(asu_id, weight_grams, measurement_date, notes)) {
+          # Close the modal on successful save
+          removeModal()
+          
+          # Refresh the mouse history modal if it's open by re-triggering it
+          # This will show the updated body weight data
+          show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
+        }
+      }, ignoreInit = TRUE)
+    })
+  })
 
   # Render bulk delete button based on lock state
   output$bulk_delete_btn_ui <- renderUI({

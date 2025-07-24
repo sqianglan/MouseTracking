@@ -16,6 +16,7 @@ suppressPackageStartupMessages({
   library(DT)
   library(calendR)
   library(ggsci)
+  library(plotly)
 })
 
 # Helper function to shorten long file paths for display

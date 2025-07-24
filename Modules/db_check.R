@@ -271,6 +271,32 @@ add_plugging_tables <- function() {
   dbDisconnect(con)
 }
 
+# Add body_weight_history table if not exists
+add_body_weight_table <- function() {
+  con <- dbConnect(SQLite(), DEFAULT_DB_NAME)
+  
+  # Check if table exists and recreate with correct schema
+  if (dbExistsTable(con, "body_weight_history")) {
+    # Drop existing table since there's no data anyway
+    dbExecute(con, "DROP TABLE body_weight_history")
+  }
+  
+  # Create body weight history table with correct column names
+  dbExecute(con, paste0(
+    "CREATE TABLE body_weight_history (",
+    "id INTEGER PRIMARY KEY AUTOINCREMENT,",
+    "asu_id TEXT NOT NULL,",
+    "weight_grams REAL NOT NULL,",
+    "measurement_date DATE NOT NULL,",
+    "notes TEXT,",
+    "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+    "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+    "FOREIGN KEY(asu_id) REFERENCES mice_stock(asu_id) ON DELETE CASCADE"
+    ,")"
+  ))
+  dbDisconnect(con)
+}
+
 
 
 
@@ -280,6 +306,7 @@ initialize_db()
 add_breeding_tables()
 add_breeding_status_column()
 add_plugging_tables()
+add_body_weight_table()
 # add_audit_trail_table() # Removed - now handled by enhanced audit trail
 
 DB_PATH <<- normalizePath(DEFAULT_DB_NAME)

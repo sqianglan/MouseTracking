@@ -71,6 +71,19 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     }
   }
   
+  # Get body weight history for this mouse
+  body_weight_query <- paste0(
+    "SELECT * FROM body_weight_history \
+     WHERE asu_id = '", asu_id, "' \
+     ORDER BY measurement_date DESC"
+  )
+  
+  body_weight_history <- tryCatch({
+    DBI::dbGetQuery(con, body_weight_query)
+  }, error = function(e) {
+    data.frame()
+  })
+  
   # Create breeding history table HTML
   breeding_table_html <- ""
   if (nrow(breeding_history) > 0) {
@@ -253,6 +266,23 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
       )
     ),
     
+    # Body Weight History Section
+    div(
+      style = "margin-bottom: 20px;",
+      h4("Body Weight History", style = "color: #2196f3; border-bottom: 2px solid #2196f3; padding-bottom: 5px;"),
+      if (nrow(body_weight_history) > 0) {
+        div(
+          style = "height: 300px; margin-bottom: 20px;",
+          plotlyOutput(paste0("body_weight_plot_", asu_id))
+        )
+      } else {
+        div(
+          style = "padding: 20px; text-align: center; color: #666; background-color: #f9f9f9; border-radius: 5px;",
+          "No body weight records found for this mouse. Click 'Add Body Weight' to start tracking."
+        )
+      }
+    ),
+    
     # Breeding History Section
     # div(
     #   style = "margin-bottom: 30px;",
@@ -291,6 +321,48 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     )
   )
   
+  # Render body weight plot if data exists
+  if (nrow(body_weight_history) > 0) {
+    output[[paste0("body_weight_plot_", asu_id)]] <- renderPlotly({
+      # Create the plot
+      p <- plot_ly(
+        data = body_weight_history,
+        x = ~as.Date(measurement_date),
+        y = ~weight_grams,
+        type = 'scatter',
+        mode = 'lines+markers',
+        marker = list(size = 8, color = '#2196f3'),
+        line = list(color = '#2196f3', width = 2),
+        hovertemplate = paste(
+          '<b>Date:</b> %{x}<br>',
+          '<b>Weight:</b> %{y} grams<br>',
+          '<extra></extra>'
+        )
+      ) %>%
+      layout(
+        title = list(
+          text = paste("Body Weight Trend for", asu_id),
+          font = list(size = 16)
+        ),
+        xaxis = list(
+          title = "Date",
+          showgrid = TRUE,
+          gridcolor = '#e0e0e0'
+        ),
+        yaxis = list(
+          title = "Weight (grams)",
+          showgrid = TRUE,
+          gridcolor = '#e0e0e0'
+        ),
+        hovermode = 'closest',
+        plot_bgcolor = 'rgba(0,0,0,0)',
+        paper_bgcolor = 'rgba(0,0,0,0)'
+      )
+      
+      return(p)
+    })
+  }
+  
   # Show modal
   showModal(modalDialog(
     title = div(
@@ -299,6 +371,108 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     ),
     size = "xl",
     modal_content,
-    footer = modalButton("Close")
+    footer = div(
+      style = "display: flex; justify-content: space-between; align-items: center;",
+      actionButton(
+        inputId = paste0("add_body_weight_", asu_id),
+        label = "Add Body Weight",
+        class = "btn-primary",
+        style = "margin-right: 10px;"
+      ),
+      modalButton("Close")
+    )
   ))
-} 
+}
+
+# Function to show body weight input modal
+show_body_weight_input <- function(input, output, session, asu_id) {
+  # Show body weight input modal
+  showModal(modalDialog(
+    title = div(
+      style = "font-size: 1.5rem; font-weight: bold; color: #2196f3;",
+      paste("Add Body Weight Record -", asu_id)
+    ),
+    size = "m",
+    div(
+      style = "padding: 20px;",
+      fluidRow(
+        column(6,
+          dateInput(
+            inputId = "body_weight_date",
+            label = "Measurement Date:",
+            value = Sys.Date(),
+            format = "yyyy-mm-dd"
+          )
+        ),
+        column(6,
+          numericInput(
+            inputId = "body_weight_grams",
+            label = "Weight (grams):",
+            value = NULL,
+            min = 0,
+            max = 100,
+            step = 0.1
+          )
+        )
+      ),
+      br(),
+      textAreaInput(
+        inputId = "body_weight_notes",
+        label = "Notes (optional):",
+        rows = 3,
+        placeholder = "Any additional notes about the measurement..."
+      )
+    ),
+    footer = div(
+      style = "display: flex; justify-content: flex-end; gap: 10px;",
+      modalButton("Cancel"),
+      actionButton(
+        inputId = paste0("save_body_weight_", asu_id),
+        label = "Save Record",
+        class = "btn-success"
+      )
+    )
+  ))
+}
+
+# Function to save body weight record
+save_body_weight_record <- function(asu_id, weight_grams, measurement_date, notes = "") {
+  # Validate inputs
+  if (is.na(weight_grams) || weight_grams <= 0) {
+    showNotification("Please enter a valid weight greater than 0.", type = "error", duration = 3)
+    return(FALSE)
+  }
+  
+  if (is.na(measurement_date)) {
+    showNotification("Please select a valid measurement date.", type = "error", duration = 3)
+    return(FALSE)
+  }
+  
+  # Use a single DB connection for the insert
+  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  tryCatch({
+    # Insert the body weight record
+    DBI::dbExecute(con, 
+      "INSERT INTO body_weight_history (asu_id, weight_grams, measurement_date, notes, created_at, updated_at) 
+       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+      params = list(asu_id, weight_grams, as.character(measurement_date), notes)
+    )
+    
+    showNotification(
+      paste("Body weight record saved successfully for", asu_id),
+      type = "message",
+      duration = 3
+    )
+    
+    return(TRUE)
+  }, error = function(e) {
+    showNotification(
+      paste("Error saving body weight record:", e$message),
+      type = "error",
+      duration = 5
+    )
+    return(FALSE)
+  })
+}
