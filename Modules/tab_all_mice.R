@@ -1177,11 +1177,110 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     notes <- input$body_weight_notes
     
     # Save the record
-    if (save_body_weight_record(asu_id, weight_grams, measurement_date, notes)) {
-      # Close the modal on successful save
+    if (save_body_weight_record(asu_id, weight_grams, measurement_date, notes, refresh_modal = FALSE)) {
+      # Clear input fields
+      updateNumericInput(session, "body_weight_grams", value = NA)
+      updateTextAreaInput(session, "body_weight_notes", value = "")
+      
+      # Re-open the enhanced modal with updated data
+      show_body_weight_input(input, output, session, asu_id)
+      
+      # Also refresh the main mouse history modal data for when user closes body weight modal
+      show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
+    }
+  }, ignoreInit = TRUE)
+
+  # Edit body weight record functionality
+  observeEvent(input$edit_body_weight_record, {
+    req(input$edit_body_weight_record)
+    
+    record_id <- input$edit_body_weight_record
+    # Extract asu_id from the current context or use a stored value
+    # For now, we'll need to get it from the most recent body weight action
+    # This is a bit of a workaround - ideally we'd pass both values
+    
+    # Get the record details to extract asu_id
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    on.exit(DBI::dbDisconnect(con), add = TRUE)
+    
+    record <- tryCatch({
+      DBI::dbGetQuery(con, paste0("SELECT asu_id FROM body_weight_history WHERE id = ", record_id))
+    }, error = function(e) {
+      data.frame()
+    })
+    
+    if (nrow(record) > 0) {
+      asu_id <- record$asu_id[1]
+      show_edit_body_weight_modal(input, output, session, record_id, asu_id)
+    }
+  }, ignoreInit = TRUE)
+
+  # Update body weight record functionality
+  observeEvent(input$update_body_weight_clicked, {
+    req(input$update_body_weight_clicked)
+    
+    # Parse record_id and asu_id from the combined string
+    parts <- strsplit(input$update_body_weight_clicked, "_")[[1]]
+    record_id <- parts[1]
+    asu_id <- parts[2]
+    
+    weight_grams <- input$edit_body_weight_grams
+    measurement_date <- input$edit_body_weight_date
+    notes <- input$edit_body_weight_notes
+    
+    # Update the record
+    if (update_body_weight_record(record_id, asu_id, weight_grams, measurement_date, notes)) {
+      # Close the edit modal
       removeModal()
       
-      # Refresh the mouse history modal if it's open by re-triggering it
+      # Re-open the main body weight modal with updated data
+      show_body_weight_input(input, output, session, asu_id)
+      
+      # Also refresh the main mouse history modal
+      show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
+    }
+  }, ignoreInit = TRUE)
+
+  # Delete body weight record functionality
+  observeEvent(input$delete_body_weight_record, {
+    req(input$delete_body_weight_record)
+    
+    record_id <- input$delete_body_weight_record
+    
+    # Get the record details to extract asu_id
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    on.exit(DBI::dbDisconnect(con), add = TRUE)
+    
+    record <- tryCatch({
+      DBI::dbGetQuery(con, paste0("SELECT asu_id FROM body_weight_history WHERE id = ", record_id))
+    }, error = function(e) {
+      data.frame()
+    })
+    
+    if (nrow(record) > 0) {
+      asu_id <- record$asu_id[1]
+      delete_body_weight_record(record_id, asu_id)
+    }
+  }, ignoreInit = TRUE)
+
+  # Confirm delete body weight record functionality
+  observeEvent(input$confirm_delete_body_weight_clicked, {
+    req(input$confirm_delete_body_weight_clicked)
+    
+    # Parse record_id and asu_id from the combined string
+    parts <- strsplit(input$confirm_delete_body_weight_clicked, "_")[[1]]
+    record_id <- parts[1]
+    asu_id <- parts[2]
+    
+    # Delete the record
+    if (confirm_delete_body_weight_record(record_id, asu_id)) {
+      # Close the confirmation modal
+      removeModal()
+      
+      # Re-open the main body weight modal with updated data
+      show_body_weight_input(input, output, session, asu_id)
+      
+      # Also refresh the main mouse history modal
       show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
     }
   }, ignoreInit = TRUE)
