@@ -666,13 +666,43 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       if (nrow(plugging) == 0) return()
       row <- plugging[1, ]
       
-      # Get available mice for dropdown
-      mice_data <- get_live_mice()
+      # Get available LIVE mice for dropdown
+      live_mice_data <- get_live_mice()
       
-      male_choices <- setNames(mice_data$males$asu_id, 
-                              paste(mice_data$males$asu_id, "-", mice_data$males$breeding_line, "(", mice_data$males$genotype, ")"))
-      female_choices <- setNames(mice_data$females$asu_id, 
-                                paste(mice_data$females$asu_id, "-", mice_data$females$breeding_line, "(", mice_data$females$genotype, ")"))
+      # Get the full details of the mice currently in the record,
+      # as they might be deceased and not in the live list.
+      con_mice <- db_connect()
+      current_male <- dbGetQuery(con_mice, "SELECT * FROM mice_stock WHERE asu_id = ?", params = list(row$male_id))
+      current_female <- dbGetQuery(con_mice, "SELECT * FROM mice_stock WHERE asu_id = ?", params = list(row$female_id))
+      db_disconnect(con_mice)
+
+      # --- Male Choices ---
+      # Combine live males with the current male if it's not already in the list
+      all_males <- live_mice_data$males
+      if (nrow(current_male) > 0 && !(current_male$asu_id[1] %in% all_males$asu_id)) {
+        # Ensure columns match before rbind
+        if (nrow(all_males) > 0) {
+          all_males <- rbind(current_male[, colnames(all_males)], all_males)
+        } else {
+          all_males <- current_male
+        }
+      }
+      male_choices <- setNames(all_males$asu_id, 
+                              paste(all_males$asu_id, "-", all_males$breeding_line, "(", all_males$genotype, ")"))
+
+      # --- Female Choices ---
+      # Combine live females with the current female if it's not already in the list
+      all_females <- live_mice_data$females
+      if (nrow(current_female) > 0 && !(current_female$asu_id[1] %in% all_females$asu_id)) {
+        # Ensure columns match before rbind
+        if (nrow(all_females) > 0) {
+          all_females <- rbind(current_female[, colnames(all_females)], all_females)
+        } else {
+          all_females <- current_female
+        }
+      }
+      female_choices <- setNames(all_females$asu_id, 
+                                paste(all_females$asu_id, "-", all_females$breeding_line, "(", all_females$genotype, ")"))
       
       # Close the details modal first
       removeModal()
@@ -689,8 +719,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             ". For trio mating, each female has a separate plugging record."
           ),
           fluidRow(
-            column(6, selectInput("edit_plugging_male", "Male", choices = male_choices, selected = row$male_id)),
-            column(6, selectInput("edit_plugging_female", "Female", choices = female_choices, selected = row$female_id))
+            column(6, selectInput("edit_plugging_female", "Female ID", choices = female_choices, selected = row$female_id)),
+            column(6, selectInput("edit_plugging_male", "Male ID", choices = male_choices, selected = row$male_id))
           ),
           fluidRow(
             column(6, dateInput("edit_pairing_start_date", "Pairing Start Date", 
@@ -728,93 +758,35 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     })
   })
   
-  # Save plugging edit
-  observeEvent(input$save_plugging_edit_btn, {
-    plugging_id <- plugging_state$editing_id
-    if (is.null(plugging_id)) return()
-    
-    # Validation
-    if (is.null(input$edit_plugging_male) || input$edit_plugging_male == "") {
-      showNotification("Please select a male", type = "error")
-      return()
-    }
-    
-    if (is.null(input$edit_plugging_female) || input$edit_plugging_female == "") {
-      showNotification("Please select a female", type = "error")
-      return()
-    }
-    
-    if (input$edit_plugging_male == input$edit_plugging_female) {
-      showNotification("Male and female cannot be the same mouse", type = "error")
-      return()
-    }
-    
+  # Helper function to perform the actual save operation, callable from multiple places
+  perform_plugging_update <- function(plugging_id, update_data) {
     con <- db_connect()
     tryCatch({
-      # Get current values for audit trail
       current <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
-      
       if (nrow(current) == 0) {
         showNotification("Plugging event not found", type = "error")
         return()
       }
-      
       old_values <- current[1, ]
       
-      # Determine plug observed date value based on radio button selection
-      plug_observed_date_value <- if(input$edit_plug_observed_type == "unknown") {
-        "Unknown"
-      } else {
-        as.character(input$edit_plug_observed_date)
-      }
-      
-      # Update the plugging event
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET 
-         male_id = ?,
-         female_id = ?,
-         pairing_start_date = ?,
-         pairing_end_date = ?,
-         plug_observed_date = ?, 
-         plugging_status = ?, 
-         expected_age_for_harvesting = ?,
-         notes = ?,
-         updated_at = DATETIME('now')
+         male_id = ?, female_id = ?, pairing_start_date = ?, pairing_end_date = ?,
+         plug_observed_date = ?, plugging_status = ?, expected_age_for_harvesting = ?,
+         notes = ?, updated_at = DATETIME('now')
          WHERE id = ?",
         params = list(
-          input$edit_plugging_male,
-          input$edit_plugging_female,
-          as.character(input$edit_pairing_start_date),
-          as.character(input$edit_pairing_end_date),
-          plug_observed_date_value,
-          input$edit_plugging_status,
-          input$edit_expected_age_for_harvesting,
-          input$edit_plugging_notes,
-          plugging_id
+          update_data$male_id, update_data$female_id, update_data$pairing_start_date,
+          update_data$pairing_end_date, update_data$plug_observed_date, update_data$plugging_status,
+          update_data$expected_age_for_harvesting, update_data$notes, plugging_id
         )
       )
       
       if (result > 0) {
-        # Log to audit trail
-        log_audit_trail(
-          "plugging_history",
-          plugging_id,
-          "UPDATE",
-          old_values,
-          list(
-            male_id = input$edit_plugging_male,
-            female_id = input$edit_plugging_female,
-            pairing_start_date = as.character(input$edit_pairing_start_date),
-            pairing_end_date = as.character(input$edit_pairing_end_date),
-            plug_observed_date = plug_observed_date_value,
-            plugging_status = input$edit_plugging_status,
-            expected_age_for_harvesting = input$edit_expected_age_for_harvesting,
-            notes = input$edit_plugging_notes
-          )
-        )
-        
+        log_audit_trail("plugging_history", plugging_id, "UPDATE", old_values, update_data)
         showNotification("Plugging event updated successfully", type = "message")
-        removeModal()
+        removeModal() # Close confirmation modal if open
+        removeModal() # Close edit modal
         Sys.sleep(1)
         auto_update_plugging_status_to_unknown()
         plugging_state$editing_id <- NULL
@@ -822,14 +794,100 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       } else {
         showNotification("Failed to update plugging event", type = "error")
       }
-      
     }, error = function(e) {
       showNotification(paste("Error updating plugging event:", e$message), type = "error")
     }, finally = {
       db_disconnect(con)
     })
+  }
+
+  # Save plugging edit - Step 1: Validate and check for ID changes
+  observeEvent(input$save_plugging_edit_btn, {
+    plugging_id <- plugging_state$editing_id
+    if (is.null(plugging_id)) return()
+    
+    # Validation
+    if (is.null(input$edit_plugging_male) || input$edit_plugging_male == "" || is.null(input$edit_plugging_female) || input$edit_plugging_female == "") {
+      showNotification("Please select both a male and a female mouse.", type = "error")
+      return()
+    }
+    if (input$edit_plugging_male == input$edit_plugging_female) {
+      showNotification("Male and female cannot be the same mouse", type = "error")
+      return()
+    }
+    
+    con <- db_connect()
+    original_record <- tryCatch({
+      DBI::dbGetQuery(con, "SELECT male_id, female_id FROM plugging_history WHERE id = ?", params = list(plugging_id))
+    }, finally = {
+      db_disconnect(con)
+    })
+    
+    if (nrow(original_record) == 0) {
+      showNotification("Original record not found.", type = "error")
+      return()
+    }
+
+    id_changed <- (original_record$male_id[1] != input$edit_plugging_male) || (original_record$female_id[1] != input$edit_plugging_female)
+    
+    plug_observed_date_value <- if(input$edit_plug_observed_type == "unknown") "Unknown" else as.character(input$edit_plug_observed_date)
+
+    update_data <- list(
+      male_id = input$edit_plugging_male,
+      female_id = input$edit_plugging_female,
+      pairing_start_date = as.character(input$edit_pairing_start_date),
+      pairing_end_date = as.character(input$edit_pairing_end_date),
+      plug_observed_date = plug_observed_date_value,
+      plugging_status = input$edit_plugging_status,
+      expected_age_for_harvesting = input$edit_expected_age_for_harvesting,
+      notes = input$edit_plugging_notes
+    )
+
+    if (id_changed) {
+      plugging_state$pending_edit_data <- update_data
+      
+      # Build a more informative warning message
+      changes <- list()
+      if (original_record$female_id[1] != input$edit_plugging_female) {
+        changes <- c(changes, list(tags$li(HTML(paste0("<b>Female ID:</b> ", original_record$female_id[1], " → ", input$edit_plugging_female)))))
+      }
+      if (original_record$male_id[1] != input$edit_plugging_male) {
+        changes <- c(changes, list(tags$li(HTML(paste0("<b>Male ID:</b> ", original_record$male_id[1], " → ", input$edit_plugging_male)))))
+      }
+      
+      warning_message <- tagList(
+        p("You are about to change the mouse ID(s) for this record. This is a significant change. Please confirm the changes below:"),
+        tags$ul(changes),
+        p("Are you sure you want to proceed?")
+      )
+      
+      showModal(modalDialog(
+        title = "Confirm Mouse ID Change",
+        warning_message,
+        footer = tagList(
+          modalButton("Cancel"),
+          actionButton("confirm_id_change_and_save_btn", "Confirm and Save", class = "btn-danger")
+        )
+      ))
+    } else {
+      perform_plugging_update(plugging_id, update_data)
+    }
   })
-  
+
+  # Save plugging edit - Step 2: Final confirmation after ID change warning
+  observeEvent(input$confirm_id_change_and_save_btn, {
+    plugging_id <- plugging_state$editing_id
+    update_data <- plugging_state$pending_edit_data
+    
+    if (is.null(plugging_id) || is.null(update_data)) {
+      showNotification("Could not save. Required information is missing.", type = "error")
+      return()
+    }
+    
+    perform_plugging_update(plugging_id, update_data)
+    plugging_state$pending_edit_data <- NULL # Clean up
+  })
+
   # Mark plug as observed
   observeEvent(input$mark_plug_observed_btn, {
     plugging_id <- plugging_state$viewing_id
