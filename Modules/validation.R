@@ -698,34 +698,34 @@ mice_status_tag_all_mice <- function(asu_id) {
     
     # Check active plugging records
     mouse_role <- ifelse(mouse_info$gender == "Male", "male", "female")
-    mouse_id_column <- ifelse(mouse_role == "male", "male_id", "female_id")
-    
-    # Use correct active statuses for each gender
-    if (mouse_role == "male") {
-      active_statuses <- c("Ongoing", "Plugged")
-    } else {
-      active_statuses <- c("Ongoing", "Plugged", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
-    }
-    
-    active_plugging_query <- paste0(
-      "SELECT COUNT(*) as active_count \
-       FROM plugging_history \
-       WHERE ", mouse_id_column, " = ? \
-       AND plugging_status IN ('", paste(active_statuses, collapse = "', '"), "')"
-    )
-    
-    active_count <- DBI::dbGetQuery(con, active_plugging_query, params = list(asu_id))$active_count
     
     # Determine status based on active plugging records
     if (mouse_role == "male") {
-      # For males: Busy if 2 or more active records, Free otherwise
+      # Males are "Busy" if they have 2 or more "Ongoing" pairings.
+      active_statuses <- c("Ongoing")
+      active_plugging_query <- paste0(
+        "SELECT COUNT(*) as active_count 
+         FROM plugging_history 
+         WHERE male_id = ? AND plugging_status IN ('", paste(active_statuses, collapse = "', '"), "')"
+      )
+      active_count <- DBI::dbGetQuery(con, active_plugging_query, params = list(asu_id))$active_count
+      
       if (active_count >= 2) {
         return("Busy")
       } else {
         return("Free")
       }
-    } else {
-      # For females: Busy if 1 or more active records, Free otherwise
+      
+    } else { # female
+      # Females are "Busy" if they have any active plugging/confirmation event.
+      active_statuses <- c("Ongoing", "Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
+      active_plugging_query <- paste0(
+        "SELECT COUNT(*) as active_count 
+         FROM plugging_history 
+         WHERE female_id = ? AND plugging_status IN ('", paste(active_statuses, collapse = "', '"), "')"
+      )
+      active_count <- DBI::dbGetQuery(con, active_plugging_query, params = list(asu_id))$active_count
+      
       if (active_count >= 1) {
         return("Busy")
       } else {
