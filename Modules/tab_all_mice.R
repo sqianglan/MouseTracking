@@ -61,19 +61,24 @@ all_mice_tab_ui <- function() {
             div(
               style = "margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px;",
               span(
-                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 10px;",
+                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
                 span(class = "status-indicator status-free", style = "background-color: #4CAF50; width: 12px; height: 12px; display: inline-block; border-radius: 50%; margin-right: 0px;"),
                 "Free"
               ),
               span(
-                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 10px;",
+                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
                 span(class = "status-indicator status-busy", style = "background-color: #FF9800; width: 12px; height: 12px; display: inline-block; border-radius: 50%;margin-right: 0px;"),
                 "Busy"
               ),
               span(
-                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 10px;",
+                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
                 span(class = "status-indicator status-deceased", style = "background-color: #F44336; width: 12px; height: 12px; display: inline-block; border-radius: 50%; margin-right: 0px;"),
-                "Deceased (Not shown in the default view)"
+                "Deceased (Not shown in the default)"
+              ),
+              span(
+                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 0px;",
+                tags$img(src = "scale_keynote.svg", style = "width: 14px; height: 14px; vertical-align: middle;"),
+                "Body Weight Recorded"
               )
             )
           ),
@@ -235,9 +240,10 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     # Calculate age in weeks
     display_data$age_weeks <- floor(as.numeric(Sys.Date() - as.Date(data$dob)) / 7) 
     
-    # Add status light before ASU ID with improved styling
+    # Add status light and body weight indicator before ASU ID with improved styling
     display_data$asu_id_with_light <- sapply(display_data$asu_id, function(asu_id) {
       status_tag <- mice_status_tag_all_mice(asu_id)
+      has_body_weight <- has_body_weight_records(asu_id)
       
       # Define light colors based on status with better contrast
       light_color <- switch(status_tag,
@@ -247,10 +253,20 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         "Unknown" = "#9E9E9E"    # Gray
       )
       
-      # Create HTML for the light and ASU ID with improved styling
+      # Create body weight indicator with SVG icon
+      body_weight_indicator <- if (has_body_weight) {
+        '<span class="body-weight-indicator" style="display: flex; align-items: center; width: 12px; height: 12px;" title="Has body weight records"><img src="scale_keynote.svg" style="width: 12px; height: 12px;"></span>'
+      } else {
+        '<span style="width: 12px; height: 12px; display: inline-block;"></span>'
+      }
+      
+      # Create HTML for the lights and ASU ID with improved styling and alignment
       paste0(
-        '<span class="status-indicator status-', tolower(status_tag), '" style="background-color: ', light_color, ';" title="Status: ', status_tag, '"></span>',
-        '<span style="font-weight: 500; color: #2c3e50;">', asu_id, '</span>'
+        '<div style="display: flex; align-items: center; height: 20px;">',
+        '<span class="status-indicator status-', tolower(status_tag), '" style="background-color: ', light_color, '; width: 12px; height: 12px; border-radius: 50%; display: inline-block; vertical-align: middle;" title="Status: ', status_tag, '"></span>',
+        body_weight_indicator,
+        '<span style="font-weight: 500; color: #2c3e50; margin-left: 6px; line-height: 20px;">', asu_id, '</span>',
+        '</div>'
       )
     })
     
@@ -297,9 +313,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         scrollX = TRUE,
         dom = '<"top"lf>rt<"bottom"ip><"clear">',
         columnDefs = list(
-          list(width = '75px', targets = 0),  # ASU ID column - 10% less (was 120px)
+          list(width = '90px', targets = 0),  # ASU ID column - increased for better visibility
           list(width = '40px', targets = 3),   # Age column - 50% less (was 80px)
-          list(width = '400px', targets = notes_col_index)  # Notes column - extra width
+          list(width = '340px', targets = notes_col_index)  # Notes column - reduced width
         ),
         language = list(
           search = "🔍 Search:",

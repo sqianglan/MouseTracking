@@ -1375,7 +1375,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           style = "font-size: 12px; color: #555; margin-bottom: 10px;",
           tags$em(
             tags$strong("Not Pregnant:"), " False pregnant without Euthanizing.", tags$br(),
-            tags$strong("Empty Plug:"), " Euthanized without embryos, or Alive",tags$br(),
+            tags$strong("Empty Plug:"), " Euthanized without embryos",tags$br(),
             tags$strong("Sample Collected:"), " Euthanized with embryos."
           )
         ),

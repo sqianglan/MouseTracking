@@ -676,6 +676,30 @@ get_mouse_info <- function(asu_id, include_status = FALSE) {
   })
 }
 
+# Function to check if mouse has body weight records
+has_body_weight_records <- function(asu_id) {
+  if (is.null(asu_id) || asu_id == "") return(FALSE)
+  
+  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+  tryCatch({
+    # Check if body_weight_history table exists
+    tables <- DBI::dbListTables(con)
+    if (!"body_weight_history" %in% tables) {
+      return(FALSE)
+    }
+    
+    # Check if mouse has any body weight records
+    query <- "SELECT COUNT(*) as count FROM body_weight_history WHERE asu_id = ?"
+    result <- DBI::dbGetQuery(con, query, params = list(asu_id))
+    
+    return(result$count > 0)
+  }, error = function(e) {
+    return(FALSE)
+  }, finally = {
+    DBI::dbDisconnect(con)
+  })
+}
+
 # Function to determine mouse status tag for all mice table
 mice_status_tag_all_mice <- function(asu_id) {
   if (is.null(asu_id) || asu_id == "") return("Unknown")
