@@ -17,6 +17,7 @@ suppressPackageStartupMessages({
   library(calendR)
   library(ggsci)
   library(plotly)
+  library(markdown)
 })
 
 # Helper function to shorten long file paths for display
@@ -598,6 +599,12 @@ ui <- fluidPage(
       tabPanel("🏠 Home", 
         div(
           style = "position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; background: linear-gradient(135deg, rgba(135, 206, 235, 0.6) 0%, rgba(95, 158, 160, 0.6) 100%); border-radius: 12px; padding: 48px; overflow: hidden;",
+          # Version number in top-left corner
+          div(
+            style = "position: absolute; top: 20px; left: 20px; z-index: 3;",
+            actionButton("version_info_btn", "Version: beta 1.10", 
+                        style = "background: rgba(255, 255, 255, 0.9); color: #2c3e50; border: none; border-radius: 6px; font-size: 0.9em; padding: 6px 12px; font-weight: 500; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);")
+          ),
           div(
             class = "plugging-status-diagram-container",
             div(
@@ -1489,6 +1496,39 @@ server <- function(input, output, session) {
     user_timezone(input$timezone_select)
     removeModal()
     showNotification(paste('Timezone set to', input$timezone_select), type = 'message')
+  })
+
+  # Server logic for version info modal
+  observeEvent(input$version_info_btn, {
+    # Read VERSION.md file
+    version_content <- tryCatch({
+      version_file_path <- "VERSION.md"
+      if (file.exists(version_file_path)) {
+        readLines(version_file_path, warn = FALSE)
+      } else {
+        c("# Version Information", "Version file not found.")
+      }
+    }, error = function(e) {
+      c("# Version Information", "Error reading version file.")
+    })
+    
+    # Convert markdown to HTML
+    version_html <- tryCatch({
+      markdown::markdownToHTML(text = paste(version_content, collapse = "\n"), 
+                              fragment.only = TRUE)
+    }, error = function(e) {
+      paste(version_content, collapse = "<br>")
+    })
+    
+    showModal(modalDialog(
+      title = "Version Information",
+      size = "l",
+      div(
+        style = "line-height: 1.6;",
+        HTML(version_html)
+      ),
+      footer = modalButton("Close")
+    ))
   })
 
 
