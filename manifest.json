@@ -4,16 +4,10 @@
   "platform": "4.5.1",
   "metadata": {
     "appmode": "shiny",
-    "primary_rmd": {},
-    "primary_html": {},
-    "content_category": {},
-    "has_parameters": false,
-    "title": "Mouse Management System - beta 1.10",
-    "description": "A comprehensive web-based application for tracking and managing mouse colony plugging records in animal research facilities. Features body weight tracking, breeding pair management, and comprehensive audit trails.",
-    "tags": ["research", "laboratory", "animal-facility", "data-management", "shiny"],
-    "author": "Qiang Lan",
-    "contact": "qiang.lan@bristol.ac.uk",
-    "version": "beta-1.10"
+    "primary_rmd": null,
+    "primary_html": null,
+    "content_category": null,
+    "has_parameters": false
   },
   "packages": {
     "DBI": {
@@ -3961,6 +3955,9 @@
     "app.R": {
       "checksum": "d981ead93c4134dbd4ae108d05318a19"
     },
+    "generate_clean_manifest.R": {
+      "checksum": "51adedc592e2c7f9316c47621c737785"
+    },
     "install_packages.R": {
       "checksum": "87194bbdba5c83129e2ee36f1781cdd1"
     },
@@ -4021,9 +4018,6 @@
     "test_only/Experimental Stock_Batch list-2.xls": {
       "checksum": "d5039f5f7a64f12fba81d85c6c3c439a"
     },
-    "update_manifest.R": {
-      "checksum": "62db31ea4b17011201177272f82d1c09"
-    },
     "VERSION.md": {
       "checksum": "cc743dec7431761e99ef95e9d9820ad0"
     },
@@ -4040,5 +4034,5 @@
       "checksum": "241852562dd8a2861eea1cb1bc36e1e9"
     }
   },
-  "users": {}
+  "users": null
 }
