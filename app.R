@@ -54,6 +54,7 @@ user_timezone <- reactiveVal(Sys.timezone())
 # Define UI for application that draws a histogram
 ui <- fluidPage(
   tags$head(
+    tags$script(src = "scroll-position.js"),  # Include our custom JS file
     tags$script(HTML("
       // Custom message handler for updating body weight table
       Shiny.addCustomMessageHandler('updateBodyWeightTable', function(message) {

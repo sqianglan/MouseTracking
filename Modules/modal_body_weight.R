@@ -34,9 +34,15 @@ show_body_weight_input <- function(input, output, session, asu_id) {
         "N/A"
       } else {
         tryCatch({
-          format(as.Date(row$measurement_date), "%d-%b-%Y")
+          # Robust date parsing for table display
+          parsed_date <- if (is.character(row$measurement_date)) {
+            as.Date(row$measurement_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+          } else {
+            as.Date(row$measurement_date)
+          }
+          format(parsed_date, "%d-%b-%Y")
         }, error = function(e) {
-          row$measurement_date
+          row$measurement_date  # Return original value if parsing fails
         })
       }
       
@@ -208,9 +214,19 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
       return(p)
     }
     
-    # Prepare body weight data
+    # Prepare body weight data with robust date parsing (preview chart)
     weight_data <- body_weight_history
-    weight_data$measurement_date <- as.Date(weight_data$measurement_date)
+    # Robust date conversion - handle various date formats
+    weight_data$measurement_date <- tryCatch({
+      if (is.character(weight_data$measurement_date)) {
+        as.Date(weight_data$measurement_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+      } else {
+        as.Date(weight_data$measurement_date)
+      }
+    }, error = function(e) {
+      # If date conversion fails, use current date as fallback
+      rep(Sys.Date(), nrow(weight_data))
+    })
     
     # Create the base plotly chart
     p <- plot_ly(
@@ -244,9 +260,26 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
         
         # Add gray shaded area for pairing period
         if (!is.na(row$pairing_start_date) && row$pairing_start_date != "") {
-          start_date <- as.Date(row$pairing_start_date)
+          start_date <- tryCatch({
+            if (is.character(row$pairing_start_date)) {
+              as.Date(row$pairing_start_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(row$pairing_start_date)
+            }
+          }, error = function(e) {
+            Sys.Date()  # Fallback to today
+          })
+          
           end_date <- if (!is.na(row$pairing_end_date) && row$pairing_end_date != "") {
-            as.Date(row$pairing_end_date)
+            tryCatch({
+              if (is.character(row$pairing_end_date)) {
+                as.Date(row$pairing_end_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+              } else {
+                as.Date(row$pairing_end_date)
+              }
+            }, error = function(e) {
+              max(weight_data$measurement_date, Sys.Date())
+            })
           } else {
             max(weight_data$measurement_date, Sys.Date())
           }
@@ -264,7 +297,17 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
         
         # Add plug observed markers
         if (!is.na(row$plug_observed_date) && row$plug_observed_date != "") {
-          plug_date <- as.Date(row$plug_observed_date)
+          plug_date <- tryCatch({
+            if (is.character(row$plug_observed_date)) {
+              as.Date(row$plug_observed_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(row$plug_observed_date)
+            }
+          }, error = function(e) {
+            NULL  # Skip this marker if date parsing fails
+          })
+          
+          if (!is.null(plug_date)) {
           
           # Determine color based on plugging status
           plug_color <- if (row$plugging_status == "Collected") {
@@ -282,6 +325,7 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
             y0 = y_range[1], y1 = y_range[2],
             line = list(color = plug_color, width = 2)
           )
+          }
         }
       }
     }
@@ -386,7 +430,16 @@ show_edit_body_weight_modal <- function(input, output, session, record_id, asu_i
           dateInput(
             inputId = "edit_body_weight_date",
             label = "Measurement Date",
-            value = as.Date(record$measurement_date[1]),
+            value = tryCatch({
+              date_value <- record$measurement_date[1]
+              if (is.character(date_value)) {
+                as.Date(date_value, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+              } else {
+                as.Date(date_value)
+              }
+            }, error = function(e) {
+              Sys.Date()  # Fallback to today
+            }),
             format = "yyyy-mm-dd"
           )
         ),
@@ -539,9 +592,19 @@ refresh_body_weight_modal_content <- function(input, output, session, asu_id) {
 # Function to render body weight plotly chart
 render_body_weight_chart <- function(output, asu_id, body_weight_history, plugging_history) {
   output[[paste0("body_weight_plot_", asu_id)]] <- renderPlotly({
-    # Prepare body weight data
+    # Prepare body weight data with robust date parsing (main chart)
     weight_data <- body_weight_history
-    weight_data$measurement_date <- as.Date(weight_data$measurement_date)
+    # Robust date conversion - handle various date formats
+    weight_data$measurement_date <- tryCatch({
+      if (is.character(weight_data$measurement_date)) {
+        as.Date(weight_data$measurement_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+      } else {
+        as.Date(weight_data$measurement_date)
+      }
+    }, error = function(e) {
+      # If date conversion fails, use current date as fallback
+      rep(Sys.Date(), nrow(weight_data))
+    })
     
     # Create the base plotly chart
     p <- plot_ly(
@@ -578,11 +641,27 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
         end_date <- NULL
         
         if (!is.na(row$pairing_start_date) && row$pairing_start_date != "") {
-          start_date <- as.Date(row$pairing_start_date)
+          start_date <- tryCatch({
+            if (is.character(row$pairing_start_date)) {
+              as.Date(row$pairing_start_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(row$pairing_start_date)
+            }
+          }, error = function(e) {
+            NULL  # Skip if date parsing fails
+          })
         }
         
         if (!is.na(row$pairing_end_date) && row$pairing_end_date != "") {
-          end_date <- as.Date(row$pairing_end_date)
+          end_date <- tryCatch({
+            if (is.character(row$pairing_end_date)) {
+              as.Date(row$pairing_end_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(row$pairing_end_date)
+            }
+          }, error = function(e) {
+            NULL  # Skip if date parsing fails
+          })
         }
         
         # Add gray shaded area for pairing period
@@ -605,7 +684,17 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
         
         # Plug observed - Arrow with color based on plugging status
         if (!is.na(row$plug_observed_date) && row$plug_observed_date != "") {
-          plug_date <- as.Date(row$plug_observed_date)
+          plug_date <- tryCatch({
+            if (is.character(row$plug_observed_date)) {
+              as.Date(row$plug_observed_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(row$plug_observed_date)
+            }
+          }, error = function(e) {
+            NULL  # Skip this marker if date parsing fails
+          })
+          
+          if (!is.null(plug_date)) {
           
           # Determine color based on plugging status (same as summary)
           plug_color <- if (row$plugging_status == "Collected") {
@@ -637,10 +726,10 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
             y0 = y_range[1], y1 = y_range[2],
             line = list(color = plug_color, width = 3)
           )
+          }
         }
       }
     }
-    
     # Apply layout with shapes
     p <- p %>% layout(
       xaxis = list(
@@ -662,5 +751,5 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
     )
     
     return(p)
-  })
-}
+  }) # Close renderPlotly
+} # Close render_body_weight_chart function

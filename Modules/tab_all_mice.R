@@ -124,6 +124,138 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
 
   # Create reactive value to store filtered data
   filtered_data <- reactiveVal(NULL)
+  
+  # Function to refresh table data while preserving view state (sorting, pagination, etc.)
+  refresh_table_data_preserving_state <- function() {
+    # Save scroll positions for all DataTables
+    session$sendCustomMessage("eval", "saveScrollForAllTables();")
+    
+    # Get current data query based on current filters - same logic as search
+    where_conditions <- c()
+    
+    # Build the same query as the search function
+    if (!is.null(input$all_mice_search_asu_id) && input$all_mice_search_asu_id != "") {
+      asu_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_asu_id))
+      where_conditions <- c(where_conditions, paste0("asu_id LIKE '", asu_pattern, "'"))
+    }
+    if (!is.null(input$all_mice_search_animal_id) && input$all_mice_search_animal_id != "") {
+      animal_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_animal_id))
+      where_conditions <- c(where_conditions, paste0("animal_id LIKE '", animal_pattern, "'"))
+    }
+    if (!is.null(input$all_mice_search_gender) && input$all_mice_search_gender != "") {
+      where_conditions <- c(where_conditions, paste0("gender = '", input$all_mice_search_gender, "'"))
+    }
+    if (!is.null(input$all_mice_search_breeding_line) && input$all_mice_search_breeding_line != "") {
+      breeding_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_breeding_line))
+      where_conditions <- c(where_conditions, paste0("breeding_line LIKE '", breeding_pattern, "'"))
+    }
+    if (!is.null(input$all_mice_search_responsible_person) && input$all_mice_search_responsible_person != "") {
+      where_conditions <- c(where_conditions, paste0("responsible_person = '", input$all_mice_search_responsible_person, "'"))
+    }
+    if (!is.null(input$all_mice_search_stock_category) && input$all_mice_search_stock_category != "") {
+      where_conditions <- c(where_conditions, paste0("stock_category = '", input$all_mice_search_stock_category, "'"))
+    }
+    if (!is.null(input$all_mice_search_status) && input$all_mice_search_status != "Both") {
+      if (input$all_mice_search_status == "Live") {
+        where_conditions <- c(where_conditions, "status == 'Alive'")
+      } else if (input$all_mice_search_status == "Deceased") {
+        where_conditions <- c(where_conditions, "status == 'Deceased'")
+      }
+    }
+    
+    # Build query
+    if (length(where_conditions) == 0) {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
+    } else {
+      query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
+    }
+    
+    # Execute query and update reactive values - DataTable's state management will handle view preservation
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    tryCatch({
+      refreshed_data <- DBI::dbGetQuery(con, query)
+      
+      # Update the underlying reactive values - this will trigger the renderDataTable
+      filtered_data(refreshed_data)
+      all_mice_table(refreshed_data)
+      
+      # Trigger global refresh to update any other components that depend on this data
+      global_refresh_trigger(Sys.time())
+      
+      # Restore scroll positions after refresh
+      session$sendCustomMessage("eval", "
+        setTimeout(function() {
+          restoreScrollForAllTables();
+        }, 200);
+      ")
+      
+    }, finally = {
+      DBI::dbDisconnect(con)
+    })
+  }
+  
+  # Helper function to prepare display data (extracted from renderDataTable)
+  prepare_display_data <- function(data) {
+    # Select columns including timestamps
+    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "notes")]
+    
+    # Calculate age in weeks
+    display_data$age_weeks <- floor(as.numeric(Sys.Date() - as.Date(data$dob)) / 7) 
+    
+    # Add status light and body weight indicator before ASU ID with improved styling
+    display_data$asu_id_with_light <- sapply(display_data$asu_id, function(asu_id) {
+      status_tag <- mice_status_tag_all_mice(asu_id)
+      has_body_weight <- has_body_weight_records(asu_id)
+      
+      # Define light colors based on status with better contrast
+      light_color <- switch(status_tag,
+        "Free" = "#4CAF50",      # Green
+        "Busy" = "#FF9800",      # Orange
+        "Deceased" = "#F44336",  # Red
+        "Unknown" = "#9E9E9E"    # Gray
+      )
+      
+      # Create body weight indicator with SVG icon
+      body_weight_indicator <- if (has_body_weight) {
+        '<span class="body-weight-indicator" style="display: flex; align-items: center; width: 12px; height: 12px;" title="Has body weight records"><img src="scale_keynote.svg" style="width: 12px; height: 12px;"></span>'
+      } else {
+        '<span style="width: 12px; height: 12px; display: inline-block;"></span>'
+      }
+      
+      # Create HTML for the lights and ASU ID with improved styling and alignment
+      paste0(
+        '<div style="display: flex; align-items: center; height: 20px;">',
+        '<span class="status-indicator status-', tolower(status_tag), '" style="background-color: ', light_color, '; width: 12px; height: 12px; border-radius: 50%; display: inline-block; vertical-align: middle;" title="Status: ', status_tag, '"></span>',
+        body_weight_indicator,
+        '<span style="font-weight: 500; color: #2c3e50; margin-left: 6px; line-height: 20px;">', asu_id, '</span>',
+        '</div>'
+      )
+    })
+    
+    # Reorder columns for display
+    col_order <- c("asu_id_with_light", "animal_id", "gender", "age_weeks", "breeding_line", "genotype", "responsible_person", "notes")
+    display_data <- display_data[, col_order]
+    
+    # Truncate Notes to one row with ellipsis for display
+    display_data$notes <- sapply(display_data$notes, function(note) {
+      if (is.na(note) || note == "") return("")
+      # Limit to 80 characters, add ellipsis if longer
+      if (nchar(note) > 100) paste0(substr(note, 1, 95), "...") else note
+    })
+    
+    colnames(display_data) <- c(
+      "ASU ID",
+      "Animal ID", 
+      "Gender",
+      "Age (wks)",
+      "Breeding Line",
+      "Genotype",
+      "Responsible Person",
+      "Notes"
+    )
+    
+    return(display_data)
+  }
 
   # On app start, load filtered data with default status of Live  
   observe({
@@ -200,107 +332,13 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
   output$all_mice_table <- DT::renderDataTable({
     req(filtered_data())
     
-    # Add reactive dependency on global refresh trigger to ensure status lights update
+    # Add reactive dependency on global refresh trigger to ensure indicators update
     global_refresh_trigger()
     
     data <- filtered_data()
     
-    # Function to format timestamps
-    format_timestamp <- function(timestamp) {
-      if (is.null(timestamp) || is.na(timestamp) || timestamp == "") {
-        return("")
-      }
-      # Handle Unix timestamp (seconds since epoch)
-      if (is.numeric(timestamp) && timestamp > 1000000000) {
-        return(format(as.POSIXct(timestamp, origin = "1970-01-01"), "%d-%b-%Y %H:%M"))
-      }
-      # Handle string timestamps
-      if (is.character(timestamp)) {
-        # Try to parse as POSIXct
-        parsed <- tryCatch({
-          as.POSIXct(timestamp)
-        }, error = function(e) {
-          # If it's a Unix timestamp string, convert to numeric first
-          if (grepl("^\\d+\\.?\\d*$", timestamp)) {
-            as.POSIXct(as.numeric(timestamp), origin = "1970-01-01")
-          } else {
-            NA
-          }
-        })
-        if (!is.na(parsed)) {
-          return(format(parsed, "%d-%b-%Y %H:%M"))
-        }
-      }
-      return(as.character(timestamp))
-    }
-    
-    # Select columns including timestamps
-    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "notes")]
-    
-    # Calculate age in weeks
-    display_data$age_weeks <- floor(as.numeric(Sys.Date() - as.Date(data$dob)) / 7) 
-    
-    # Add status light and body weight indicator before ASU ID with improved styling
-    display_data$asu_id_with_light <- sapply(display_data$asu_id, function(asu_id) {
-      status_tag <- mice_status_tag_all_mice(asu_id)
-      has_body_weight <- has_body_weight_records(asu_id)
-      
-      # Define light colors based on status with better contrast
-      light_color <- switch(status_tag,
-        "Free" = "#4CAF50",      # Green
-        "Busy" = "#FF9800",      # Orange
-        "Deceased" = "#F44336",  # Red
-        "Unknown" = "#9E9E9E"    # Gray
-      )
-      
-      # Create body weight indicator with SVG icon
-      body_weight_indicator <- if (has_body_weight) {
-        '<span class="body-weight-indicator" style="display: flex; align-items: center; width: 12px; height: 12px;" title="Has body weight records"><img src="scale_keynote.svg" style="width: 12px; height: 12px;"></span>'
-      } else {
-        '<span style="width: 12px; height: 12px; display: inline-block;"></span>'
-      }
-      
-      # Create HTML for the lights and ASU ID with improved styling and alignment
-      paste0(
-        '<div style="display: flex; align-items: center; height: 20px;">',
-        '<span class="status-indicator status-', tolower(status_tag), '" style="background-color: ', light_color, '; width: 12px; height: 12px; border-radius: 50%; display: inline-block; vertical-align: middle;" title="Status: ', status_tag, '"></span>',
-        body_weight_indicator,
-        '<span style="font-weight: 500; color: #2c3e50; margin-left: 6px; line-height: 20px;">', asu_id, '</span>',
-        '</div>'
-      )
-    })
-    
-    # Reorder columns for display (replace asu_id with asu_id_with_light, exclude dob and last_updated)
-    col_order <- c("asu_id_with_light", "animal_id", "gender", "age_weeks", "breeding_line", "genotype", "responsible_person", "notes")
-    display_data <- display_data[, col_order]
-    
-    # Format dates
-    if ("dob" %in% colnames(display_data)) {
-      display_data$dob <- format(as.Date(display_data$dob), "%d-%b-%Y")
-    }
-    
-    # Format timestamps
-    if ("last_updated" %in% colnames(display_data)) {
-      display_data$last_updated <- sapply(display_data$last_updated, format_timestamp)
-    }
-    
-    # Truncate Notes to one row with ellipsis for display
-    display_data$notes <- sapply(display_data$notes, function(note) {
-      if (is.na(note) || note == "") return("")
-      # Limit to 80 characters, add ellipsis if longer
-      if (nchar(note) > 100) paste0(substr(note, 1, 95), "...") else note
-    })
-    
-    colnames(display_data) <- c(
-      "ASU ID",
-      "Animal ID", 
-      "Gender",
-      "Age (wks)",
-      "Breeding Line",
-      "Genotype",
-      "Responsible Person",
-      "Notes"
-    )
+    # Use the helper function to prepare display data
+    display_data <- prepare_display_data(data)
     
     # Find the index of the Notes column (last column)
     notes_col_index <- ncol(display_data) - 1  # 0-based for JS
@@ -311,6 +349,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       options = list(
         pageLength = 100,
         scrollX = TRUE,
+        # scrollY = "400px",  # Removed fixed height to allow natural table height
+        stateSave = TRUE,  # Enable state saving to preserve user's view state
+        stateDuration = 0, # Keep state for session only
         dom = '<"top"lf>rt<"bottom"ip><"clear">',
         columnDefs = list(
           list(width = '90px', targets = 0),  # ASU ID column - increased for better visibility
@@ -321,7 +362,28 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
           search = "🔍 Search:",
           lengthMenu = "Show _MENU_ entries per page",
           info = "Showing _START_ to _END_ of _TOTAL_ entries"
-        )
+        ),
+        # Callback to restore scroll position after table is drawn
+        drawCallback = JS("
+          function(settings) {
+            console.log('DataTable drawn:', settings.sTableId);
+            // Check if we have a saved scroll position and restore it
+            setTimeout(function() {
+              if (window.scrollPositions && window.scrollPositions[settings.sTableId]) {
+                var savedPos = window.scrollPositions[settings.sTableId];
+                var timeSinceSave = Date.now() - savedPos.timestamp;
+                
+                // Only restore if position was saved recently (within last 5 seconds)
+                if (timeSinceSave < 5000) {
+                  console.log('Auto-restoring scroll position from drawCallback');
+                  if (typeof restoreScrollPosition === 'function') {
+                    restoreScrollPosition(settings.sTableId, 50);
+                  }
+                }
+              }
+            }, 100);
+          }
+        ")
       ),
       filter = 'none',
       selection = 'multiple',
@@ -329,6 +391,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       rownames = FALSE,
       class = 'table table-striped table-hover',
       callback = JS("
+        // Handle double-click events
         table.on('dblclick', 'tr', function() {
           var data = table.row(this).data();
           if (data && data.length > 0) {
@@ -1197,6 +1260,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Clear input fields by re-showing the modal with updated data
       # This ensures all modal elements including buttons remain intact
       show_body_weight_input(input, output, session, asu_id)
+      
+      # Refresh only the specific row data without disrupting table view state
+      refresh_table_data_preserving_state()
     }
   }, ignoreInit = TRUE)
 
@@ -1245,6 +1311,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       
       # Re-show the body weight modal with updated data
       show_body_weight_input(input, output, session, asu_id)
+      
+      # Refresh only the specific row data without disrupting table view state
+      refresh_table_data_preserving_state()
     }
   }, ignoreInit = TRUE)
 
@@ -1286,6 +1355,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       
       # Re-show the body weight modal with updated data
       show_body_weight_input(input, output, session, asu_id)
+      
+      # Refresh only the specific row data without disrupting table view state
+      refresh_table_data_preserving_state()
     }
   }, ignoreInit = TRUE)
 

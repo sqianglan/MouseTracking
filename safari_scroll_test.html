@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safari Scroll Test</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css">
+    <script type="text/javascript" src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+    <style>
+        .test-container {
+            margin: 20px;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+        .log-area {
+            background: #f5f5f5;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .dataTables_wrapper {
+            margin-top: 20px;
+        }
+        #testTable {
+            width: 100%;
+        }
+        .browser-info {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Safari Scroll Position Test</h1>
+        
+        <div class="browser-info">
+            <strong>Browser:</strong> <span id="browserInfo"></span><br>
+            <strong>User Agent:</strong> <span id="userAgent"></span>
+        </div>
+        
+        <button onclick="testSaveScroll()">Save Scroll Position</button>
+        <button onclick="testRestoreScroll()">Restore Scroll Position</button>
+        <button onclick="clearLog()">Clear Log</button>
+        <button onclick="scrollTableTo(200, 100)">Scroll Table to 200px vertical, 100px horizontal</button>
+        
+        <div class="log-area" id="logArea"></div>
+        
+        <table id="testTable" class="display">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Position</th>
+                    <th>Office</th>
+                    <th>Age</th>
+                    <th>Start Date</th>
+                    <th>Salary</th>
+                    <th>Extra Column 1</th>
+                    <th>Extra Column 2</th>
+                    <th>Extra Column 3</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Generate many rows for scrolling -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Browser detection
+        function detectBrowser() {
+            const userAgent = navigator.userAgent;
+            document.getElementById('userAgent').textContent = userAgent;
+            
+            let browserName = 'Unknown';
+            if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) {
+                browserName = 'Safari';
+            } else if (userAgent.includes('Chrome')) {
+                browserName = 'Chrome/Edge';
+            } else if (userAgent.includes('Firefox')) {
+                browserName = 'Firefox';
+            }
+            
+            document.getElementById('browserInfo').textContent = browserName;
+            log('Browser detected: ' + browserName);
+            
+            // Safari-specific checks
+            if (browserName === 'Safari') {
+                log('Safari-specific checks:');
+                log('- requestAnimationFrame available: ' + (typeof requestAnimationFrame !== 'undefined'));
+                log('- jQuery version: ' + ($ ? $.fn.jquery : 'not available'));
+                log('- DataTables available: ' + (typeof $.fn.DataTable !== 'undefined'));
+            }
+        }
+        
+        // Logging function
+        function log(message) {
+            const logArea = document.getElementById('logArea');
+            const timestamp = new Date().toLocaleTimeString();
+            logArea.innerHTML += `[${timestamp}] ${message}\n`;
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('logArea').innerHTML = '';
+        }
+        
+        // Global object to store scroll positions
+        window.scrollPositions = window.scrollPositions || {};
+        
+        // Enhanced save function with Safari-specific handling
+        function safariSaveScrollPosition(tableId) {
+            log('=== SAFARI SAVE SCROLL: Starting for table: ' + tableId);
+            
+            try {
+                let savedTop = 0;
+                let savedLeft = 0;
+                let containerFound = false;
+                let method = 'none';
+                
+                // Method 1: Try DataTables scrollBody (most common)
+                const scrollBody = $('.dataTables_scrollBody').first();
+                if (scrollBody.length > 0) {
+                    savedTop = scrollBody.scrollTop();
+                    savedLeft = scrollBody.scrollLeft();
+                    containerFound = true;
+                    method = 'scrollBody';
+                    log('Found scrollBody - top: ' + savedTop + ', left: ' + savedLeft);
+                }
+                
+                // Method 2: Try wrapper
+                if (!containerFound) {
+                    const wrapper = $('.dataTables_wrapper').first();
+                    if (wrapper.length > 0) {
+                        savedTop = wrapper.scrollTop();
+                        savedLeft = wrapper.scrollLeft();
+                        containerFound = true;
+                        method = 'wrapper';
+                        log('Found wrapper - top: ' + savedTop + ', left: ' + savedLeft);
+                    }
+                }
+                
+                // Method 3: Try table itself
+                if (!containerFound) {
+                    const table = $('#' + tableId);
+                    if (table.length > 0) {
+                        savedTop = table.scrollTop();
+                        savedLeft = table.scrollLeft();
+                        containerFound = true;
+                        method = 'table';
+                        log('Found table - top: ' + savedTop + ', left: ' + savedLeft);
+                    }
+                }
+                
+                // Method 4: Window fallback
+                if (!containerFound) {
+                    savedTop = $(window).scrollTop();
+                    savedLeft = $(window).scrollLeft();
+                    method = 'window';
+                    log('Using window scroll - top: ' + savedTop + ', left: ' + savedLeft);
+                }
+                
+                // Save the position
+                window.scrollPositions[tableId] = {
+                    top: savedTop,
+                    left: savedLeft,
+                    timestamp: Date.now(),
+                    method: method,
+                    browser: 'Safari'
+                };
+                
+                log('Saved scroll position using method: ' + method);
+                log('Position data: ' + JSON.stringify(window.scrollPositions[tableId]));
+                
+            } catch (err) {
+                log('ERROR in save: ' + err.message);
+                console.error('Save error:', err);
+            }
+        }
+        
+        // Enhanced restore function with Safari-specific handling
+        function safariRestoreScrollPosition(tableId, delay = 300) {
+            setTimeout(function() {
+                log('=== SAFARI RESTORE SCROLL: Starting for table: ' + tableId);
+                
+                try {
+                    if (!window.scrollPositions || !window.scrollPositions[tableId]) {
+                        log('No saved position found for: ' + tableId);
+                        return;
+                    }
+                    
+                    const savedPosition = window.scrollPositions[tableId];
+                    log('Found saved position: ' + JSON.stringify(savedPosition));
+                    
+                    let restored = false;
+                    
+                    // Try multiple restoration methods
+                    const methods = [
+                        {
+                            name: 'scrollBody',
+                            element: () => $('.dataTables_scrollBody').first()
+                        },
+                        {
+                            name: 'wrapper',
+                            element: () => $('.dataTables_wrapper').first()
+                        },
+                        {
+                            name: 'table',
+                            element: () => $('#' + tableId)
+                        },
+                        {
+                            name: 'window',
+                            element: () => $(window)
+                        }
+                    ];
+                    
+                    for (let method of methods) {
+                        const element = method.element();
+                        if (element.length > 0) {
+                            log('Trying method: ' + method.name);
+                            
+                            // For Safari, try both immediate and delayed restoration
+                            element.scrollTop(savedPosition.top);
+                            element.scrollLeft(savedPosition.left);
+                            
+                            // Verify immediately
+                            const newTop = element.scrollTop();
+                            const newLeft = element.scrollLeft();
+                            
+                            log('Applied scroll - Expected: ' + savedPosition.top + ',' + savedPosition.left + 
+                                ' Actual: ' + newTop + ',' + newLeft);
+                            
+                            if (Math.abs(newTop - savedPosition.top) < 5 || savedPosition.top === 0) {
+                                restored = true;
+                                log('✓ Successfully restored using: ' + method.name);
+                                break;
+                            }
+                            
+                            // For Safari, try using requestAnimationFrame
+                            if (typeof requestAnimationFrame !== 'undefined') {
+                                requestAnimationFrame(function() {
+                                    element.scrollTop(savedPosition.top);
+                                    element.scrollLeft(savedPosition.left);
+                                    log('Applied scroll via requestAnimationFrame');
+                                });
+                            }
+                        }
+                    }
+                    
+                    if (!restored) {
+                        log('⚠ Failed to restore scroll position');
+                        // Try one more time with a longer delay
+                        setTimeout(function() {
+                            const scrollBody = $('.dataTables_scrollBody').first();
+                            if (scrollBody.length > 0) {
+                                scrollBody.scrollTop(savedPosition.top);
+                                scrollBody.scrollLeft(savedPosition.left);
+                                log('Final attempt with delay completed');
+                            }
+                        }, 500);
+                    }
+                    
+                } catch (err) {
+                    log('ERROR in restore: ' + err.message);
+                    console.error('Restore error:', err);
+                }
+            }, delay);
+        }
+        
+        // Test functions
+        function testSaveScroll() {
+            log('--- Testing Save Scroll ---');
+            safariSaveScrollPosition('testTable');
+        }
+        
+        function testRestoreScroll() {
+            log('--- Testing Restore Scroll ---');
+            safariRestoreScrollPosition('testTable', 100);
+        }
+        
+        function scrollTableTo(top, left) {
+            log('--- Manually scrolling table to: ' + top + ', ' + left + ' ---');
+            const scrollBody = $('.dataTables_scrollBody').first();
+            if (scrollBody.length > 0) {
+                scrollBody.scrollTop(top);
+                scrollBody.scrollLeft(left);
+                log('Scroll applied to scrollBody');
+            } else {
+                log('No scrollBody found, trying wrapper');
+                const wrapper = $('.dataTables_wrapper').first();
+                if (wrapper.length > 0) {
+                    wrapper.scrollTop(top);
+                    wrapper.scrollLeft(left);
+                    log('Scroll applied to wrapper');
+                }
+            }
+        }
+        
+        // Initialize page
+        $(document).ready(function() {
+            detectBrowser();
+            
+            // Generate test data
+            const tableBody = $('#testTable tbody');
+            for (let i = 1; i <= 100; i++) {
+                const row = `
+                    <tr>
+                        <td>${i}</td>
+                        <td>User ${i}</td>
+                        <td>Position ${i}</td>
+                        <td>Office ${i}</td>
+                        <td>${20 + (i % 50)}</td>
+                        <td>2023-01-${String(i % 28 + 1).padStart(2, '0')}</td>
+                        <td>$${(30000 + i * 1000).toLocaleString()}</td>
+                        <td>Extra Data ${i}-1</td>
+                        <td>Extra Data ${i}-2</td>
+                        <td>Extra Data ${i}-3</td>
+                    </tr>
+                `;
+                tableBody.append(row);
+            }
+            
+            // Initialize DataTable with scrolling
+            $('#testTable').DataTable({
+                pageLength: 25,
+                scrollX: true,
+                scrollY: "400px",
+                dom: 'lrtip',
+                columnDefs: [
+                    { width: '100px', targets: [0, 4] },
+                    { width: '150px', targets: [1, 2, 3] },
+                    { width: '120px', targets: [5, 6] },
+                    { width: '200px', targets: [7, 8, 9] }
+                ]
+            });
+            
+            log('DataTable initialized with scrollX and scrollY');
+            
+            // Add scroll event listeners for debugging
+            $('.dataTables_scrollBody').on('scroll', function() {
+                const top = $(this).scrollTop();
+                const left = $(this).scrollLeft();
+                log('Scroll event - top: ' + top + ', left: ' + left);
+            });
+        });
+    </script>
+</body>
+</html>
