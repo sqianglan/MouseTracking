@@ -179,6 +179,10 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   output$plugging_history_table <- DT::renderDataTable({
     plugging_state$reload
     
+    # Save scroll and table state before refresh
+    session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('plugging_history_table');")
+    session$sendCustomMessage(type = "eval", message = "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
+    
     con <- db_connect()
     tryCatch({
       # Get plugging data with mouse info in a single query
@@ -309,6 +313,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       )
     }, finally = {
       db_disconnect(con)
+      # Restore scroll and table state after table is rendered
+      session$sendCustomMessage(type = "eval", message = "setTimeout(function() { if(typeof restoreDataTableState === 'function') restoreDataTableState('plugging_history_table'); }, 100);")
+      session$sendCustomMessage(type = "eval", message = "setTimeout(function() { if(typeof restoreScrollForAllTables === 'function') restoreScrollForAllTables(); }, 200);")
     })
   })
   
@@ -790,6 +797,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         Sys.sleep(1)
         auto_update_plugging_status_to_unknown()
         plugging_state$editing_id <- NULL
+        # Save state before reload
+        session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('plugging_history_table');")
+        session$sendCustomMessage(type = "eval", message = "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
         plugging_state$reload <- Sys.time()
       } else {
         showNotification("Failed to update plugging event", type = "error")
@@ -1014,6 +1024,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         showNotification("Plug marked as observed successfully!", type = "message")
         removeModal()
         plugging_state$viewing_id <- NULL
+        # Save state before reload
+        session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('plugging_history_table');")
+        session$sendCustomMessage(type = "eval", message = "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
         plugging_state$reload <- Sys.time()
         
         # Trigger global refresh for cross-module updates
@@ -1868,6 +1881,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         modifyList(as.list(old_row[1, ]), list(plugging_status = 'Deleted'))
       )
       showNotification("Plugging record marked as deleted.", type = "message")
+      # Save state before reload
+      session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('plugging_history_table');")
+      session$sendCustomMessage(type = "eval", message = "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
       plugging_state$reload <- Sys.time()
     }, finally = {
       db_disconnect(con)
@@ -2015,6 +2031,10 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   
   # Refresh button observer
   observeEvent(input$refresh_plugging_table_btn, {
+    # Save scroll and table state before refresh
+    session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('plugging_history_table');")
+    session$sendCustomMessage(type = "eval", message = "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
+    
     plugging_state$reload <- Sys.time()
     if (!is.null(global_refresh_trigger)) {
       global_refresh_trigger(Sys.time())
@@ -2081,6 +2101,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         showNotification("Plug marked as observed successfully!", type = "message")
         removeModal()
         plugging_state$confirming_id <- NULL
+        # Save state before reload
+        session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('plugging_history_table');")
+        session$sendCustomMessage(type = "eval", message = "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
         plugging_state$reload <- Sys.time()
         if (!is.null(global_refresh_trigger)) global_refresh_trigger(Sys.time())
       } else {

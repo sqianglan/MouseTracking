@@ -1,6 +1,8 @@
-// Enhanced scroll-position.js with Safari-specific fixes
+// Enhanced scroll-position.js with Safari-specific fixes and DataTable state preservation
 // Global object to store scroll positions for different elements
 window.scrollPositions = window.scrollPositions || {};
+// Global object to store complete DataTable state
+window.dataTableStates = window.dataTableStates || {};
 
 // Detect Safari browser
 function isSafari() {
@@ -22,7 +24,9 @@ function isSafari() {
         (message.includes('DEPRECATED') || 
          message.includes('datepicker') ||
          message.includes('language code') ||
-         message.includes('filename doesn\'t follow the convention'))) {
+         message.includes('filename doesn\'t follow the convention') ||
+         message.includes('DataTables warning') ||
+         message.includes('Non-table node initialisation'))) {
       // Suppress these warnings
       return;
     }
@@ -47,6 +51,210 @@ $(document).ready(function() {
   console.log('Document ready - scroll position system initialized');
   console.log('Browser detected as Safari:', isSafari());
 });
+
+/**
+ * Saves complete DataTable state including sorting, filtering, search, page, etc.
+ * @param {string} tableId - The ID of the DataTable (or fallback ID)
+ */
+function saveDataTableState(tableId) {
+  try {
+    console.log('=== SAVE DATATABLE STATE: Starting for table:', tableId);
+    
+    // Find the actual DataTable instance
+    var $table = null;
+    var isIndexBased = tableId.startsWith('datatable_');
+    var dataTableApi = null;
+    
+    if (isIndexBased) {
+      var index = parseInt(tableId.replace('datatable_', ''));
+      $table = $('.dataTables_wrapper').eq(index).find('table');
+      console.log('Using index-based lookup for state save, wrapper #' + index);
+    } else {
+      $table = $('#' + tableId);
+    }
+    
+    if ($table && $table.length > 0) {
+      // Check if this is actually a table element and if DataTables is initialized
+      if (!$table.is('table')) {
+        console.log('Element is not a table, skipping DataTable state save for:', tableId);
+        return;
+      }
+      
+      // Check if DataTables is already initialized on this table
+      if (!$.fn.DataTable.isDataTable($table[0])) {
+        console.log('DataTables not initialized on table, skipping state save for:', tableId);
+        return;
+      }
+      
+      // Get the DataTable API instance (safe now since we've checked)
+      dataTableApi = $table.DataTable();
+      
+      if (dataTableApi) {
+        // Get current state from DataTable
+        var state = dataTableApi.state();
+        
+        // Also capture current values that might not be in state
+        var currentState = {
+          // Core DataTable state
+          start: dataTableApi.page.info().start,
+          length: dataTableApi.page.info().length,
+          order: dataTableApi.order(),
+          search: {
+            search: dataTableApi.search(),
+            smart: true,
+            regex: false,
+            caseInsensitive: true
+          },
+          columns: [],
+          
+          // Custom metadata
+          timestamp: Date.now(),
+          tableId: tableId,
+          isIndexBased: isIndexBased
+        };
+        
+        // Save individual column states
+        dataTableApi.columns().every(function(index) {
+          var column = this;
+          currentState.columns[index] = {
+            visible: column.visible(),
+            search: {
+              search: column.search(),
+              smart: true,
+              regex: false,
+              caseInsensitive: true
+            }
+          };
+        });
+        
+        // Store the state
+        window.dataTableStates[tableId] = currentState;
+        
+        console.log('=== SAVE DATATABLE STATE: Completed for', tableId + ':', currentState);
+        return currentState;
+      } else {
+        console.log('DataTable API not found for:', tableId);
+      }
+    } else {
+      console.log('Table element not found for:', tableId);
+    }
+    
+  } catch (err) {
+    console.error('=== SAVE DATATABLE STATE: Error for', tableId + ':', err);
+  }
+  
+  return null;
+}
+
+/**
+ * Restores complete DataTable state including sorting, filtering, search, page, etc.
+ * @param {string} tableId - The ID of the DataTable (or fallback ID)
+ * @param {number} delay - Delay in milliseconds before restoring state
+ */
+function restoreDataTableState(tableId, delay) {
+  var actualDelay = delay || (isSafari() ? 300 : 200);
+  
+  setTimeout(function() {
+    try {
+      if (!window.dataTableStates || !window.dataTableStates[tableId]) {
+        console.log('No saved DataTable state found for:', tableId);
+        return;
+      }
+      
+      var savedState = window.dataTableStates[tableId];
+      console.log('=== RESTORE DATATABLE STATE: Starting for ' + tableId + ':', savedState);
+      
+      // Find the DataTable instance
+      var $table = null;
+      var dataTableApi = null;
+      
+      if (savedState.isIndexBased) {
+        var index = parseInt(tableId.replace('datatable_', ''));
+        $table = $('.dataTables_wrapper').eq(index).find('table');
+        console.log('Using index-based lookup for state restore, wrapper #' + index);
+      } else {
+        $table = $('#' + tableId);
+      }
+      
+      if ($table && $table.length > 0) {
+        // Check if this is actually a table element and if DataTables is initialized
+        if (!$table.is('table')) {
+          console.log('Element is not a table, skipping DataTable state restore for:', tableId);
+          return;
+        }
+        
+        // Check if DataTables is already initialized on this table
+        if (!$.fn.DataTable.isDataTable($table[0])) {
+          console.log('DataTables not initialized on table, skipping state restore for:', tableId);
+          return;
+        }
+        
+        dataTableApi = $table.DataTable();
+        
+        if (dataTableApi) {
+          console.log('Restoring DataTable state...');
+          
+          // Restore search
+          if (savedState.search && savedState.search.search) {
+            dataTableApi.search(savedState.search.search);
+            console.log('Restored global search:', savedState.search.search);
+          }
+          
+          // Restore column searches
+          if (savedState.columns) {
+            savedState.columns.forEach(function(colState, index) {
+              if (colState && colState.search && colState.search.search) {
+                dataTableApi.column(index).search(colState.search.search);
+                console.log('Restored column', index, 'search:', colState.search.search);
+              }
+              
+              if (colState && typeof colState.visible === 'boolean') {
+                dataTableApi.column(index).visible(colState.visible);
+                console.log('Restored column', index, 'visibility:', colState.visible);
+              }
+            });
+          }
+          
+          // Restore ordering
+          if (savedState.order && savedState.order.length > 0) {
+            dataTableApi.order(savedState.order);
+            console.log('Restored order:', savedState.order);
+          }
+          
+          // Apply all changes and redraw
+          dataTableApi.draw('page');
+          
+          // Restore page (after draw to ensure data is loaded)
+          setTimeout(function() {
+            if (savedState.start !== undefined && savedState.length !== undefined) {
+              var targetPage = Math.floor(savedState.start / savedState.length);
+              if (targetPage !== dataTableApi.page()) {
+                dataTableApi.page(targetPage).draw('page');
+                console.log('Restored to page:', targetPage);
+              }
+            }
+            
+            // Restore page length
+            if (savedState.length !== undefined && savedState.length !== dataTableApi.page.len()) {
+              dataTableApi.page.len(savedState.length).draw();
+              console.log('Restored page length:', savedState.length);
+            }
+            
+            console.log('✓ DataTable state restoration completed for', tableId);
+          }, 100);
+          
+        } else {
+          console.log('DataTable API not available for state restore:', tableId);
+        }
+      } else {
+        console.log('Table element not found for state restore:', tableId);
+      }
+      
+    } catch (err) {
+      console.error('=== RESTORE DATATABLE STATE: Error for', tableId + ':', err);
+    }
+  }, actualDelay);
+}
 
 /**
  * Saves scroll position for a DataTable - handles tables with or without IDs
@@ -695,12 +903,13 @@ $(document).on('draw.dt', function(e, settings) {
   }
 });
 
-// Enhanced functions with Safari support
+// Enhanced functions with Safari support and complete state preservation
 function refreshTableWithScrollPreservation(tableId) {
-  console.log('=== REFRESH WITH SCROLL PRESERVATION:', tableId);
+  console.log('=== REFRESH WITH COMPLETE STATE PRESERVATION:', tableId);
   
-  // Save current position immediately
+  // Save current position and DataTable state immediately
   var currentPosition = null;
+  var currentDataTableState = null;
   
   try {
     // Get current scroll position before refresh
@@ -714,18 +923,25 @@ function refreshTableWithScrollPreservation(tableId) {
     
     console.log('Current position before refresh:', currentPosition);
     
-    // Save the position using our function
+    // Save both scroll position and DataTable state using our functions
     saveScrollPosition(tableId);
+    currentDataTableState = saveDataTableState(tableId);
     
-    // Return a function that can restore the position
+    // Return a function that can restore both position and state
     return function(callback) {
       var maxAttempts = isSafari() ? 5 : 3; // More attempts for Safari
       var attempts = 0;
       
       function attemptRestore() {
         attempts++;
-        console.log('Restore attempt', attempts, 'of', maxAttempts);
+        console.log('Complete state restore attempt', attempts, 'of', maxAttempts);
         
+        // First restore DataTable state (filtering, sorting, etc.)
+        if (currentDataTableState) {
+          restoreDataTableState(tableId, 50);
+        }
+        
+        // Then restore scroll position
         var scrollBody = $('.dataTables_scrollBody').first();
         if (scrollBody.length > 0 && currentPosition) {
           // For Safari, use enhanced scroll function
@@ -742,17 +958,22 @@ function refreshTableWithScrollPreservation(tableId) {
             scrollBody.scrollLeft(currentPosition.left);
           }
           
-          console.log('Restored to position:', currentPosition);
-          if (callback) callback();
-          return;
+          console.log('Restored scroll to position:', currentPosition);
+        } else if (currentPosition) {
+          // Use the enhanced scroll restoration system
+          restoreScrollPosition(tableId, 100);
         }
         
+        if (callback) callback();
+        return;
+        
+        // Legacy retry logic (keeping for compatibility)
         // Try again if we haven't reached max attempts
         if (attempts < maxAttempts) {
           var retryDelay = isSafari() ? 300 : 200;
           setTimeout(attemptRestore, retryDelay);
         } else {
-          console.log('Failed to restore scroll position after', maxAttempts, 'attempts');
+          console.log('Failed to restore complete state after', maxAttempts, 'attempts');
           if (callback) callback();
         }
       }
@@ -781,8 +1002,9 @@ $(document).on('shiny:connected', function() {
     }
   });
   
-  console.log('Scroll position handlers registered successfully');
+  console.log('Enhanced scroll position and DataTable state handlers registered successfully');
   console.log('Safari mode:', isSafari() ? 'enabled' : 'disabled');
+  console.log('Features enabled: scroll preservation, DataTable state saving, Safari compatibility');
   
   // Debug any existing tables
   setTimeout(function() {
@@ -792,8 +1014,8 @@ $(document).on('shiny:connected', function() {
   }, 1000);
 });
 
-// Global functions to save/restore scroll for any DataTable on the page
-// Enhanced with Safari-specific handling
+// Global functions to save/restore both scroll position and DataTable state for any DataTable on the page
+// Enhanced with Safari-specific handling and complete state preservation
 function saveScrollForAllTables() {
   try {
     console.log('=== SAVING SCROLL FOR ALL DATATABLES ===');
@@ -811,6 +1033,12 @@ function saveScrollForAllTables() {
         var table = wrapper.find('table').first();
         var tableId = table.attr('id');
         
+        // Skip if no table found or not a proper table element
+        if (!table.length || !table.is('table')) {
+          console.log('Skipping wrapper #' + index + ': no valid table found');
+          return;
+        }
+        
         // If no ID, create a fallback ID based on index
         if (!tableId) {
           tableId = 'datatable_' + index;
@@ -820,6 +1048,13 @@ function saveScrollForAllTables() {
         tablesFound++;
         console.log('Found DataTable #' + tablesFound + ':', tableId);
         saveScrollPosition(tableId);
+        
+        // Only save DataTable state if DataTables is actually initialized
+        if ($.fn.DataTable.isDataTable(table[0])) {
+          saveDataTableState(tableId);
+        } else {
+          console.log('DataTables not initialized on table:', tableId);
+        }
       } catch (err) {
         console.error('Error processing table:', err);
       }
@@ -832,7 +1067,7 @@ function saveScrollForAllTables() {
 
 function restoreScrollForAllTables() {
   try {
-    console.log('=== RESTORING SCROLL FOR ALL DATATABLES ===');
+    console.log('=== RESTORING SCROLL & STATE FOR ALL DATATABLES ===');
     console.log('Safari mode:', isSafari());
     
     if (typeof $ === 'undefined') {
@@ -857,19 +1092,32 @@ function restoreScrollForAllTables() {
         tablesFound++;
         console.log('Found DataTable #' + tablesFound + ':', tableId);
         
-        if (window.scrollPositions && window.scrollPositions[tableId]) {
-          console.log('Has saved position:', window.scrollPositions[tableId]);
-          var delay = isSafari() ? 100 : 50; // Adjusted delay for Safari
-          restoreScrollPosition(tableId, delay);
+        var hasScrollPosition = window.scrollPositions && window.scrollPositions[tableId];
+        var hasDataTableState = window.dataTableStates && window.dataTableStates[tableId];
+        
+        if (hasScrollPosition || hasDataTableState) {
+          console.log('Has saved state - scroll:', !!hasScrollPosition, 'datatable:', !!hasDataTableState);
+          
+          // Restore DataTable state first (this may trigger redraws)
+          if (hasDataTableState) {
+            restoreDataTableState(tableId, isSafari() ? 50 : 25);
+          }
+          
+          // Then restore scroll position with a slight delay
+          if (hasScrollPosition) {
+            var scrollDelay = isSafari() ? 200 : 100;
+            restoreScrollPosition(tableId, scrollDelay);
+          }
+          
           tablesRestored++;
         } else {
-          console.log('No saved position for:', tableId);
+          console.log('No saved state for:', tableId);
         }
       } catch (err) {
         console.error('Error processing table for restore:', err);
       }
     });
-    console.log('Total DataTables found:', tablesFound, 'Tables with saved positions:', tablesRestored);
+    console.log('Total DataTables found:', tablesFound, 'Tables with saved state:', tablesRestored);
   } catch (err) {
     console.error('Error in restoreScrollForAllTables:', err);
   }
@@ -877,11 +1125,12 @@ function restoreScrollForAllTables() {
 
 // Debug function to inspect current state
 function debugScrollState() {
-  console.log('=== SCROLL STATE DEBUG ===');
+  console.log('=== SCROLL & DATATABLE STATE DEBUG ===');
   console.log('Browser: Safari =', isSafari());
   console.log('jQuery available:', typeof $ !== 'undefined');
   console.log('DataTables available:', typeof $.fn.DataTable !== 'undefined');
-  console.log('Saved positions:', window.scrollPositions);
+  console.log('Saved scroll positions:', window.scrollPositions);
+  console.log('Saved DataTable states:', window.dataTableStates);
   
   $('.dataTables_wrapper').each(function(index) {
     var wrapper = $(this);
@@ -897,8 +1146,31 @@ function debugScrollState() {
       console.log('  Current scroll - top:', scrollBody.scrollTop(), 'left:', scrollBody.scrollLeft());
     }
     
+    // Check DataTable API
+    if (table.length > 0) {
+      try {
+        // Only try to get DataTable API if it's actually initialized
+        if (table.is('table') && $.fn.DataTable.isDataTable(table[0])) {
+          var api = table.DataTable();
+          if (api) {
+            console.log('  DataTable info:', api.page.info());
+            console.log('  Current search:', api.search());
+            console.log('  Current order:', api.order());
+          }
+        } else {
+          console.log('  DataTable not initialized on this element');
+        }
+      } catch (e) {
+        console.log('  No DataTable API available:', e.message);
+      }
+    }
+    
     if (window.scrollPositions && window.scrollPositions[tableId]) {
-      console.log('  Saved position:', window.scrollPositions[tableId]);
+      console.log('  Saved scroll position:', window.scrollPositions[tableId]);
+    }
+    
+    if (window.dataTableStates && window.dataTableStates[tableId]) {
+      console.log('  Saved DataTable state:', window.dataTableStates[tableId]);
     }
   });
 }
