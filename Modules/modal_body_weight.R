@@ -84,6 +84,7 @@ show_body_weight_input <- function(input, output, session, asu_id) {
       paste("Body Weight Management -", asu_id)
     ),
     size = "xl",
+    fade = FALSE,
     div(
       style = "max-height: 80vh; overflow-y: auto;",
       
@@ -528,100 +529,11 @@ confirm_delete_body_weight_record <- function(record_id, asu_id) {
 }
 
 # Function to refresh modal content without closing it
-refresh_body_weight_modal_content <- function(output, session, asu_id) {
-  # Get updated body weight data
-  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-  on.exit(DBI::dbDisconnect(con), add = TRUE)
-  
-  existing_data <- tryCatch({
-    DBI::dbGetQuery(con, paste0("SELECT * FROM body_weight_history WHERE asu_id = '", asu_id, "' ORDER BY measurement_date DESC"))
-  }, error = function(e) {
-    data.frame()
-  })
-  
-  # Get plugging history for context
-  plugging_data <- tryCatch({
-    DBI::dbGetQuery(con, paste0("SELECT * FROM plugging_history WHERE (male_id = '", asu_id, "' OR female_id = '", asu_id, "') AND plugging_status != 'Deleted'"))
-  }, error = function(e) {
-    data.frame()
-  })
-  
-  # Create updated records table HTML
-  records_table_html <- ""
-  if (nrow(existing_data) > 0) {
-    display_data <- existing_data[, c("id", "measurement_date", "weight_grams", "notes")]
-    
-    # Format the data for display
-    display_rows <- lapply(1:nrow(display_data), function(i) {
-      row <- display_data[i, ]
-      
-      # Format date
-      formatted_date <- if (is.na(row$measurement_date) || row$measurement_date == "") {
-        "N/A"
-      } else {
-        tryCatch({
-          format(as.Date(row$measurement_date), "%d-%b-%Y")
-        }, error = function(e) {
-          row$measurement_date
-        })
-      }
-      
-      # Handle empty notes
-      formatted_notes <- if (is.na(row$notes) || row$notes == "") "-" else row$notes
-      
-      # Create action buttons
-      edit_btn <- paste0('<button class="btn btn-xs btn-warning" style="margin-right: 3px; padding: 1px 6px; font-size: 11px;" onclick="Shiny.setInputValue(\'edit_body_weight_record\', \'', row$id, '\', {priority: \'event\'});">Edit</button>')
-      delete_btn <- paste0('<button class="btn btn-xs btn-danger" style="padding: 1px 6px; font-size: 11px;" onclick="Shiny.setInputValue(\'delete_body_weight_record\', \'', row$id, '\', {priority: \'event\'});">Del</button>')
-      actions <- paste0('<div style="white-space: nowrap;">', edit_btn, delete_btn, '</div>')
-      
-      # Create table row
-      paste0(
-        '<tr>',
-        '<td style="width: 25%; text-align: center; vertical-align: middle;">', formatted_date, '</td>',
-        '<td style="width: 17%; text-align: center; vertical-align: middle;">', row$weight_grams, '</td>',
-        '<td style="width: 30%; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; vertical-align: middle;" title="', htmltools::htmlEscape(formatted_notes), '">', formatted_notes, '</td>',
-        '<td style="width: 23%; min-width: 70px; text-align: center; vertical-align: middle;">', actions, '</td>',
-        '</tr>'
-      )
-    })
-    
-    records_table_html <- paste0(
-      '<table class="table table-striped table-bordered table-hover" style="width: 100%; font-size: 1em; table-layout: fixed;">',
-      '<thead><tr>',
-      '<th style="background-color: #f8f9fa; width: 20%; text-align: center; font-size: 0.9em;">Date</th>',
-      '<th style="background-color: #f8f9fa; width: 17%; text-align: center; font-size: 0.9em;">Weight (g)</th>',
-      '<th style="background-color: #f8f9fa; width: 30%; text-align: center; font-size: 0.9em;">Notes</th>',
-      '<th style="background-color: #f8f9fa; width: 23%; text-align: center; font-size: 0.9em;">Actions</th>',
-      '</tr></thead><tbody>',
-      paste0(display_rows, collapse = ''),
-      '</tbody></table>'
-    )
-  } else {
-    records_table_html <- '<div style="text-align: center; color: #666; padding: 20px; background-color: #f9f9f9; border-radius: 5px;">No existing body weight records found.</div>'
-  }
-  
-  # Update the records table content using JavaScript
-  session$sendCustomMessage(
-    type = "updateBodyWeightTable",
-    message = list(
-      html = records_table_html,
-      record_count = nrow(existing_data),
-      has_records = nrow(existing_data) > 0,
-      show_plot = nrow(existing_data) > 0  # Add this to control plot visibility
-    )
-  )
-  
-  # Always render the plot (it will handle empty data gracefully)
-  render_body_weight_preview_chart(output, asu_id, existing_data, plugging_data)
-  
-  # Send custom message to update plot container visibility
-  session$sendCustomMessage(
-    type = "updateBodyWeightPlotContainer",
-    message = list(
-      asu_id = asu_id,
-      show_plot = nrow(existing_data) > 0
-    )
-  )
+refresh_body_weight_modal_content <- function(input, output, session, asu_id) {
+  # First, remove the existing modal
+  removeModal()
+  # Then, show a new modal with the updated data
+  show_body_weight_input(input, output, session, asu_id)
 }
 
 # Function to render body weight plotly chart
