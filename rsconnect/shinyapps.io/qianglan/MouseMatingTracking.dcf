@@ -10,4 +10,4 @@ url: https://qianglan.shinyapps.io/MouseMatingTracking/
 version: 1
 asMultiple: FALSE
 asStatic: FALSE
-ignoredFiles: app_config.RData|mouse_management.db|MouseManagementSystem_Features.md|README.md|run_shiny.sh|test_only/Breeding_Breeding Stock-3.xls|test_only/Experimental Stock_Batch list-2.xls
+ignoredFiles: app_config.RData|mouse_management.db|MouseManagementSystem_Features.md|README.md|run_shiny.sh
