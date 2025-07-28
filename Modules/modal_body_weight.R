@@ -238,6 +238,7 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
       marker = list(size = 6, color = "#2196f3"),
       line = list(color = "#2196f3", width = 2),
       name = "Body Weight",
+      showlegend = FALSE,
       hovertemplate = paste(
         "<b>Date:</b> %{x}<br>",
         "<b>Weight:</b> %{y} grams<br>",
@@ -262,7 +263,9 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
         if (!is.na(row$pairing_start_date) && row$pairing_start_date != "") {
           start_date <- tryCatch({
             if (is.character(row$pairing_start_date)) {
-              as.Date(row$pairing_start_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+              as.Date(row$pairing_start_date, 
+                     tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                   "%d/%m/%Y", "%Y/%m/%d"))
             } else {
               as.Date(row$pairing_start_date)
             }
@@ -273,7 +276,9 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
           end_date <- if (!is.na(row$pairing_end_date) && row$pairing_end_date != "") {
             tryCatch({
               if (is.character(row$pairing_end_date)) {
-                as.Date(row$pairing_end_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+                as.Date(row$pairing_end_date, 
+                     tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                   "%d/%m/%Y", "%Y/%m/%d"))
               } else {
                 as.Date(row$pairing_end_date)
               }
@@ -288,8 +293,8 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
           shapes_list[[length(shapes_list) + 1]] <- list(
             type = "rect",
             x0 = start_date, x1 = end_date,
-            y0 = y_range[1], y1 = y_range[2],
-            fillcolor = "rgba(128, 128, 128, 0.15)",
+            y0 = 0, y1 = 1, yref = "paper",
+            fillcolor = "rgba(128, 128, 128, 0.3)",
             line = list(color = "rgba(0,0,0,0)", width = 0),
             layer = "below"
           )
@@ -322,12 +327,89 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
           shapes_list[[length(shapes_list) + 1]] <- list(
             type = "line",
             x0 = plug_date, x1 = plug_date,
-            y0 = y_range[1], y1 = y_range[2],
+            y0 = 0, y1 = 1, yref = "paper",
             line = list(color = plug_color, width = 2)
           )
           }
         }
       }
+    }
+    
+    # Calculate x-axis range to include all dates (weight + pairing periods)
+    all_dates <- weight_data$measurement_date
+    
+    # Add pairing dates to ensure they're all visible
+    if (nrow(plugging_history) > 0) {
+      for (i in seq_len(nrow(plugging_history))) {
+        row <- plugging_history[i, ]
+        
+        # Add pairing start dates
+        if (!is.na(row$pairing_start_date) && row$pairing_start_date != "") {
+          start_date <- tryCatch({
+            if (is.character(row$pairing_start_date)) {
+              as.Date(row$pairing_start_date, 
+                     tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                   "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(row$pairing_start_date)
+            }
+          }, error = function(e) NULL)
+          
+          if (!is.null(start_date)) {
+            all_dates <- c(all_dates, start_date)
+          }
+        }
+        
+        # Add pairing end dates
+        if (!is.na(row$pairing_end_date) && row$pairing_end_date != "") {
+          end_date <- tryCatch({
+            if (is.character(row$pairing_end_date)) {
+              as.Date(row$pairing_end_date, 
+                     tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                   "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(row$pairing_end_date)
+            }
+          }, error = function(e) NULL)
+          
+          if (!is.null(end_date)) {
+            all_dates <- c(all_dates, end_date)
+          }
+        }
+      }
+    }
+    
+    # Calculate range with padding
+    if (length(all_dates) > 0) {
+      date_range <- range(all_dates, na.rm = TRUE)
+      date_diff <- as.numeric(diff(date_range))
+      
+      # For single data point or very short periods, use minimum 7-day window
+      if (date_diff <= 3) {
+        # Extend range to show at least 7 days centered on the data
+        center_date <- mean(date_range)
+        x_range <- c(center_date - 3.5, center_date + 3.5)
+      } else {
+        # Normal padding for longer periods
+        date_padding <- date_diff * 0.15  # 15% padding for better visibility
+        x_range <- c(date_range[1] - date_padding, 
+                     date_range[2] + date_padding)
+      }
+    } else {
+      x_range <- NULL
+    }
+    
+    # Add manual legend annotation if plugging history exists
+    annotations_list <- list()
+    if (nrow(plugging_history) > 0) {
+      annotations_list[[1]] <- list(
+        x = 1, y = 0.95,
+        xref = "paper", yref = "paper",
+        text = "━ Plug Observed",
+        showarrow = FALSE,
+        font = list(color = "#d32f2f", size = 12, family = "Arial"),
+        xanchor = "right", yanchor = "top"
+      )
     }
     
     # Apply layout with shapes (simplified for preview)
@@ -336,7 +418,8 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
         title = "",
         showgrid = TRUE,
         gridcolor = "#e0e0e0",
-        tickformat = "%Y-%m-%d"
+        tickformat = "%d-%b",
+        range = x_range
       ),
       yaxis = list(
         title = "Weight (grams)",
@@ -344,10 +427,11 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
         gridcolor = "#e0e0e0"
       ),
       shapes = shapes_list,
+      annotations = annotations_list,
       hovermode = "closest",
       plot_bgcolor = "rgba(0,0,0,0)",
       paper_bgcolor = "rgba(0,0,0,0)",
-      margin = list(t = 10, b = 30, l = 50, r = 20),
+      margin = list(t = 20, b = 30, l = 50, r = 20),
       showlegend = FALSE
     )
     
@@ -616,6 +700,7 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
       marker = list(size = 8, color = '#2196f3'),
       line = list(color = '#2196f3', width = 3),
       name = 'Body Weight',
+      showlegend = FALSE,
       hovertemplate = paste(
         '<b>Date:</b> %{x}<br>',
         '<b>Weight:</b> %{y} grams<br>',
@@ -643,7 +728,9 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
         if (!is.na(row$pairing_start_date) && row$pairing_start_date != "") {
           start_date <- tryCatch({
             if (is.character(row$pairing_start_date)) {
-              as.Date(row$pairing_start_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+              as.Date(row$pairing_start_date, 
+                     tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                   "%d/%m/%Y", "%Y/%m/%d"))
             } else {
               as.Date(row$pairing_start_date)
             }
@@ -655,7 +742,9 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
         if (!is.na(row$pairing_end_date) && row$pairing_end_date != "") {
           end_date <- tryCatch({
             if (is.character(row$pairing_end_date)) {
-              as.Date(row$pairing_end_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+              as.Date(row$pairing_end_date, 
+                     tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                   "%d/%m/%Y", "%Y/%m/%d"))
             } else {
               as.Date(row$pairing_end_date)
             }
@@ -675,8 +764,8 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
           shapes_list[[length(shapes_list) + 1]] <- list(
             type = "rect",
             x0 = start_date, x1 = end_date,
-            y0 = y_range[1], y1 = y_range[2],
-            fillcolor = "rgba(128, 128, 128, 0.2)",
+            y0 = 0, y1 = 1, yref = "paper",
+            fillcolor = "rgba(128, 128, 128, 0.3)",
             line = list(color = "rgba(0,0,0,0)", width = 0),
             layer = "below"
           )
@@ -705,38 +794,103 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
             "#ff9800"  # Pending - Orange
           }
           
-          p <- p %>% add_trace(
-            x = plug_date,
-            y = y_top,
-            type = "scatter",
-            mode = "markers+text",
-            marker = list(size = 15, color = plug_color, symbol = "triangle-down"),
-            text = "Plug Observed",
-            textposition = "top center",
-            textfont = list(color = plug_color, size = 10, family = "Arial Black"),
-            name = "Plug Observed",
-            hovertemplate = paste("<b>Plug Observed</b><br>Date: %{x}<br>Status: ", row$plugging_status, "<extra></extra>"),
-            showlegend = FALSE
-          )
           
           # Add line shape for vertical line
           shapes_list[[length(shapes_list) + 1]] <- list(
             type = "line",
             x0 = plug_date, x1 = plug_date,
-            y0 = y_range[1], y1 = y_range[2],
+            y0 = 0, y1 = 1, yref = "paper",
             line = list(color = plug_color, width = 3)
           )
           }
         }
       }
     }
+    # Calculate x-axis range to include all dates (weight + pairing periods)
+    all_dates <- weight_data$measurement_date
+    
+    # Add pairing dates to ensure they're all visible
+    if (nrow(plugging_history) > 0) {
+      for (i in seq_len(nrow(plugging_history))) {
+        row <- plugging_history[i, ]
+        
+        # Add pairing start dates
+        if (!is.na(row$pairing_start_date) && row$pairing_start_date != "") {
+          start_date <- tryCatch({
+            if (is.character(row$pairing_start_date)) {
+              as.Date(row$pairing_start_date, 
+                     tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                   "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(row$pairing_start_date)
+            }
+          }, error = function(e) NULL)
+          
+          if (!is.null(start_date)) {
+            all_dates <- c(all_dates, start_date)
+          }
+        }
+        
+        # Add pairing end dates
+        if (!is.na(row$pairing_end_date) && row$pairing_end_date != "") {
+          end_date <- tryCatch({
+            if (is.character(row$pairing_end_date)) {
+              as.Date(row$pairing_end_date, 
+                     tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                   "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(row$pairing_end_date)
+            }
+          }, error = function(e) NULL)
+          
+          if (!is.null(end_date)) {
+            all_dates <- c(all_dates, end_date)
+          }
+        }
+      }
+    }
+    
+    # Calculate range with padding
+    if (length(all_dates) > 0) {
+      date_range <- range(all_dates, na.rm = TRUE)
+      date_diff <- as.numeric(diff(date_range))
+      
+      # For single data point or very short periods, use minimum 7-day window
+      if (date_diff <= 3) {
+        # Extend range to show at least 7 days centered on the data
+        center_date <- mean(date_range)
+        x_range <- c(center_date - 3.5, center_date + 3.5)
+      } else {
+        # Normal padding for longer periods
+        date_padding <- date_diff * 0.15  # 15% padding for better visibility
+        x_range <- c(date_range[1] - date_padding, 
+                     date_range[2] + date_padding)
+      }
+    } else {
+      x_range <- NULL
+    }
+    
+    # Add manual legend annotation if plugging history exists
+    annotations_list <- list()
+    if (nrow(plugging_history) > 0) {
+      annotations_list[[1]] <- list(
+        x = 1, y = 0.95,
+        xref = "paper", yref = "paper",
+        text = "━ Plug Observed",
+        showarrow = FALSE,
+        font = list(color = "#d32f2f", size = 12, family = "Arial"),
+        xanchor = "right", yanchor = "top"
+      )
+    }
+    
     # Apply layout with shapes
     p <- p %>% layout(
       xaxis = list(
         title = "",
         showgrid = TRUE,
         gridcolor = "#e0e0e0",
-        tickformat = "%Y-%m-%d"
+        tickformat = "%d-%b",
+        range = x_range
       ),
       yaxis = list(
         title = "Weight (grams)",
@@ -744,10 +898,12 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
         gridcolor = "#e0e0e0"
       ),
       shapes = shapes_list,
+      annotations = annotations_list,
       hovermode = "closest",
       plot_bgcolor = "rgba(0,0,0,0)",
       paper_bgcolor = "rgba(0,0,0,0)",
-      margin = list(t = 20, b = 15, l = 60, r = 40)
+      margin = list(t = 20, b = 15, l = 60, r = 20),
+      showlegend = FALSE
     )
     
     return(p)
