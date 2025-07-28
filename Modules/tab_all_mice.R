@@ -1194,15 +1194,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     
     # Save the record
     if (save_body_weight_record(asu_id, weight_grams, measurement_date, notes, refresh_modal = FALSE)) {
-      # Clear input fields
-      updateNumericInput(session, "body_weight_grams", value = NA)
-      updateTextAreaInput(session, "body_weight_notes", value = "")
-      
-      # Re-open the enhanced modal with updated data
+      # Clear input fields by re-showing the modal with updated data
+      # This ensures all modal elements including buttons remain intact
       show_body_weight_input(input, output, session, asu_id)
-      
-      # Also refresh the main mouse history modal data for when user closes body weight modal
-      show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
     }
   }, ignoreInit = TRUE)
 
@@ -1249,11 +1243,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Close the edit modal
       removeModal()
       
-      # Re-open the main body weight modal with updated data
+      # Re-show the body weight modal with updated data
       show_body_weight_input(input, output, session, asu_id)
-      
-      # Also refresh the main mouse history modal
-      show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
     }
   }, ignoreInit = TRUE)
 
@@ -1293,12 +1284,30 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Close the confirmation modal
       removeModal()
       
-      # Re-open the main body weight modal with updated data
+      # Re-show the body weight modal with updated data
       show_body_weight_input(input, output, session, asu_id)
-      
-      # Also refresh the main mouse history modal
-      show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
     }
+  }, ignoreInit = TRUE)
+
+  # Body weight modal Back button functionality
+  observeEvent(input$body_weight_back_clicked, {
+    req(input$body_weight_back_clicked)
+    
+    asu_id <- input$body_weight_back_clicked
+    
+    # Close the current body weight modal
+    removeModal()
+    
+    # Reopen the main mouse history modal
+    show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
+  }, ignoreInit = TRUE)
+
+  # Body weight modal Close button functionality
+  observeEvent(input$body_weight_close_clicked, {
+    req(input$body_weight_close_clicked)
+    
+    # Simply close the modal
+    removeModal()
   }, ignoreInit = TRUE)
 
   # Render bulk delete button based on lock state

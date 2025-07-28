@@ -54,6 +54,53 @@ user_timezone <- reactiveVal(Sys.timezone())
 # Define UI for application that draws a histogram
 ui <- fluidPage(
   tags$head(
+    tags$script(HTML("
+      // Custom message handler for updating body weight table
+      Shiny.addCustomMessageHandler('updateBodyWeightTable', function(message) {
+        var tableContainer = document.getElementById('body_weight_records_table');
+        if (tableContainer) {
+          tableContainer.innerHTML = message.html;
+        }
+        
+        // Update the record count in the footer if it exists
+        var footerText = document.querySelector('.modal-footer div:first-child');
+        if (footerText && footerText.textContent.includes('Total records:')) {
+          footerText.textContent = 'Total records: ' + message.record_count;
+        }
+        
+        // Update plot section visibility
+        if (message.has_records !== undefined) {
+          var plotSection = document.querySelector('#body_weight_preview_plot_container');
+          if (plotSection && plotSection.parentElement) {
+            if (message.has_records) {
+              // Show plot section if records exist
+              plotSection.parentElement.style.display = 'block';
+            } else {
+              // Hide plot section if no records
+              plotSection.parentElement.style.display = 'none';
+            }
+          }
+        }
+      });
+      
+      // Custom message handler for updating body weight plot container
+      Shiny.addCustomMessageHandler('updateBodyWeightPlotContainer', function(message) {
+        var plotContainer = document.getElementById('body_weight_preview_plot_container');
+        if (plotContainer && plotContainer.parentElement) {
+          if (message.show_plot) {
+            // Show the entire plot section
+            plotContainer.parentElement.style.display = 'block';
+            // Trigger a resize event to make sure plotly redraws properly
+            setTimeout(function() {
+              window.dispatchEvent(new Event('resize'));
+            }, 100);
+          } else {
+            // Hide the plot section if no records
+            plotContainer.parentElement.style.display = 'none';
+          }
+        }
+      });
+    ")),
     tags$style(HTML("
       /* Modern CSS Reset and Base Styles */
       * {
