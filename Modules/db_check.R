@@ -323,13 +323,13 @@ extract_asu_id <- function(animal_id) {
 parse_excel_to_mice_stock <- function(df) {
   # Define required and optional field mappings with suggestions
   field_mappings <- list(
-    # Required fields
+    # Required fields (asu_id is automatically generated from animal_id)
     required = list(
-      animal_id = c("Animal-ID", "Animal ID", "AnimalID", "ID", "Animal"),
-      asu_id = c("ASU ID", "ASUID", "ASU_ID", "ASU")
+      animal_id = c("Animal-ID", "Animal ID", "AnimalID", "ID", "Animal")
     ),
     # Optional fields with suggestions
     optional = list(
+      #asu_id = c("ASU ID", "ASUID", "ASU_ID", "ASU"),  # Optional mapping, will be auto-generated from animal_id
       ear_mark = c("Ear Mark", "EarMark", "Ear_Mark", "Ear", "Mark"),
       gender = c("Gender", "Sex", "S", "G"),
       dob = c("DoB", "Date of Birth", "Birth Date", "BirthDate", "Date", "DOB"),
@@ -374,6 +374,24 @@ parse_excel_to_mice_stock <- function(df) {
   
   # Find mappings for all fields
   available_columns <- names(df)
+  
+  # Exclude specific columns that should not be imported
+  excluded_columns <- c(
+    "Age", "age", "AGE",
+    "No. of animals", "No of animals", "Number of animals", "Count", "Num", "Animals",
+    "Team", "TEAM", "team",
+    "Cage Type", "Cage type", "cage type", "CageType", "CAGE TYPE"
+  )
+  
+  # Filter out excluded columns (case-insensitive partial matching)
+  available_columns <- available_columns[!sapply(available_columns, function(col) {
+    col_lower <- tolower(col)
+    any(sapply(excluded_columns, function(excl) {
+      excl_lower <- tolower(excl)
+      grepl(excl_lower, col_lower, fixed = TRUE) || grepl(col_lower, excl_lower, fixed = TRUE)
+    }))
+  })]
+  
   mappings <- list()
   
   # Process required fields
@@ -453,6 +471,76 @@ apply_mappings_and_create_df <- function(df, confirmed_mappings, stock_category 
   return(out)
 }
 
+# Utility: Process duplicates based on user actions with custom ASU IDs
+process_duplicates_with_custom <- function(parsed_df, comparison_data, import_duplicates, db_conflicts, user_actions, custom_asu_map = list()) {
+  # Process each duplicate based on action
+  final_df <- data.frame()
+  skipped_count <- 0
+  modified_count <- 0
+  overwritten_count <- 0
+  
+  for (i in 1:nrow(comparison_data)) {
+    # Get the action from user_actions
+    action <- user_actions[[paste0("action_", i)]]
+    if (is.null(action)) action <- "Skip"
+    
+    asu_id <- comparison_data$ASU_ID[i]
+    
+    if (action == "Skip") {
+      skipped_count <- skipped_count + 1
+      next  # Skip this record
+    } else if (action == "Modify") {
+      # Generate new ASU ID (use custom if provided)
+      row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
+      if (nrow(row_data) > 0) {
+        new_asu_id <- if (!is.null(custom_asu_map[[asu_id]])) {
+          custom_asu_map[[asu_id]]
+        } else {
+          paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+        }
+        row_data$asu_id <- new_asu_id
+        final_df <- rbind(final_df, row_data)
+        modified_count <- modified_count + 1
+      }
+    } else if (action == "Overwrite") {
+      # Delete existing record and add new one
+      con <- dbConnect(SQLite(), DB_PATH)
+      dbExecute(con, paste0("DELETE FROM ", TABLE_NAME, " WHERE asu_id = ?"), params = list(asu_id))
+      dbDisconnect(con)
+      
+      row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
+      if (nrow(row_data) > 0) {
+        final_df <- rbind(final_df, row_data)
+        overwritten_count <- overwritten_count + 1
+      }
+    } else if (action == "Keep Both") {
+      # Generate new ASU ID and keep both (use custom if provided)
+      row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
+      if (nrow(row_data) > 0) {
+        new_asu_id <- if (!is.null(custom_asu_map[[asu_id]])) {
+          custom_asu_map[[asu_id]]
+        } else {
+          paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+        }
+        row_data$asu_id <- new_asu_id
+        final_df <- rbind(final_df, row_data)
+        modified_count <- modified_count + 1
+      }
+    }
+  }
+  
+  # Add non-duplicate records
+  non_duplicates <- parsed_df[!parsed_df$asu_id %in% c(import_duplicates, db_conflicts), ]
+  final_df <- rbind(final_df, non_duplicates)
+  
+  return(list(
+    final_df = final_df,
+    skipped_count = skipped_count,
+    modified_count = modified_count,
+    overwritten_count = overwritten_count
+  ))
+}
+
 # Utility: Process duplicates based on user actions
 process_duplicates <- function(parsed_df, comparison_data, import_duplicates, db_conflicts, user_actions) {
   # Process each duplicate based on action
@@ -475,7 +563,8 @@ process_duplicates <- function(parsed_df, comparison_data, import_duplicates, db
       # Generate new ASU ID
       row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
       if (nrow(row_data) > 0) {
-        row_data$asu_id <- paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+        new_asu_id <- paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+        row_data$asu_id <- new_asu_id
         final_df <- rbind(final_df, row_data)
         modified_count <- modified_count + 1
       }
@@ -494,7 +583,8 @@ process_duplicates <- function(parsed_df, comparison_data, import_duplicates, db
       # Generate new ASU ID and keep both
       row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
       if (nrow(row_data) > 0) {
-        row_data$asu_id <- paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+        new_asu_id <- paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+        row_data$asu_id <- new_asu_id
         final_df <- rbind(final_df, row_data)
         modified_count <- modified_count + 1
       }
@@ -564,56 +654,49 @@ check_duplicates_and_conflicts <- function(parsed_df) {
       asu_id <- conflict_import$asu_id[i]
       existing_row <- existing_data[existing_data$asu_id == asu_id, ]
       
-      # Compare fields and find differences
-      differences <- list()
-      has_differences <- FALSE
-      
-      # Compare each field
+      # Compare all fields to determine if records are identical or different
       fields_to_compare <- c("animal_id", "gender", "breeding_line", "genotype", "dob")
+      is_identical <- TRUE
+      
+      # Check if all comparable fields are identical
       for (field in fields_to_compare) {
         import_val <- conflict_import[[field]][i]
         db_val <- existing_row[[field]]
         
-        # Handle NA comparisons
-        if (is.na(import_val) && !is.na(db_val)) {
-          # Import has NA but DB has data - this is not a conflict
-          next
-        } else if (!is.na(import_val) && is.na(db_val)) {
-          # Import has data but DB has NA - this is a difference
-          differences[[field]] <- paste("Import:", import_val, "| DB: NA")
-          has_differences <- TRUE
-        } else if (!is.na(import_val) && !is.na(db_val) && import_val != db_val) {
-          # Both have data but different - this is a difference
-          differences[[field]] <- paste("Import:", import_val, "| DB:", db_val)
-          has_differences <- TRUE
+        # Convert to character for comparison, treating NA as empty string
+        import_str <- if (is.na(import_val)) "" else as.character(import_val)
+        db_str <- if (is.na(db_val)) "" else as.character(db_val)
+        
+        if (import_str != db_str) {
+          is_identical <- FALSE
+          break
         }
       }
       
-      if (has_differences) {
-        # Show differences in comparison table
-        comparison_data <- rbind(comparison_data, data.frame(
-          Type = "Database Conflict",
-          ASU_ID = asu_id,
-          Animal_ID = if ("animal_id" %in% names(differences)) differences$animal_id else conflict_import$animal_id[i],
-          Gender = if ("gender" %in% names(differences)) differences$gender else conflict_import$gender[i],
-          Breeding_Line = if ("breeding_line" %in% names(differences)) differences$breeding_line else conflict_import$breeding_line[i],
-          Genotype = if ("genotype" %in% names(differences)) differences$genotype else conflict_import$genotype[i],
-          DoB = if ("dob" %in% names(differences)) differences$dob else conflict_import$dob[i],
-          Age = if ("dob" %in% names(differences)) {
-            paste("Import:", round(as.numeric(Sys.Date() - as.Date(conflict_import$dob[i])) / 7, 1), 
-                  "| DB:", round(as.numeric(Sys.Date() - as.Date(existing_row$dob)) / 7, 1))
-          } else {
-            round(as.numeric(Sys.Date() - as.Date(conflict_import$dob[i])) / 7, 1)
-          },
-          Action = "Skip",
-          stringsAsFactors = FALSE
-        ))
-      } else {
-        # Exact match or import has NA but DB has data
+      if (is_identical) {
+        # Truly identical records - skip them
         exact_matches <- rbind(exact_matches, data.frame(
           ASU_ID = asu_id,
           Animal_ID = conflict_import$animal_id[i],
-          Status = "Exactly the same or import has NA",
+          Status = "Identical data",
+          stringsAsFactors = FALSE
+        ))
+      } else {
+        # Records have differences - add to comparison for user decision
+        comparison_data <- rbind(comparison_data, data.frame(
+          Type = "Database Conflict",
+          ASU_ID = asu_id,
+          Import_Animal_ID = as.character(conflict_import$animal_id[i]),
+          DB_Animal_ID = as.character(existing_row$animal_id),
+          Import_Gender = as.character(conflict_import$gender[i]),
+          DB_Gender = as.character(existing_row$gender),
+          Import_Breeding_Line = as.character(conflict_import$breeding_line[i]),
+          DB_Breeding_Line = as.character(existing_row$breeding_line),
+          Import_Genotype = as.character(conflict_import$genotype[i]),
+          DB_Genotype = as.character(existing_row$genotype),
+          Import_DoB = as.character(conflict_import$dob[i]),
+          DB_DoB = as.character(existing_row$dob),
+          Action = "Skip",
           stringsAsFactors = FALSE
         ))
       }
@@ -689,116 +772,341 @@ create_column_mapping_ui <- function(mapping_result, df) {
   available_columns <- mapping_result$available_columns
   field_suggestions <- mapping_result$field_suggestions
   
-  # Get first 5 rows for preview
-  preview_data <- head(df, 5)
+  # Get first 3 rows for preview
+  preview_data <- head(df, 3)
   
   ui_elements <- list()
   
-  # Add preview of Excel data
-  ui_elements[[length(ui_elements) + 1]] <- div(
-    style = "margin-bottom: 20px;",
-    tags$h4("Preview of Excel Data (First 5 rows):"),
-    div(
-      style = "max-height: 300px; overflow-x: auto; border: 1px solid #ddd; padding: 10px; background-color: #f9f9f9;",
-      renderTable(preview_data, striped = TRUE, bordered = TRUE, hover = TRUE)
-    )
-  )
-  
-  # Add mapping instructions
+  # Add mapping instructions first
   ui_elements[[length(ui_elements) + 1]] <- div(
     style = "margin-bottom: 20px; padding: 10px; background-color: #e3f2fd; border-radius: 5px;",
     tags$h5("Column Mapping Instructions:"),
     tags$ul(
-      tags$li("Select which Excel column should be mapped to each database field"),
-      tags$li("Choose 'NA' if you don't want to import that field"),
+      tags$li("Use the dropdown above each column to map it to a database field"),
+      tags$li("Choose 'NA' if you don't want to import that column"),
       tags$li("Required fields (marked with *) must be mapped to proceed"),
       tags$li("ASU ID will be automatically extracted from Animal ID")
     )
   )
   
-  # Add required fields
-  ui_elements[[length(ui_elements) + 1]] <- tags$h4("Required Fields (*):")
-  for (field in names(field_suggestions$required)) {
-    # Skip asu_id since it's automatically extracted from animal_id
-    if (field == "asu_id") next
-    
-    current_mapping <- mappings[[field]]
-    suggestions <- field_suggestions$required[[field]]
-    
-    # Convert field name to human-readable format
-    human_name <- switch(field,
-      "animal_id" = "Animal ID",
-      "asu_id" = "ASU ID",
-      field
-    )
-    
-    ui_elements[[length(ui_elements) + 1]] <- fluidRow(
-      column(4, tags$strong(paste0(human_name, " *:"))),
-      column(8, selectInput(
-        inputId = paste0("mapping_", field),
-        label = NULL,
-        choices = c("NA", available_columns),
-        selected = ifelse(is.null(current_mapping), "NA", current_mapping),
-        width = "100%"
-      ))
-    )
-    
-    # Add suggestions
-    if (!is.null(current_mapping)) {
-      ui_elements[[length(ui_elements) + 1]] <- div(
-        style = "margin-left: 20px; font-size: 12px; color: #666; margin-bottom: 10px;",
-        paste("Suggested:", paste(suggestions, collapse = ", "))
-      )
+  # Create all possible database field choices with human-readable names
+  all_db_fields <- list(
+    "NA" = "NA",
+    "Animal ID *" = "animal_id",
+    "Ear Mark" = "ear_mark", 
+    "Gender" = "gender",
+    "Date of Birth" = "dob",
+    "Genotype" = "genotype",
+    "Strain" = "strain",
+    "Breeding Line" = "breeding_line",
+    "Dam" = "dam",
+    "Sire" = "sire", 
+    "Cage ID" = "cage_id",
+    "Room" = "room",
+    "Project Code" = "project_code",
+    "Responsible Person" = "responsible_person",
+    "Protocol" = "protocol",
+    "Study Plan" = "study_plan",
+    "Notes" = "notes"
+  )
+  
+  # Function to check if a column contains all NA values
+  is_column_all_na <- function(col_name) {
+    if (col_name %in% names(df)) {
+      column_data <- df[[col_name]]
+      # Check if all values are NA, empty strings, whitespace only, or boolean values
+      all_na <- all(is.na(column_data) | 
+                   trimws(as.character(column_data)) == "" | 
+                   trimws(as.character(column_data)) == "NA" |
+                   toupper(trimws(as.character(column_data))) %in% c("TRUE", "FALSE"))
+      return(all_na)
     }
+    return(FALSE)
   }
   
-  # Add optional fields
-  ui_elements[[length(ui_elements) + 1]] <- tags$h4("Optional Fields:")
-  for (field in names(field_suggestions$optional)) {
-    current_mapping <- mappings[[field]]
-    suggestions <- field_suggestions$optional[[field]]
-    
-    # Convert field name to human-readable format
-    human_name <- switch(field,
-      "ear_mark" = "Ear Mark",
-      "gender" = "Gender",
-      "dob" = "Date of Birth",
-      "genotype" = "Genotype",
-      "strain" = "Strain",
-      "breeding_line" = "Breeding Line",
-      "dam" = "Dam",
-      "sire" = "Sire",
-      "cage_id" = "Cage ID",
-      "room" = "Room",
-      "project_code" = "Project Code",
-      "responsible_person" = "Responsible Person",
-      "protocol" = "Protocol",
-      "study_plan" = "Study Plan",
-      "notes" = "Notes",
-      field
-    )
-    
-    ui_elements[[length(ui_elements) + 1]] <- fluidRow(
-      column(4, tags$strong(paste0(human_name, ":"))),
-      column(8, selectInput(
-        inputId = paste0("mapping_", field),
-        label = NULL,
-        choices = c("NA", available_columns),
-        selected = ifelse(is.null(current_mapping), "NA", current_mapping),
-        width = "100%"
-      ))
-    )
-    
-    # Add suggestions
-    if (!is.null(current_mapping)) {
-      ui_elements[[length(ui_elements) + 1]] <- div(
-        style = "margin-left: 20px; font-size: 12px; color: #666; margin-bottom: 10px;",
-        paste("Suggested:", paste(suggestions, collapse = ", "))
-      )
+  # Function to find best suggestion for a column (enhanced version)
+  find_column_suggestion <- function(col_name) {
+    # First check if the column contains all NA values
+    if (is_column_all_na(col_name)) {
+      return("NA")
     }
+    
+    # Use the original smart mapping logic from the mappings result
+    if (!is.null(mappings)) {
+      # First check if this column was already mapped in the original suggestions
+      for (field in names(mappings)) {
+        if (!is.null(mappings[[field]]) && mappings[[field]] == col_name) {
+          return(field)
+        }
+      }
+    }
+    
+    # Fallback to pattern matching
+    col_lower <- tolower(col_name)
+    
+    # Check all field suggestions with exact matches first
+    all_suggestions <- c(field_suggestions$required, field_suggestions$optional)
+    for (field in names(all_suggestions)) {
+      suggestions <- all_suggestions[[field]]
+      for (suggestion in suggestions) {
+        # Exact match (case insensitive)
+        if (tolower(suggestion) == col_lower) {
+          return(field)
+        }
+      }
+    }
+    
+    # Then check partial matches
+    for (field in names(all_suggestions)) {
+      suggestions <- all_suggestions[[field]]
+      for (suggestion in suggestions) {
+        # Partial matches
+        if (grepl(tolower(suggestion), col_lower, fixed = TRUE) || 
+            grepl(col_lower, tolower(suggestion), fixed = TRUE)) {
+          return(field)
+        }
+      }
+    }
+    
+    return("NA")
   }
+  
+  # Add warning area for duplicate mappings
+  ui_elements[[length(ui_elements) + 1]] <- div(
+    id = "mapping_warnings_container",
+    style = "margin-top: 10px; margin-bottom: 10px;",
+    uiOutput("mapping_warnings")
+  )
+  
+  # Create table with dropdowns above each column
+  ui_elements[[length(ui_elements) + 1]] <- div(
+    style = "margin-top: 20px; margin-bottom: 20px;",
+    tags$h4("Column Mapping and Preview (first 3 rows):"),
+    div(
+      style = "border: 1px solid #ddd; background-color: #f9f9f9; overflow-x: auto; overflow-y: visible;",
+      # Create dropdown header row
+      div(
+        style = "display: table; width: 100%; table-layout: fixed; background-color: #e9ecef;",
+        div(
+          style = "display: table-row;",
+          lapply(1:ncol(preview_data), function(i) {
+            col_name <- names(preview_data)[i]
+            suggested_field <- find_column_suggestion(col_name)
+            
+            div(
+              style = "display: table-cell; padding: 8px; border-right: 1px solid #ddd; vertical-align: top; min-width: 180px; max-width: 250px; width: 180px; box-sizing: border-box;",
+              div(
+                style = "font-weight: bold; margin-bottom: 5px; font-size: 12px; text-align: center; word-wrap: break-word;",
+                col_name
+              ),
+              div(
+                style = "margin-bottom: 0px;",
+                selectInput(
+                  inputId = paste0("mapping_col_", i),
+                  label = NULL,
+                  choices = all_db_fields,
+                  selected = if (suggested_field != "NA") suggested_field else "NA",
+                  width = "calc(100% - 0px)"
+                )
+              )
+            )
+          })
+        )
+      ),
+      # Create data preview rows
+      div(
+        style = "display: table; width: 100%; table-layout: fixed;",
+        # Header row with column names (hidden since we show them above)
+        # Data rows
+        lapply(1:nrow(preview_data), function(row_i) {
+          div(
+            style = paste0("display: table-row; ", 
+                          if (row_i %% 2 == 0) "background-color: #f8f9fa;" else "background-color: white;"),
+            lapply(1:ncol(preview_data), function(col_i) {
+              # Smart date formatting for better display
+              cell_value <- preview_data[row_i, col_i]
+              
+              # Check if this looks like a date column and try to format it properly
+              display_value <- tryCatch({
+                # Convert cell value to numeric if possible
+                numeric_value <- NA
+                
+                # Handle different data types
+                if (is.numeric(cell_value) && !is.na(cell_value)) {
+                  numeric_value <- cell_value
+                } else if (!is.na(cell_value)) {
+                  # Convert to character and clean
+                  char_value <- trimws(as.character(cell_value))
+                  
+                  # Only try to convert if it's not empty and looks like a number
+                  if (char_value != "" && char_value != "NA") {
+                    # Try numeric conversion with warning suppression
+                    test_numeric <- suppressWarnings(as.numeric(char_value))
+                    if (!is.na(test_numeric)) {
+                      numeric_value <- test_numeric
+                    }
+                  }
+                }
+                
+                # If it's numeric (or can be converted to numeric) and could be a date
+                if (!is.na(numeric_value)) {
+                  # Check for Unix timestamp (seconds since 1970-01-01)
+                  if (numeric_value > 1000000000 && numeric_value < 2147483647) {
+                    # Unix timestamp - convert from seconds
+                    date_val <- as.Date(as.POSIXct(numeric_value, origin = "1970-01-01"))
+                    format(date_val, "%Y-%b-%d")
+                  } 
+                  # Check for Unix timestamp in milliseconds
+                  else if (numeric_value > 1000000000000 && numeric_value < 2147483647000) {
+                    # Unix timestamp in milliseconds - convert from milliseconds
+                    date_val <- as.Date(as.POSIXct(numeric_value/1000, origin = "1970-01-01"))
+                    format(date_val, "%Y-%b-%d")
+                  }
+                  # Check for Excel date (between reasonable bounds)
+                  else if (numeric_value > 25000 && numeric_value < 80000) {
+                    # Convert Excel numeric date to R date
+                    date_val <- as.Date(numeric_value, origin = "1899-12-30")
+                    format(date_val, "%Y-%b-%d")
+                  } else {
+                    # Not a recognizable date format, return as character
+                    as.character(cell_value)
+                  }
+                } else if (inherits(cell_value, "Date")) {
+                  # Already a Date object
+                  format(cell_value, "%Y-%b-%d")
+                } else if (inherits(cell_value, "POSIXt")) {
+                  # DateTime object
+                  format(as.Date(cell_value), "%Y-%b-%d")
+                } else {
+                  # Default to character conversion
+                  as.character(cell_value)
+                }
+              }, error = function(e) {
+                # Fallback to character conversion if date parsing fails
+                as.character(cell_value)
+              })
+              
+              div(
+                style = "display: table-cell; padding: 8px; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; vertical-align: top; min-width: 180px; max-width: 250px; width: 180px; text-align: center; word-wrap: break-word; box-sizing: border-box;",
+                display_value
+              )
+            })
+          )
+        })
+      )
+    )
+  )
   
   do.call(tagList, ui_elements)
+}
+
+# Function to validate column mappings and detect duplicates
+validate_column_mappings <- function(input, column_count) {
+  # Collect all selected mappings
+  selected_mappings <- list()
+  duplicate_fields <- character(0)
+  
+  for (i in 1:column_count) {
+    input_id <- paste0("mapping_col_", i)
+    selected_value <- input[[input_id]]
+    
+    if (!is.null(selected_value) && selected_value != "NA") {
+      if (selected_value %in% names(selected_mappings)) {
+        # This field is already mapped to another column
+        duplicate_fields <- c(duplicate_fields, selected_value)
+      } else {
+        selected_mappings[[selected_value]] <- i
+      }
+    }
+  }
+  
+  return(list(
+    is_valid = length(duplicate_fields) == 0,
+    duplicate_fields = unique(duplicate_fields),
+    selected_mappings = selected_mappings
+  ))
+}
+
+# Function to generate warning CSS for duplicate mappings
+generate_mapping_warnings <- function(validation_result, column_count) {
+  warning_css <- ""
+  
+  if (!validation_result$is_valid) {
+    # Create CSS to highlight dropdown boxes that have duplicate selections
+    duplicate_columns <- character(0)
+    
+    for (i in 1:column_count) {
+      input_id <- paste0("mapping_col_", i)
+      # Find which columns have duplicate mappings
+      for (field in validation_result$duplicate_fields) {
+        if (field %in% names(validation_result$selected_mappings)) {
+          # This is a duplicate field, find all columns that selected it
+          for (j in 1:column_count) {
+            check_input_id <- paste0("mapping_col_", j)
+            # We need to check this in the actual UI validation
+            duplicate_columns <- c(duplicate_columns, check_input_id)
+          }
+        }
+      }
+    }
+    
+    if (length(duplicate_columns) > 0) {
+      warning_css <- paste0(
+        "<style>",
+        paste(sapply(unique(duplicate_columns), function(col_id) {
+          paste0("#", col_id, " { border: 2px solid #ff6b6b !important; background-color: #ffe6e6 !important; }")
+        }), collapse = " "),
+        "</style>"
+      )
+    }
+  }
+  
+  return(warning_css)
+}
+
+# Function to create warning message for duplicate mappings
+create_duplicate_mapping_warning <- function(duplicate_fields) {
+  if (length(duplicate_fields) == 0) {
+    return(NULL)
+  }
+  
+  # Get human-readable field names
+  field_name_map <- list(
+    "animal_id" = "Animal ID",
+    "ear_mark" = "Ear Mark", 
+    "gender" = "Gender",
+    "dob" = "Date of Birth",
+    "genotype" = "Genotype",
+    "strain" = "Strain",
+    "breeding_line" = "Breeding Line",
+    "dam" = "Dam",
+    "sire" = "Sire", 
+    "cage_id" = "Cage ID",
+    "room" = "Room",
+    "project_code" = "Project Code",
+    "responsible_person" = "Responsible Person",
+    "protocol" = "Protocol",
+    "study_plan" = "Study Plan",
+    "notes" = "Notes"
+  )
+  
+  readable_fields <- sapply(duplicate_fields, function(field) {
+    if (field %in% names(field_name_map)) {
+      field_name_map[[field]]
+    } else {
+      field
+    }
+  })
+  
+  div(
+    style = "margin: 10px 0; padding: 10px; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; color: #856404;",
+    tags$strong("⚠️ Warning: Duplicate Column Mappings Detected"),
+    tags$br(),
+    paste("The following database fields are mapped to multiple columns:", 
+          paste(readable_fields, collapse = ", ")),
+    tags$br(),
+    "Please ensure each database field is mapped to only one Excel column."
+  )
 }
 
 # Independent function: Get modification history for a mouse by ASU ID

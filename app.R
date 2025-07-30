@@ -990,6 +990,7 @@ server <- function(input, output, session) {
   observeEvent(input$add_import_excel_btn, {
     showModal(modalDialog(
       title = "Import Animals from Excel",
+      size = "s",
       fileInput("import_excel_file", "Choose Excel File", accept = c(".xls", ".xlsx")),
       selectInput("import_stock_category", "Stock Category for Imported Records", 
                   choices = c("Experiment", "Breeding", "Charles River"), 
@@ -998,8 +999,10 @@ server <- function(input, output, session) {
         style = "margin-top: 10px; font-size: 12px; color: #666;",
         "Note: This stock category will be applied to all imported records."
       ),
-      actionButton("submit_import_excel_btn", "Import", style = "background-color: #f5f5f5; color: #222; border: none; font-size: 1.1em; padding: 8px 24px;"),
-      footer = modalButton("Cancel")
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("submit_import_excel_btn", "Import", style = "background-color: #1976d2; color: white; border: none;")
+      )
     ))
   })
 
@@ -1033,22 +1036,144 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "Confirm Column Mappings",
       size = "xl",
-      mapping_ui,
+      div(
+        style = "width: 100%; max-width: none;",
+        mapping_ui
+      ),
       footer = tagList(
         modalButton("Cancel"),
         actionButton("confirm_mappings_btn", "Confirm and Import", style = "background-color: #1976d2; color: white; border: none;")
-      )
+      ),
+      # Add custom CSS to make modal extra wide
+      tags$head(tags$style(HTML("
+        .modal-xl {
+          max-width: 98% !important;
+          width: 98% !important;
+        }
+        .modal-xl .modal-content {
+          width: 100% !important;
+        }
+        .modal-xl .modal-body {
+          padding: 15px !important;
+        }
+      ")))
     ))
+    
+    # Add reactive observer for real-time mapping validation
+    observeEvent({
+      # React to any changes in mapping dropdown selections
+      col_names <- names(import_data$df)
+      lapply(1:length(col_names), function(i) {
+        input[[paste0("mapping_col_", i)]]
+      })
+    }, {
+      if (!is.null(import_data$df)) {
+        col_names <- names(import_data$df)
+        validation_result <- validate_column_mappings(input, length(col_names))
+        
+        # Update warning area with current validation status
+        output$mapping_warnings <- renderUI({
+          if (!validation_result$is_valid) {
+            create_duplicate_mapping_warning(validation_result$duplicate_fields)
+          } else {
+            NULL
+          }
+        })
+      }
+    }, ignoreNULL = FALSE, ignoreInit = TRUE)
+  })
+  
+  # Handle "Go Back to Fix Mappings" button
+  observeEvent(input$go_back_to_mapping, {
+    # Close current modal and reopen the column mapping modal
+    removeModal()
+    
+    # Recreate the column mapping UI with current data
+    if (!is.null(import_data$df)) {
+      mapping_result <- list(
+        mappings = import_data$mappings,
+        available_columns = import_data$available_columns,
+        field_suggestions = import_data$field_suggestions
+      )
+      
+      mapping_ui <- create_column_mapping_ui(mapping_result, import_data$df)
+      
+      showModal(modalDialog(
+        title = "Confirm Column Mappings",
+        size = "xl",
+        div(
+          style = "width: 100%; max-width: none;",
+          mapping_ui
+        ),
+        footer = tagList(
+          modalButton("Cancel"),
+          actionButton("confirm_mappings_btn", "Confirm and Import", style = "background-color: #1976d2; color: white; border: none;")
+        ),
+        # Add custom CSS to make modal extra wide
+        tags$head(tags$style(HTML("
+          .modal-xl {
+            max-width: 98% !important;
+            width: 98% !important;
+          }
+          .modal-xl .modal-content {
+            width: 100% !important;
+          }
+          .modal-xl .modal-body {
+            padding: 15px !important;
+          }
+        ")))
+      ))
+      
+      # Re-add reactive observer for real-time mapping validation
+      observeEvent({
+        # React to any changes in mapping dropdown selections
+        col_names <- names(import_data$df)
+        lapply(1:length(col_names), function(i) {
+          input[[paste0("mapping_col_", i)]]
+        })
+      }, {
+        if (!is.null(import_data$df)) {
+          col_names <- names(import_data$df)
+          validation_result <- validate_column_mappings(input, length(col_names))
+          
+          # Update warning area with current validation status
+          output$mapping_warnings <- renderUI({
+            if (!validation_result$is_valid) {
+              create_duplicate_mapping_warning(validation_result$duplicate_fields)
+            } else {
+              NULL
+            }
+          })
+        }
+      }, ignoreNULL = FALSE, ignoreInit = TRUE)
+    }
   })
   
   # Handle mapping confirmation
   observeEvent(input$confirm_mappings_btn, {
-    # Collect all mappings from the UI
-    confirmed_mappings <- list()
+    # Get the column names from the imported data
+    col_names <- names(import_data$df)
     
-    # Get all field names from suggestions
-    all_fields <- c(names(import_data$field_suggestions$required), 
-                   names(import_data$field_suggestions$optional))
+    # First, validate for duplicate mappings
+    validation_result <- validate_column_mappings(input, length(col_names))
+    
+    if (!validation_result$is_valid) {
+      # Show warning modal for duplicate mappings with option to go back
+      showModal(modalDialog(
+        title = "Duplicate Column Mappings",
+        create_duplicate_mapping_warning(validation_result$duplicate_fields),
+        easyClose = FALSE,
+        footer = tagList(
+          actionButton("go_back_to_mapping", "Go Back to Fix Mappings", 
+                      style = "background-color: #1976d2; color: white; border: none;"),
+          modalButton("Cancel Import")
+        )
+      ))
+      return()
+    }
+    
+    # Collect all mappings from the new column-based UI
+    confirmed_mappings <- list()
     
     # Check required fields first
     required_fields <- names(import_data$field_suggestions$required)
@@ -1056,13 +1181,20 @@ server <- function(input, output, session) {
     required_fields <- required_fields[required_fields != "asu_id"]
     missing_required <- c()
     
-    for (field in all_fields) {
-      input_id <- paste0("mapping_", field)
+    # Collect mappings from column dropdowns
+    for (i in seq_along(col_names)) {
+      input_id <- paste0("mapping_col_", i)
       selected_value <- input[[input_id]]
       
       if (!is.null(selected_value) && selected_value != "NA") {
-        confirmed_mappings[[field]] <- selected_value
-      } else if (field %in% required_fields) {
+        # Map the database field to the Excel column name
+        confirmed_mappings[[selected_value]] <- col_names[i]
+      }
+    }
+    
+    # Check if required fields are mapped
+    for (field in required_fields) {
+      if (!field %in% names(confirmed_mappings)) {
         missing_required <- c(missing_required, field)
       }
     }
@@ -1105,7 +1237,7 @@ server <- function(input, output, session) {
           # Show exact matches first
           if (nrow(duplicate_check$exact_matches) > 0) {
             div(
-              h5("Exact Matches (will be skipped):"),
+              h5("Identical Records (will be skipped):"),
               renderTable(duplicate_check$exact_matches, striped = TRUE, bordered = TRUE),
               style = "margin-bottom: 20px;"
             )
@@ -1124,9 +1256,23 @@ server <- function(input, output, session) {
           },
           style = "max-height: 400px; overflow-y: auto;"
         ),
-        footer = tagList(
-          modalButton("Cancel"),
-          if (nrow(duplicate_check$comparison_data) > 0) actionButton("process_duplicates", "Process Selected Actions") else NULL
+        footer = div(
+          style = "display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background-color: #f8f9fa; border-top: 1px solid #dee2e6;",
+          div(
+            style = "color: #6c757d; font-size: 14px;",
+            if (nrow(duplicate_check$comparison_data) > 0) {
+              paste("Please select actions for", nrow(duplicate_check$comparison_data), "conflict(s)")
+            } else {
+              "All records are identical and will be skipped"
+            }
+          ),
+          div(
+            style = "display: flex; gap: 10px;",
+            modalButton("Cancel"),
+            if (nrow(duplicate_check$comparison_data) > 0) {
+              actionButton("process_duplicates", "Process Selected Actions", class = "btn-primary", style = "font-weight: 600;")
+            } else NULL
+          )
         )
       ))
       
@@ -1151,32 +1297,398 @@ server <- function(input, output, session) {
   output$duplicate_action_ui <- renderUI({
     req(import_data$comparison_data)
     
-    lapply(1:nrow(import_data$comparison_data), function(i) {
-      row <- import_data$comparison_data[i, ]
+    DT::dataTableOutput("duplicate_conflicts_table", width = "100%")
+  })
+  
+  output$duplicate_conflicts_table <- DT::renderDataTable({
+    req(import_data$comparison_data)
+    
+    # Create table data with highlighted differences
+    display_data <- data.frame(
+      ASU_ID = import_data$comparison_data$ASU_ID,
+      stringsAsFactors = FALSE
+    )
+    
+    # Helper function to create comparison cell with highlighting
+    create_comparison_cell <- function(import_val, db_val) {
+      import_str <- if (is.na(import_val) || import_val == "") "NA" else as.character(import_val)
+      db_str <- if (is.na(db_val) || db_val == "") "NA" else as.character(db_val)
+      
+      if (import_str != db_str) {
+        # Values are different - highlight import value in red
+        paste0(
+          "<span style='color: #dc3545; font-weight: bold; background-color: #f8d7da; padding: 2px 6px; border-radius: 3px;'>", 
+          import_str, 
+          "</span><br/><span style='color: #6c757d; font-size: 0.9em;'>Current: ", 
+          db_str, 
+          "</span>"
+        )
+      } else {
+        # Values are same - show normally
+        import_str
+      }
+    }
+    
+    # Add comparison columns
+    display_data$Animal_ID <- mapply(create_comparison_cell, 
+                                    import_data$comparison_data$Import_Animal_ID, 
+                                    import_data$comparison_data$DB_Animal_ID)
+    
+    display_data$Gender <- mapply(create_comparison_cell, 
+                                 import_data$comparison_data$Import_Gender, 
+                                 import_data$comparison_data$DB_Gender)
+    
+    display_data$DoB <- mapply(create_comparison_cell, 
+                              import_data$comparison_data$Import_DoB, 
+                              import_data$comparison_data$DB_DoB)
+    
+    display_data$Breeding_Line <- mapply(create_comparison_cell, 
+                                        import_data$comparison_data$Import_Breeding_Line, 
+                                        import_data$comparison_data$DB_Breeding_Line)
+    
+    display_data$Genotype <- mapply(create_comparison_cell, 
+                                   import_data$comparison_data$Import_Genotype, 
+                                   import_data$comparison_data$DB_Genotype)
+    
+    # Add action column
+    display_data$Action <- sapply(1:nrow(import_data$comparison_data), function(i) {
+      as.character(selectInput(
+        paste0("action_", i),
+        label = NULL,
+        choices = list(
+          "Skip (don't import)" = "Skip",
+          "Modify ASU ID" = "Modify",
+          "Overwrite DB record" = "Overwrite",
+          "Keep both records" = "Keep Both"
+        ),
+        selected = "Skip",
+        width = "160px"
+      ))
+    })
+    
+    DT::datatable(
+      display_data,
+      options = list(
+        pageLength = 25,
+        scrollX = TRUE,
+        scrollY = "400px",
+        dom = 't',
+        ordering = FALSE,
+        columnDefs = list(
+          list(width = '80px', targets = 0),   # ASU_ID
+          list(width = '120px', targets = 1),  # Animal_ID
+          list(width = '80px', targets = 2),   # Gender
+          list(width = '100px', targets = 3),  # DoB
+          list(width = '140px', targets = 4),  # Breeding_Line
+          list(width = '140px', targets = 5),  # Genotype
+          list(width = '180px', targets = 6)   # Action
+        )
+      ),
+      escape = FALSE,
+      rownames = FALSE,
+      class = 'cell-border stripe hover compact',
+      colnames = c('ASU ID', 'Animal ID', 'Gender', 'Date of Birth', 'Breeding Line', 'Genotype', 'Action')
+    )
+  })
+  
+  # Reactive values for custom ASU ID modal
+  custom_asu_data <- reactiveValues(
+    records = NULL,
+    custom_asu_ids = list()
+  )
+  
+  # Render custom ASU ID modal UI
+  output$custom_asu_id_ui <- renderUI({
+    req(custom_asu_data$records)
+    
+    lapply(1:length(custom_asu_data$records), function(i) {
+      record <- custom_asu_data$records[[i]]
+      
       div(
-        style = "border: 1px solid #ddd; margin: 5px 0; padding: 10px; border-radius: 5px;",
+        style = "border: 1px solid #dee2e6; margin: 15px 0; padding: 20px; border-radius: 8px; background-color: #f8f9fa;",
+        
+        # Header
         fluidRow(
-          column(3, strong("ASU ID:"), row$ASU_ID),
-          column(3, strong("Animal ID:"), row$Animal_ID),
-          column(2, strong("Gender:"), row$Gender),
-          column(2, strong("Breeding Line:"), row$Breeding_Line),
-          column(2, strong("Action:"), 
-            selectInput(
-              paste0("action_", i),
-              label = NULL,
-              choices = c("Skip", "Modify", "Overwrite", "Keep Both"),
-              selected = "Skip",
-              width = "100%"
+          column(6,
+            h5(paste("Original ASU ID:", record$asu_id), style = "color: #495057; font-weight: 600;")
+          ),
+          column(6,
+            h5(paste("Action:", record$action), style = "color: #007bff; font-weight: 600;")
+          )
+        ),
+        
+        # Record details
+        div(
+          style = "margin: 15px 0; padding: 15px; background-color: white; border-radius: 5px;",
+          h6("Record Details:", style = "color: #6c757d; margin-bottom: 10px;"),
+          fluidRow(
+            column(4, 
+              strong("Animal ID:"), br(), 
+              span(record$import_data$Import_Animal_ID, style = "color: #495057;")
+            ),
+            column(4, 
+              strong("Gender:"), br(), 
+              span(record$import_data$Import_Gender, style = "color: #495057;")
+            ),
+            column(4, 
+              strong("Breeding Line:"), br(), 
+              span(record$import_data$Import_Breeding_Line, style = "color: #495057;")
+            )
+          ),
+          br(),
+          fluidRow(
+            column(6, 
+              strong("Genotype:"), br(), 
+              span(record$import_data$Import_Genotype, style = "color: #495057;")
+            ),
+            column(6, 
+              strong("Date of Birth:"), br(), 
+              span(record$import_data$Import_DoB, style = "color: #495057;")
             )
           )
         ),
+        
+        # New ASU ID input
         fluidRow(
-          column(4, strong("Genotype:"), row$Genotype),
-          column(4, strong("DoB:"), row$DoB),
-          column(4, strong("Age (weeks):"), row$Age)
+          column(8,
+            textInput(
+              paste0("custom_asu_", i),
+              "New ASU ID:",
+              value = record$default_new_asu_id,
+              width = "100%"
+            )
+          ),
+          column(4,
+            br(),
+            actionButton(
+              paste0("check_asu_", i),
+              "Check Availability",
+              class = "btn-outline-primary",
+              style = "margin-top: 5px; width: 100%;"
+            )
+          )
+        ),
+        
+        # Status message
+        div(
+          id = paste0("asu_status_", i),
+          style = "margin-top: 10px; min-height: 20px;"
         )
       )
     })
+  })
+  
+  # Handle ASU ID availability check
+  observe({
+    req(custom_asu_data$records)
+    
+    lapply(1:length(custom_asu_data$records), function(i) {
+      observeEvent(input[[paste0("check_asu_", i)]], {
+        new_asu_id <- input[[paste0("custom_asu_", i)]]
+        
+        if (is.null(new_asu_id) || trimws(new_asu_id) == "") {
+          output[[paste0("asu_status_", i)]] <- renderUI({
+            div(
+              class = "alert alert-warning",
+              style = "padding: 8px; margin: 0;",
+              icon("exclamation-triangle"), " Please enter an ASU ID"
+            )
+          })
+          return()
+        }
+        
+        # Check if ASU ID already exists in database
+        con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+        existing <- DBI::dbGetQuery(con, "SELECT asu_id FROM mice_stock WHERE asu_id = ?", params = list(trimws(new_asu_id)))
+        DBI::dbDisconnect(con)
+        
+        # Check if ASU ID is used by other records in this batch
+        other_records_using <- sapply(1:length(custom_asu_data$records), function(j) {
+          if (i != j) {
+            other_asu <- input[[paste0("custom_asu_", j)]]
+            return(!is.null(other_asu) && trimws(other_asu) == trimws(new_asu_id))
+          }
+          return(FALSE)
+        })
+        
+        if (nrow(existing) > 0) {
+          output[[paste0("asu_status_", i)]] <- renderUI({
+            div(
+              class = "alert alert-danger",
+              style = "padding: 8px; margin: 0;",
+              icon("times-circle"), " ASU ID already exists in database"
+            )
+          })
+        } else if (any(other_records_using)) {
+          output[[paste0("asu_status_", i)]] <- renderUI({
+            div(
+              class = "alert alert-warning",
+              style = "padding: 8px; margin: 0;",
+              icon("exclamation-triangle"), " ASU ID is used by another record in this batch"
+            )
+          })
+        } else {
+          output[[paste0("asu_status_", i)]] <- renderUI({
+            div(
+              class = "alert alert-success",
+              style = "padding: 8px; margin: 0;",
+              icon("check-circle"), " ASU ID is available"
+            )
+          })
+        }
+      })
+    })
+  })
+  
+  # Handle cancel custom ASU ID
+  observeEvent(input$cancel_custom_asu, {
+    removeModal()
+    # Show the original duplicates modal again
+    showModal(modalDialog(
+      title = "Duplicate Detection Results",
+      size = "xl",
+      div(
+        # Show exact matches if any
+        if (nrow(import_data$exact_matches) > 0) {
+          div(
+            h5("Identical Records (will be skipped):"),
+            renderTable(import_data$exact_matches, striped = TRUE, bordered = TRUE),
+            style = "margin-bottom: 20px;"
+          )
+        },
+        # Show differences if any
+        if (nrow(import_data$comparison_data) > 0) {
+          div(
+            h5("Records with Differences:"),
+            uiOutput("duplicate_action_ui")
+          )
+        } else {
+          div(
+            h5("All duplicates are exact matches. No action needed."),
+            style = "color: green; font-weight: bold;"
+          )
+        },
+        style = "max-height: 400px; overflow-y: auto;"
+      ),
+      footer = div(
+        style = "display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background-color: #f8f9fa; border-top: 1px solid #dee2e6;",
+        div(
+          style = "color: #6c757d; font-size: 14px;",
+          if (nrow(import_data$comparison_data) > 0) {
+            paste("Please select actions for", nrow(import_data$comparison_data), "conflict(s)")
+          } else {
+            "All records are identical and will be skipped"
+          }
+        ),
+        div(
+          style = "display: flex; gap: 10px;",
+          modalButton("Cancel"),
+          if (nrow(import_data$comparison_data) > 0) {
+            actionButton("process_duplicates", "Process Selected Actions", class = "btn-primary", style = "font-weight: 600;")
+          } else NULL
+        )
+      )
+    ))
+  })
+  
+  # Handle confirm custom ASU ID
+  observeEvent(input$confirm_custom_asu, {
+    # Validate all ASU IDs
+    all_valid <- TRUE
+    error_messages <- c()
+    
+    # Collect all custom ASU IDs
+    custom_asu_ids <- list()
+    for (i in 1:length(custom_asu_data$records)) {
+      new_asu_id <- trimws(input[[paste0("custom_asu_", i)]])
+      custom_asu_ids[[i]] <- new_asu_id
+      
+      if (new_asu_id == "") {
+        all_valid <- FALSE
+        error_messages <- c(error_messages, paste("Record", i, ": ASU ID cannot be empty"))
+      }
+    }
+    
+    # Check for duplicates within the batch
+    if (length(unique(custom_asu_ids)) != length(custom_asu_ids)) {
+      all_valid <- FALSE
+      error_messages <- c(error_messages, "Duplicate ASU IDs found within the batch")
+    }
+    
+    # Check database for existing ASU IDs
+    if (all_valid) {
+      con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+      for (i in 1:length(custom_asu_ids)) {
+        existing <- DBI::dbGetQuery(con, "SELECT asu_id FROM mice_stock WHERE asu_id = ?", params = list(custom_asu_ids[[i]]))
+        if (nrow(existing) > 0) {
+          all_valid <- FALSE
+          error_messages <- c(error_messages, paste("ASU ID", custom_asu_ids[[i]], "already exists in database"))
+        }
+      }
+      DBI::dbDisconnect(con)
+    }
+    
+    if (!all_valid) {
+      showModal(modalDialog(
+        title = "Validation Error",
+        div(
+          class = "alert alert-danger",
+          h5("Please fix the following issues:"),
+          tags$ul(
+            lapply(error_messages, function(msg) tags$li(msg))
+          )
+        ),
+        footer = modalButton("OK")
+      ))
+      return()
+    }
+    
+    # All valid, proceed with processing
+    removeModal()
+    
+    # Create modified user actions with custom ASU IDs
+    user_actions <- list()
+    custom_asu_map <- list()
+    
+    # Build user actions from original selections
+    for (i in 1:nrow(import_data$comparison_data)) {
+      action_input <- input[[paste0("action_", i)]]
+      user_actions[[paste0("action_", i)]] <- if (is.null(action_input)) "Skip" else action_input
+    }
+    
+    # Map custom ASU IDs to their records
+    for (i in 1:length(custom_asu_data$records)) {
+      record <- custom_asu_data$records[[i]]
+      custom_asu_map[[record$asu_id]] <- custom_asu_ids[[i]]
+    }
+    
+    # Process duplicates with custom ASU IDs
+    result <- process_duplicates_with_custom(
+      import_data$parsed_df, 
+      import_data$comparison_data, 
+      import_data$import_duplicates, 
+      import_data$db_conflicts, 
+      user_actions,
+      custom_asu_map
+    )
+    
+    # Insert into DB
+    if (nrow(result$final_df) > 0) {
+      db_result <- import_data_to_db(result$final_df)
+      
+      if (db_result) {
+        msg <- paste0("Import completed! ", nrow(result$final_df), " records imported. ")
+        if (result$skipped_count > 0) msg <- paste0(msg, result$skipped_count, " skipped. ")
+        if (result$modified_count > 0) msg <- paste0(msg, result$modified_count, " modified. ")
+        if (result$overwritten_count > 0) msg <- paste0(msg, result$overwritten_count, " overwritten.")
+        
+        showModal(modalDialog(title = "Import Success", msg, easyClose = TRUE))
+      } else {
+        showModal(modalDialog(title = "Import Error", "Failed to import animals.", easyClose = TRUE))
+      }
+    } else {
+      showModal(modalDialog(title = "Import Cancelled", "No records to import after processing duplicates.", easyClose = TRUE))
+    }
   })
 
   output$duplicate_comparison_table <- DT::renderDataTable({
@@ -1237,16 +1749,64 @@ server <- function(input, output, session) {
   # Handle Process Duplicates
   observeEvent(input$process_duplicates, {
     req(import_data)
-    removeModal()
     
     # Get user actions from the selectInputs
     user_actions <- list()
+    modify_records <- list()
+    keep_both_records <- list()
+    
     for (i in 1:nrow(import_data$comparison_data)) {
       action_input <- input[[paste0("action_", i)]]
-      user_actions[[paste0("action_", i)]] <- if (is.null(action_input)) "Skip" else action_input
+      action <- if (is.null(action_input)) "Skip" else action_input
+      user_actions[[paste0("action_", i)]] <- action
+      
+      # Collect records that need custom ASU ID input
+      if (action == "Modify" || action == "Keep Both") {
+        row_data <- import_data$comparison_data[i, ]
+        record_info <- list(
+          index = i,
+          asu_id = row_data$ASU_ID,
+          action = action,
+          import_data = row_data,
+          default_new_asu_id = paste0(row_data$ASU_ID, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+        )
+        
+        if (action == "Modify") {
+          modify_records[[length(modify_records) + 1]] <- record_info
+        } else {
+          keep_both_records[[length(keep_both_records) + 1]] <- record_info
+        }
+      }
     }
     
-    # Process duplicates using the function from db_check.R
+    # If there are records that need custom ASU ID, show modal
+    if (length(modify_records) > 0 || length(keep_both_records) > 0) {
+      custom_asu_data$records <- c(modify_records, keep_both_records)
+      custom_asu_data$custom_asu_ids <- list()
+      
+      # Initialize default ASU IDs
+      for (i in 1:length(custom_asu_data$records)) {
+        custom_asu_data$custom_asu_ids[[i]] <- custom_asu_data$records[[i]]$default_new_asu_id
+      }
+      
+      removeModal()
+      showModal(modalDialog(
+        title = "Custom ASU ID Assignment",
+        size = "l",
+        div(
+          h4("Records requiring new ASU IDs:", style = "color: #495057; margin-bottom: 20px;"),
+          uiOutput("custom_asu_id_ui")
+        ),
+        footer = tagList(
+          actionButton("cancel_custom_asu", "Cancel", class = "btn-secondary"),
+          actionButton("confirm_custom_asu", "Confirm & Process", class = "btn-primary")
+        )
+      ))
+      return()
+    }
+    
+    # No custom ASU IDs needed, process normally
+    removeModal()
     result <- process_duplicates(
       import_data$parsed_df, 
       import_data$comparison_data, 
