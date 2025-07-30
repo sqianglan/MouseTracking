@@ -18,6 +18,10 @@ suppressPackageStartupMessages({
   library(ggsci)
   library(plotly)
   library(markdown)
+  library(shinydashboard)
+  library(httr)
+  library(jsonlite)
+  library(base64enc)
 })
 
 # Helper function to shorten long file paths for display
@@ -44,6 +48,7 @@ source("Modules/tab_calendar_events.R")
 #source("Modules/tab_deleted.R")
 source("Modules/tab_plugging.R")
 source("Modules/validation.R")
+source("Modules/analytics_tracker.R")
 
 # Initialize audit trail
 initialize_audit_trail()
@@ -721,6 +726,13 @@ ui <- fluidPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
+  # Log visitor data in background
+  tryCatch({
+    log_visitor(session, use_github = TRUE)
+  }, error = function(e) {
+    message("Failed to log visitor: ", e$message)
+  })
+  
   # --- Hot-reloading modules for development ---
   # NOTE: These source() calls are inside server() for hot-reloading on browser refresh.
   # For production, move them back outside server() for better performance.
