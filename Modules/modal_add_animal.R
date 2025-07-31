@@ -412,6 +412,13 @@ handle_single_entry_submission <- function(input, DB_PATH, TABLE_NAME) {
 
 # Function to show duplicates modal with detailed comparison
 show_duplicates_modal <- function(duplicate_check, import_data) {
+  
+  # Create the duplicate conflicts table if there are comparison records
+  duplicate_table_ui <- NULL
+  if (nrow(duplicate_check$comparison_data) > 0) {
+    duplicate_table_ui <- create_duplicate_conflicts_html_table(import_data)
+  }
+  
   showModal(modalDialog(
     title = "Duplicate Records Found - Detailed Comparison",
     size = "l",
@@ -433,7 +440,7 @@ show_duplicates_modal <- function(duplicate_check, import_data) {
       if (nrow(duplicate_check$comparison_data) > 0) {
         div(
           h5("Records with Differences:"),
-          uiOutput("duplicate_action_ui")
+          duplicate_table_ui
         )
       } else {
         div(
@@ -464,15 +471,9 @@ show_duplicates_modal <- function(duplicate_check, import_data) {
   ))
 }
 
-# Function to create duplicate conflicts table output
-render_duplicate_conflicts_table <- function(import_data) {
+# Function to create duplicate conflicts HTML table for modal display
+create_duplicate_conflicts_html_table <- function(import_data) {
   req(import_data$comparison_data)
-  
-  # Create table data with highlighted differences
-  display_data <- data.frame(
-    ASU_ID = import_data$comparison_data$ASU_ID,
-    stringsAsFactors = FALSE
-  )
   
   # Helper function to create comparison cell with highlighting
   create_comparison_cell <- function(import_val, db_val) {
@@ -494,30 +495,14 @@ render_duplicate_conflicts_table <- function(import_data) {
     }
   }
   
-  # Add comparison columns
-  display_data$Animal_ID <- mapply(create_comparison_cell, 
-                                  import_data$comparison_data$Import_Animal_ID, 
-                                  import_data$comparison_data$DB_Animal_ID)
+  # Build HTML table
+  table_rows <- ""
   
-  display_data$Gender <- mapply(create_comparison_cell, 
-                               import_data$comparison_data$Import_Gender, 
-                               import_data$comparison_data$DB_Gender)
-  
-  display_data$DoB <- mapply(create_comparison_cell, 
-                            import_data$comparison_data$Import_DoB, 
-                            import_data$comparison_data$DB_DoB)
-  
-  display_data$Breeding_Line <- mapply(create_comparison_cell, 
-                                      import_data$comparison_data$Import_Breeding_Line, 
-                                      import_data$comparison_data$DB_Breeding_Line)
-  
-  display_data$Genotype <- mapply(create_comparison_cell, 
-                                 import_data$comparison_data$Import_Genotype, 
-                                 import_data$comparison_data$DB_Genotype)
-  
-  # Add action column
-  display_data$Action <- sapply(1:nrow(import_data$comparison_data), function(i) {
-    as.character(selectInput(
+  for (i in seq_len(nrow(import_data$comparison_data))) {
+    row_data <- import_data$comparison_data[i, ]
+    
+    # Create action dropdown
+    action_dropdown <- as.character(selectInput(
       paste0("action_", i),
       label = NULL,
       choices = list(
@@ -529,64 +514,239 @@ render_duplicate_conflicts_table <- function(import_data) {
       selected = "Skip",
       width = "160px"
     ))
-  })
+    
+    table_rows <- paste0(table_rows, 
+      "<tr>",
+      "<td style='padding: 8px; border: 1px solid #ddd;'>", row_data$ASU_ID, "</td>",
+      "<td style='padding: 8px; border: 1px solid #ddd;'>", 
+      create_comparison_cell(row_data$Import_Animal_ID, row_data$DB_Animal_ID), "</td>",
+      "<td style='padding: 8px; border: 1px solid #ddd;'>", 
+      create_comparison_cell(row_data$Import_Gender, row_data$DB_Gender), "</td>",
+      "<td style='padding: 8px; border: 1px solid #ddd;'>", 
+      create_comparison_cell(row_data$Import_DoB, row_data$DB_DoB), "</td>",
+      "<td style='padding: 8px; border: 1px solid #ddd;'>", 
+      create_comparison_cell(row_data$Import_Breeding_Line, row_data$DB_Breeding_Line), "</td>",
+      "<td style='padding: 8px; border: 1px solid #ddd;'>", 
+      create_comparison_cell(row_data$Import_Genotype, row_data$DB_Genotype), "</td>",
+      "<td style='padding: 8px; border: 1px solid #ddd;'>", action_dropdown, "</td>",
+      "</tr>"
+    )
+  }
   
-  DT::datatable(
-    display_data,
-    options = list(
-      pageLength = 25,
-      scrollX = TRUE,
-      scrollY = "400px",
-      dom = 't',
-      ordering = FALSE,
-      columnDefs = list(
-        list(width = '80px', targets = 0),   # ASU_ID
-        list(width = '120px', targets = 1),  # Animal_ID
-        list(width = '80px', targets = 2),   # Gender
-        list(width = '100px', targets = 3),  # DoB
-        list(width = '140px', targets = 4),  # Breeding_Line
-        list(width = '140px', targets = 5),  # Genotype
-        list(width = '180px', targets = 6)   # Action
-      )
-    ),
-    escape = FALSE,
-    rownames = FALSE,
-    class = 'cell-border stripe hover compact',
-    colnames = c('ASU ID', 'Animal ID', 'Gender', 'Date of Birth', 'Breeding Line', 'Genotype', 'Action')
-  )
+  # Create complete HTML table
+  html_table <- HTML(paste0(
+    "<table style='width: 100%; border-collapse: collapse; margin-top: 10px;'>",
+    "<thead>",
+    "<tr style='background-color: #f8f9fa;'>",
+    "<th style='padding: 10px; border: 1px solid #ddd; font-weight: bold;'>ASU ID</th>",
+    "<th style='padding: 10px; border: 1px solid #ddd; font-weight: bold;'>Animal ID</th>",
+    "<th style='padding: 10px; border: 1px solid #ddd; font-weight: bold;'>Gender</th>",
+    "<th style='padding: 10px; border: 1px solid #ddd; font-weight: bold;'>Date of Birth</th>",
+    "<th style='padding: 10px; border: 1px solid #ddd; font-weight: bold;'>Breeding Line</th>",
+    "<th style='padding: 10px; border: 1px solid #ddd; font-weight: bold;'>Genotype</th>",
+    "<th style='padding: 10px; border: 1px solid #ddd; font-weight: bold;'>Action</th>",
+    "</tr>",
+    "</thead>",
+    "<tbody>",
+    table_rows,
+    "</tbody>",
+    "</table>"
+  ))
+  
+  return(html_table)
 }
 
-# Function to render duplicate comparison table
-render_duplicate_comparison_table <- function(import_data) {
-  req(import_data$comparison_data)
+# Function to check if an ASU ID already exists
+check_asu_id_availability <- function(asu_id, import_data = NULL) {
+  # Check database
+  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+  existing_count <- DBI::dbGetQuery(con, 
+    paste0("SELECT COUNT(*) as count FROM ", TABLE_NAME, " WHERE asu_id = ?"), 
+    params = list(asu_id))$count
+  DBI::dbDisconnect(con)
   
-  # Create action dropdowns for each row
-  actions <- lapply(1:nrow(import_data$comparison_data), function(i) {
-    asu_id <- import_data$comparison_data$ASU_ID[i]
-    selectInput(
-      paste0("action_", i),
-      label = NULL,
-      choices = c("Skip", "Modify", "Overwrite", "Keep Both"),
-      selected = "Skip",
-      width = "100px"
-    )
-  })
+  # Check current import data if provided
+  import_conflict <- FALSE
+  if (!is.null(import_data) && !is.null(import_data$parsed_df)) {
+    import_conflict <- asu_id %in% import_data$parsed_df$asu_id
+  }
   
-  # Add action column to the data
-  display_data <- import_data$comparison_data
-  display_data$Action <- sapply(actions, function(x) as.character(x))
-  
-  DT::datatable(
-    display_data,
-    options = list(
-      pageLength = 100,
-      scrollX = TRUE,
-      dom = 't'
-    ),
-    selection = 'none',
-    escape = FALSE
-  )
+  return(list(
+    available = existing_count == 0 && !import_conflict,
+    in_database = existing_count > 0,
+    in_import = import_conflict
+  ))
 }
+
+
+# Function to show custom ASU ID modal for Modify and Keep Both actions
+show_custom_asu_modal <- function(modify_records, keep_both_records) {
+  # Create UI elements for each record that needs a custom ASU ID
+  custom_asu_inputs <- list()
+  
+  # Add inputs for Modify records
+  if (length(modify_records) > 0) {
+    custom_asu_inputs <- append(custom_asu_inputs, list(
+      h4("Records to Modify (generate new ASU ID):", style = "color: #ff9800; margin-bottom: 10px;")
+    ))
+    
+    for (record in modify_records) {
+      custom_asu_inputs <- append(custom_asu_inputs, list(
+        div(
+          style = "margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #fff3e0;",
+          fluidRow(
+            column(4, 
+              div(style = "font-weight: bold; margin-bottom: 5px;", paste("Original ASU ID:", record$asu_id)),
+              div(style = "font-size: 0.9em; color: #666;", paste("Action: Modify"))
+            ),
+            column(6,
+              textInput(
+                paste0("custom_asu_modify_", record$index),
+                "New ASU ID:",
+                value = record$default_new_asu_id,
+                placeholder = "Enter new ASU ID"
+              )
+            ),
+            column(2,
+              div(style = "margin-top: 25px;",
+                actionButton(
+                  paste0("check_asu_modify_", record$index),
+                  "Check",
+                  style = "background-color: #17a2b8; color: white; border: none; width: 100%; font-size: 0.9em;",
+                  onclick = paste0("checkAsuAvailability('custom_asu_modify_", record$index, "', 'modify_", record$index, "')")
+                ),
+                div(
+                  id = paste0("asu_status_modify_", record$index),
+                  style = "margin-top: 5px; font-size: 0.8em; text-align: center;",
+                  ""
+                )
+              )
+            )
+          )
+        )
+      ))
+    }
+  }
+  
+  # Add inputs for Keep Both records
+  if (length(keep_both_records) > 0) {
+    if (length(modify_records) > 0) {
+      custom_asu_inputs <- append(custom_asu_inputs, list(hr()))
+    }
+    
+    custom_asu_inputs <- append(custom_asu_inputs, list(
+      h4("Records to Keep Both (generate new ASU ID for import):", style = "color: #2196f3; margin-bottom: 10px;")
+    ))
+    
+    for (record in keep_both_records) {
+      custom_asu_inputs <- append(custom_asu_inputs, list(
+        div(
+          style = "margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #e3f2fd;",
+          fluidRow(
+            column(4, 
+              div(style = "font-weight: bold; margin-bottom: 5px;", paste("Original ASU ID:", record$asu_id)),
+              div(style = "font-size: 0.9em; color: #666;", paste("Action: Keep Both"))
+            ),
+            column(6,
+              textInput(
+                paste0("custom_asu_keep_both_", record$index),
+                "New ASU ID for import:",
+                value = record$default_new_asu_id,
+                placeholder = "Enter new ASU ID for imported record"
+              )
+            ),
+            column(2,
+              div(style = "margin-top: 25px;",
+                actionButton(
+                  paste0("check_asu_keep_both_", record$index),
+                  "Check",
+                  style = "background-color: #17a2b8; color: white; border: none; width: 100%; font-size: 0.9em;",
+                  onclick = paste0("checkAsuAvailability('custom_asu_keep_both_", record$index, "', 'keep_both_", record$index, "')")
+                ),
+                div(
+                  id = paste0("asu_status_keep_both_", record$index),
+                  style = "margin-top: 5px; font-size: 0.8em; text-align: center;",
+                  ""
+                )
+              )
+            )
+          )
+        )
+      ))
+    }
+  }
+  
+  showModal(modalDialog(
+    title = "Customize ASU IDs",
+    size = "l",
+    tags$head(tags$script(HTML("
+      // Function to check ASU availability via AJAX
+      function checkAsuAvailability(inputId, statusId) {
+        var asuId = $('#' + inputId).val();
+        if (!asuId || asuId.trim() === '') {
+          $('#asu_status_' + statusId).html('<span style=\"color: #dc3545;\">❌ Please enter an ASU ID</span>');
+          return;
+        }
+        
+        // Show loading state
+        $('#asu_status_' + statusId).html('<span style=\"color: #6c757d;\">⏳ Checking...</span>');
+        
+        // Send request to Shiny server
+        Shiny.setInputValue('check_asu_id', {
+          asu_id: asuId,
+          status_element: 'asu_status_' + statusId,
+          timestamp: new Date().getTime()
+        });
+      }
+      
+      // Function to check all ASU IDs at once
+      function checkAllAsuIds() {
+        // Find all ASU ID inputs and their corresponding status elements
+        $('input[id^=\"custom_asu_\"]').each(function() {
+          var inputId = $(this).attr('id');
+          var statusId = inputId.replace('custom_asu_', '');
+          checkAsuAvailability(inputId, statusId);
+        });
+      }
+      
+      // Custom message handler to update ASU status
+      Shiny.addCustomMessageHandler('updateAsuStatus', function(message) {
+        $('#' + message.element_id).html(message.html);
+      });
+      
+      // Bind the check all button
+      $(document).on('click', '#check_all_asu_ids', function() {
+        checkAllAsuIds();
+      });
+    "))),
+    div(
+      style = "max-height: 500px; overflow-y: auto;",
+      div(
+        style = "margin-bottom: 15px; padding: 10px; background-color: #f0f0f0; border-radius: 5px;",
+        HTML("<strong>Instructions:</strong><br/>
+             • <span style='color: #ff9800;'>Modify</span>: The imported record will get the new ASU ID<br/>
+             • <span style='color: #2196f3;'>Keep Both</span>: Both database and imported records will exist, imported record gets the new ASU ID<br/>
+             • Click <strong>Check</strong> button to verify if ASU ID is available")
+      ),
+      custom_asu_inputs
+    ),
+    footer = tagList(
+      div(style = "display: flex; gap: 10px; align-items: center;",
+        actionButton("check_all_asu_ids", "Check All", 
+                    style = "background-color: #28a745; color: white; border: none; font-size: 0.9em;"),
+        span(style = "color: #6c757d; font-size: 0.85em;", "Check all ASU IDs at once")
+      ),
+      div(style = "margin-left: auto; display: flex; gap: 10px;",
+        actionButton("go_back_to_duplicates", "← Back to Duplicates", 
+                    style = "background-color: #6c757d; color: white; border: none;"),
+        modalButton("Cancel Import"),
+        actionButton("confirm_custom_asu", "Confirm and Import", 
+                    class = "btn-primary", style = "font-weight: 600;")
+      )
+    )
+  ))
+}
+
 
 # Function to handle processing duplicates
 handle_process_duplicates <- function(input, import_data) {
@@ -596,46 +756,84 @@ handle_process_duplicates <- function(input, import_data) {
   user_actions <- list()
   modify_records <- list()
   keep_both_records <- list()
+  skip_records <- list()
+  overwrite_records <- list()
   
   # Debug: Show all available inputs that match our pattern
   input_names <- names(reactiveValuesToList(input))
   action_inputs <- input_names[grepl("^action_", input_names)]
   cat("DEBUG: Available action inputs:", paste(action_inputs, collapse = ", "), "\n")
   
-  for (i in 1:nrow(import_data$comparison_data)) {
-    action_input <- input[[paste0("action_", i)]]
+  for (i in seq_len(nrow(import_data$comparison_data))) {
+    action_input_id <- paste0("action_", i)
+    action_input <- input[[action_input_id]]
     action <- if (is.null(action_input)) "Skip" else action_input
-    user_actions[[paste0("action_", i)]] <- action
-    
+    user_actions[[action_input_id]] <- action
+
     # Debug: log what actions we're getting
-    cat("DEBUG: Row", i, "input[[paste0('action_', i)]]:", action_input, "final action:", action, "\n")
+    cat("DEBUG: Row", i, "Input ID:", action_input_id, "Value:", 
+        if (is.null(action_input)) "NULL" else action_input, "Final action:", action, "\n")
     
+    row_data <- import_data$comparison_data[i, ]
+    record_info <- list(
+      index = i,
+      asu_id = row_data$ASU_ID,
+      action = action,
+      import_data = row_data,
+      default_new_asu_id = paste0(row_data$ASU_ID, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
+    )
     
-    # Collect records that need custom ASU ID input
-    if (action == "Modify" || action == "Keep Both") {
-      row_data <- import_data$comparison_data[i, ]
-      record_info <- list(
-        index = i,
-        asu_id = row_data$ASU_ID,
-        action = action,
-        import_data = row_data,
-        default_new_asu_id = paste0(row_data$ASU_ID, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
-      )
-      
-      if (action == "Modify") {
-        modify_records[[length(modify_records) + 1]] <- record_info
-      } else {
-        keep_both_records[[length(keep_both_records) + 1]] <- record_info
-      }
+    # Collect records based on action type
+    if (action == "Modify") {
+      modify_records[[length(modify_records) + 1]] <- record_info
+    } else if (action == "Keep Both") {
+      keep_both_records[[length(keep_both_records) + 1]] <- record_info
+    } else if (action == "Skip") {
+      skip_records[[length(skip_records) + 1]] <- record_info
+    } else if (action == "Overwrite") {
+      overwrite_records[[length(overwrite_records) + 1]] <- record_info
     }
   }
+  
+  # Check if we need to show custom ASU ID modal
+  needs_custom_asu <- length(modify_records) > 0 || length(keep_both_records) > 0
   
   return(list(
     user_actions = user_actions,
     modify_records = modify_records,
-    keep_both_records = keep_both_records
+    keep_both_records = keep_both_records,
+    skip_records = skip_records,
+    overwrite_records = overwrite_records,
+    needs_custom_asu = needs_custom_asu
   ))
 }
+
+
+# Function to collect custom ASU IDs from the modal
+collect_custom_asu_ids <- function(input, modify_records, keep_both_records) {
+  custom_asu_map <- list()
+  
+  # Collect custom ASU IDs for Modify records
+  for (record in modify_records) {
+    input_id <- paste0("custom_asu_modify_", record$index)
+    custom_asu <- input[[input_id]]
+    if (!is.null(custom_asu) && custom_asu != "") {
+      custom_asu_map[[record$asu_id]] <- custom_asu
+    }
+  }
+  
+  # Collect custom ASU IDs for Keep Both records
+  for (record in keep_both_records) {
+    input_id <- paste0("custom_asu_keep_both_", record$index)
+    custom_asu <- input[[input_id]]
+    if (!is.null(custom_asu) && custom_asu != "") {
+      custom_asu_map[[record$asu_id]] <- custom_asu
+    }
+  }
+  
+  return(custom_asu_map)
+}
+
 
 # Function to handle skip duplicates import
 handle_skip_duplicates_import <- function(import_data, DB_PATH) {
@@ -661,4 +859,286 @@ handle_skip_duplicates_import <- function(import_data, DB_PATH) {
     showModal(modalDialog(title = "Import Error", "Failed to import animals.", easyClose = TRUE))
     return(FALSE)
   }
+}
+
+
+# Main server module for animal modal functionality
+modal_add_animal_server <- function(input, output, session, import_data, all_mice_table, global_refresh_trigger, db_path, table_name) {
+  
+  # Helper function to refresh all_mice_table
+  refresh_all_mice_table <- function() {
+    con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+    all_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", table_name, " ORDER BY asu_id"))
+    DBI::dbDisconnect(con)
+    all_mice_table(all_data)
+    global_refresh_trigger(Sys.time())
+  }
+  
+  # Handle mapping confirmation
+  observeEvent(input$confirm_mappings_btn, {
+    # Process mapping confirmation using the module function
+    parsed_df <- handle_mapping_confirmation(input, import_data)
+    
+    # If successful, parsed_df will be returned, otherwise NULL
+    if (!is.null(parsed_df)) {
+      # Check for duplicates and handle import
+      duplicate_check <- check_duplicates_and_conflicts(parsed_df)
+      
+      if (duplicate_check$has_duplicates) {
+        # Store data for duplicate processing
+        import_data$parsed_df <- parsed_df
+        import_data$comparison_data <- duplicate_check$comparison_data
+        import_data$exact_matches <- duplicate_check$exact_matches
+        import_data$import_duplicates <- duplicate_check$import_duplicates
+        import_data$db_conflicts <- duplicate_check$db_conflicts
+        
+        # Show duplicates modal using module function
+        show_duplicates_modal(duplicate_check, import_data)
+      } else {
+        # No duplicates, import directly
+        result <- import_data_to_db(parsed_df)
+        if (result) {
+          showModal(modalDialog(title = "Import Success", "Animals imported successfully!", easyClose = TRUE))
+          refresh_all_mice_table()
+        } else {
+          showModal(modalDialog(title = "Import Error", "Failed to import animals.", easyClose = TRUE))
+        }
+      }
+    }
+  })
+
+  # Handle Process Duplicates
+  observeEvent(input$process_duplicates, {
+    # Use the function from modal_add_animal.R to handle duplicate processing
+    duplicate_actions <- handle_process_duplicates(input, import_data)
+    
+    # Check if we need to show custom ASU ID modal
+    if (duplicate_actions$needs_custom_asu) {
+      # Store the duplicate actions for later use
+      import_data$duplicate_actions <- duplicate_actions
+      
+      # Show custom ASU ID modal
+      show_custom_asu_modal(duplicate_actions$modify_records, duplicate_actions$keep_both_records)
+    } else {
+      # No custom ASU IDs needed, process directly
+      result <- process_duplicates(
+        import_data$parsed_df, 
+        import_data$comparison_data, 
+        import_data$import_duplicates, 
+        import_data$db_conflicts, 
+        duplicate_actions$user_actions
+      )
+      
+      # Insert into DB
+      if (nrow(result$final_df) > 0) {
+        db_result <- import_data_to_db(result$final_df)
+        
+        if (db_result) {
+          msg <- paste0("Import completed! ", nrow(result$final_df), " records imported. ")
+          if (result$skipped_count > 0) msg <- paste0(msg, result$skipped_count, " skipped. ")
+          if (result$modified_count > 0) msg <- paste0(msg, result$modified_count, " modified. ")
+          if (result$overwritten_count > 0) msg <- paste0(msg, result$overwritten_count, " overwritten.")
+          
+          showModal(modalDialog(title = "Import Success", msg, easyClose = TRUE))
+          removeModal()
+          refresh_all_mice_table()
+        } else {
+          showModal(modalDialog(title = "Import Error", "Failed to import animals.", easyClose = TRUE))
+        }
+      } else {
+        showModal(modalDialog(title = "Import Cancelled", "No records to import after processing duplicates.", easyClose = TRUE))
+      }
+    }
+  })
+  
+  # Handle ASU ID availability checking
+  observeEvent(input$check_asu_id, {
+    req(input$check_asu_id)
+    
+    asu_id <- input$check_asu_id$asu_id
+    status_element <- input$check_asu_id$status_element
+    
+    # Check availability using the function from modal_add_animal.R
+    availability <- check_asu_id_availability(asu_id, import_data)
+    
+    # Create status message
+    if (availability$available) {
+      status_html <- '<span style="color: #28a745;">✅ Available</span>'
+    } else {
+      reasons <- c()
+      if (availability$in_database) {
+        reasons <- c(reasons, "exists in database")
+      }
+      if (availability$in_import) {
+        reasons <- c(reasons, "exists in current import")
+      }
+      status_html <- paste0('<span style="color: #dc3545;">❌ ', paste(reasons, collapse = ", "), '</span>')
+    }
+    
+    # Send message to client to update the status
+    session$sendCustomMessage("updateAsuStatus", list(
+      element_id = status_element,
+      html = status_html
+    ))
+  })
+  
+  # Handle Custom ASU ID Confirmation
+  observeEvent(input$confirm_custom_asu, {
+    req(import_data$duplicate_actions)
+    
+    # Collect custom ASU IDs from the modal
+    custom_asu_map <- collect_custom_asu_ids(input, 
+                                           import_data$duplicate_actions$modify_records, 
+                                           import_data$duplicate_actions$keep_both_records)
+    
+    # Validate custom ASU IDs (check for duplicates with existing database and import)
+    validation_errors <- c()
+    con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+    
+    # Check each custom ASU ID
+    for (asu_id in names(custom_asu_map)) {
+      new_asu_id <- custom_asu_map[[asu_id]]
+      
+      # Skip empty or null values
+      if (is.null(new_asu_id) || new_asu_id == "") {
+        validation_errors <- c(validation_errors, 
+                              paste0("ASU ID for '", asu_id, "' cannot be empty"))
+        next
+      }
+      
+      # Check if new ASU ID already exists in database
+      existing_count <- DBI::dbGetQuery(con, 
+        paste0("SELECT COUNT(*) as count FROM ", table_name, " WHERE asu_id = ?"), 
+        params = list(new_asu_id))$count
+      
+      if (existing_count > 0) {
+        validation_errors <- c(validation_errors, 
+                              paste0("ASU ID '", new_asu_id, "' already exists in database"))
+      }
+      
+      # Check if new ASU ID conflicts with current import data
+      if (!is.null(import_data$parsed_df) && new_asu_id %in% import_data$parsed_df$asu_id) {
+        validation_errors <- c(validation_errors, 
+                              paste0("ASU ID '", new_asu_id, "' conflicts with current import data"))
+      }
+      
+      # Check for duplicates within the custom ASU IDs
+      if (sum(unlist(custom_asu_map) == new_asu_id) > 1) {
+        validation_errors <- c(validation_errors, 
+                              paste0("Duplicate custom ASU ID '", new_asu_id, "' found"))
+      }
+      
+      # Basic format validation (optional - only if you have specific format requirements)
+      if (!grepl("^[A-Za-z0-9_-]+$", new_asu_id)) {
+        validation_errors <- c(validation_errors, 
+                              paste0("ASU ID '", new_asu_id, "' contains invalid characters (only letters, numbers, underscore, and hyphen allowed)"))
+      }
+    }
+    
+    DBI::dbDisconnect(con)
+    
+    # If validation errors, show them with more detailed information
+    if (length(validation_errors) > 0) {
+      showModal(modalDialog(
+        title = "ASU ID Validation Errors",
+        div(
+          style = "margin-bottom: 15px;",
+          "The following errors were found with your custom ASU IDs:"
+        ),
+        div(
+          style = "background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 5px; max-height: 300px; overflow-y: auto;",
+          HTML(paste("• ", validation_errors, collapse = "<br/>"))
+        ),
+        div(
+          style = "margin-top: 15px; font-size: 0.9em; color: #6c757d;",
+          "💡 Tip: Use the 'Check' buttons next to each ASU ID field to verify availability before confirming."
+        ),
+        footer = tagList(
+          actionButton("fix_custom_asu", "← Fix ASU IDs", 
+                      style = "background-color: #6c757d; color: white; border: none;"),
+          modalButton("Cancel Import")
+        )
+      ))
+      return()
+    }
+    
+    # All validations passed, process duplicates with custom ASU IDs
+    result <- process_duplicates_with_custom(
+      import_data$parsed_df, 
+      import_data$comparison_data, 
+      import_data$import_duplicates, 
+      import_data$db_conflicts, 
+      import_data$duplicate_actions$user_actions,
+      custom_asu_map
+    )
+    
+    # Insert into DB
+    if (nrow(result$final_df) > 0) {
+      db_result <- import_data_to_db(result$final_df)
+      
+      if (db_result) {
+        msg <- paste0("Import completed! ", nrow(result$final_df), " records imported. ")
+        if (result$skipped_count > 0) msg <- paste0(msg, result$skipped_count, " skipped. ")
+        if (result$modified_count > 0) msg <- paste0(msg, result$modified_count, " modified. ")
+        if (result$overwritten_count > 0) msg <- paste0(msg, result$overwritten_count, " overwritten.")
+        
+        showModal(modalDialog(title = "Import Success", msg, easyClose = TRUE))
+        removeModal()
+        refresh_all_mice_table()
+      } else {
+        showModal(modalDialog(title = "Import Error", "Failed to import animals.", easyClose = TRUE))
+      }
+    } else {
+      showModal(modalDialog(title = "Import Cancelled", "No records to import after processing duplicates.", easyClose = TRUE))
+    }
+  })
+  
+  # Handle going back to fix custom ASU IDs
+  observeEvent(input$fix_custom_asu, {
+    req(import_data$duplicate_actions)
+    removeModal()
+    
+    # Show the custom ASU modal again
+    show_custom_asu_modal(import_data$duplicate_actions$modify_records, 
+                         import_data$duplicate_actions$keep_both_records)
+  })
+  
+  # Handle going back to duplicates modal from custom ASU modal
+  observeEvent(input$go_back_to_duplicates, {
+    req(import_data$comparison_data, import_data$exact_matches)
+    removeModal()
+    
+    # Recreate the duplicate check structure
+    duplicate_check <- list(
+      comparison_data = import_data$comparison_data,
+      exact_matches = import_data$exact_matches,
+      has_duplicates = TRUE
+    )
+    
+    # Show the duplicates modal again
+    show_duplicates_modal(duplicate_check, import_data)
+  })
+
+  # Handle Single Entry Submission
+  observeEvent(input$submit_single_entry_btn, {
+    # Use the module function to handle submission
+    result <- handle_single_entry_submission(input, db_path, table_name)
+    
+    # If successful, refresh the all_mice_table
+    if (result) {
+      refresh_all_mice_table()
+    }
+  })
+  
+  # Handle proceeding with warnings
+  observeEvent(input$proceed_with_warnings, {
+    removeModal()
+    # Trigger the submission again
+    input$submit_single_entry_btn
+  })
+  
+  # Handle Excel Import
+  observeEvent(input$submit_import_excel_btn, {
+    import_data <- handle_excel_import(input, import_data)
+  })
 }
