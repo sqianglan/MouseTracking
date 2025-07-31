@@ -335,7 +335,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
       style = "font-size: 2rem; font-weight: bold;",
       paste("Mouse History Tracing - ", asu_id)
     ),
-    size = "xl",
+    size = "m",
     modal_content,
     footer = div(
       style = "display: flex; justify-content: space-between; align-items: center;",

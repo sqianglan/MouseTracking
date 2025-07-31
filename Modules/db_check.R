@@ -486,8 +486,6 @@ process_duplicates_with_custom <- function(parsed_df, comparison_data, import_du
     
     asu_id <- comparison_data$ASU_ID[i]
     
-    # Debug: log what we're processing
-    cat("DEBUG process_duplicates_with_custom: Row", i, "ASU_ID:", asu_id, "Action:", action, "\n")
     
     if (action == "Skip") {
       skipped_count <- skipped_count + 1

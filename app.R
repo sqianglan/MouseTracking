@@ -656,8 +656,7 @@ ui <- fluidPage(
           # Version number in top-left corner
           div(
             style = "position: absolute; top: 20px; left: 20px; z-index: 3;",
-            actionButton("version_info_btn", "Version: beta 1.10", 
-                        style = "background: rgba(255, 255, 255, 0.9); color: #2c3e50; border: none; border-radius: 6px; font-size: 0.9em; padding: 6px 12px; font-weight: 500; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);")
+            uiOutput("version_info_btn_ui")
           ),
           div(
             class = "plugging-status-diagram-container",
@@ -890,6 +889,33 @@ server <- function(input, output, session) {
     } else {
       actionButton("reconnect_db", "Not Connected", style = btn_style_red, icon = icon("exclamation-triangle"))
     }
+  })
+
+  # Function to read version from VERSION.md
+  get_version_from_file <- function() {
+    tryCatch({
+      version_file_path <- "VERSION.md"
+      if (file.exists(version_file_path)) {
+        first_line <- readLines(version_file_path, n = 1)
+        # Extract version text from "Version:" to " -"
+        version_match <- regmatches(first_line, regexpr("Version:[^-]+", first_line))
+        if (length(version_match) > 0) {
+          # Remove "Version:" prefix and trim whitespace
+          version_text <- trimws(gsub("^Version:\\s*", "", version_match))
+          return(paste("Version:", version_text))
+        }
+      }
+      return("Version: Unknown")  # fallback
+    }, error = function(e) {
+      return("Version: Error")  # fallback on error
+    })
+  }
+
+  # Render version info button with dynamic version
+  output$version_info_btn_ui <- renderUI({
+    version_text <- get_version_from_file()
+    actionButton("version_info_btn", version_text, 
+                style = "background: rgba(255, 255, 255, 0.9); color: #2c3e50; border: none; border-radius: 6px; font-size: 0.9em; padding: 6px 12px; font-weight: 500; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);")
   })
 
   observeEvent(input$reconnect_db, {

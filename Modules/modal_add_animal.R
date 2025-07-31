@@ -105,7 +105,8 @@ show_single_entry_form <- function(DB_PATH, TABLE_NAME, previous_values = NULL) 
       style = "margin-top: 15px; font-size: 12px; color: #666;",
       "* Required fields"
     ),
-    footer = tagList(
+    footer = div(
+      style = "display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 8px 0;",
       modalButton("Cancel"),
       uiOutput("single_entry_submit_button")
     )
@@ -155,15 +156,16 @@ handle_excel_import <- function(input, import_data) {
     "Age", "age", "AGE",
     "No. of animals", "No of animals", "Number of animals", "Count", "Num", "Animals",
     "Team", "TEAM", "team", 
-    "Cage Type", "Cage type", "cage type", "CageType", "CAGE TYPE"
+    "Cage Type", "Cage type", "cage type", "CageType", "CAGE TYPE", "Cage Name"
   )
   
   df_columns <- names(df)
   columns_to_keep <- df_columns[!sapply(df_columns, function(col) {
-    col_lower <- tolower(col)
+    col_lower <- tolower(trimws(col))
     any(sapply(excluded_columns, function(excl) {
-      excl_lower <- tolower(excl)
-      grepl(excl_lower, col_lower, fixed = TRUE) || grepl(col_lower, excl_lower, fixed = TRUE)
+      excl_lower <- tolower(trimws(excl))
+      # Match whole word (case-insensitive)
+      col_lower == excl_lower
     }))
   })]
   
@@ -737,20 +739,11 @@ handle_process_duplicates <- function(input, import_data) {
   keep_both_records <- list()
   skip_records <- list()
   
-  # Debug: Show all available inputs that match our pattern
-  input_names <- names(reactiveValuesToList(input))
-  action_inputs <- input_names[grepl("^action_", input_names)]
-  cat("DEBUG: Available action inputs:", paste(action_inputs, collapse = ", "), "\n")
-  
   for (i in seq_len(nrow(import_data$comparison_data))) {
     action_input_id <- paste0("action_", i)
     action_input <- input[[action_input_id]]
     action <- if (is.null(action_input)) "Skip" else action_input
     user_actions[[action_input_id]] <- action
-
-    # Debug: log what actions we're getting
-    cat("DEBUG: Row", i, "Input ID:", action_input_id, "Value:", 
-        if (is.null(action_input)) "NULL" else action_input, "Final action:", action, "\n")
     
     row_data <- import_data$comparison_data[i, ]
     record_info <- list(

@@ -199,8 +199,6 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       show_deleted <- isTRUE(input$show_deleted_plugging_history)
       show_finished <- isTRUE(input$show_finished_plugging_history)
       
-      # show_deleted <- F #debug
-      # show_finished <- F #degug
 
       ### Default values 
       filtered <- pluggings[
@@ -218,7 +216,6 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         if (nrow(euthanized_rows) > 0) {
         
           euthanized_ids <- sapply(seq_len(nrow(euthanized_rows)), function(i) {
-            # i=3 #debug
             new_vals <- tryCatch(jsonlite::fromJSON(euthanized_rows$new_values[i]), error = function(e) list())
             if (!is.null(new_vals$source) && new_vals$source == 'Plugging Tab' && new_vals$status == 'Deceased') {
               female_id <- euthanized_rows$record_id[i]

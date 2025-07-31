@@ -353,7 +353,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         # Callback to restore scroll position after table is drawn
         drawCallback = JS("
           function(settings) {
-            console.log('DataTable drawn:', settings.sTableId);
             // Check if we have a saved scroll position and restore it
             setTimeout(function() {
               if (window.scrollPositions && window.scrollPositions[settings.sTableId]) {
@@ -362,7 +361,6 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
                 
                 // Only restore if position was saved recently (within last 5 seconds)
                 if (timeSinceSave < 5000) {
-                  console.log('Auto-restoring scroll position from drawCallback');
                   if (typeof restoreScrollPosition === 'function') {
                     restoreScrollPosition(settings.sTableId, 50);
                   }
@@ -905,7 +903,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
                 )
               )
             }, error = function(e) {
-              cat("Field-level audit logging failed:", e$message, "\n")
+              # Field-level audit logging failed silently
             })
           }
           
@@ -959,7 +957,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
           )
         )
       }, error = function(e) {
-        cat("Bulk audit logging failed:", e$message, "\n")
+        # Bulk audit logging failed silently
       })
     }
     
@@ -1074,11 +1072,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       asu_id <- selected_data$asu_id[i]
       old_status <- selected_data$status[i]
       
-              query <- paste0("UPDATE ", TABLE_NAME, " SET status = 'Deleted', last_updated = CURRENT_TIMESTAMP WHERE asu_id = ?")
-        result <- DBI::dbExecute(con, query, params = list(asu_id))
-      
       tryCatch({
-        result <- DBI::dbExecute(con, query)
+        query <- paste0("UPDATE ", TABLE_NAME, " SET status = 'Deleted', last_updated = CURRENT_TIMESTAMP WHERE asu_id = ?")
+        result <- DBI::dbExecute(con, query, params = list(asu_id))
         if (result > 0) {
           update_count <- update_count + 1
           record_ids <- c(record_ids, asu_id)

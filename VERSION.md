@@ -1,6 +1,40 @@
-# Version: beta 1.10 - Update Summary
+# Version: beta 1.20 - Update Summary
 
-## 🎉 Latest Updates
+## 🎉 Latest Updates (beta 1.20)
+
+### 🗑️ Enhanced Deleted Record Management
+- Added distinctive trash bin symbol (🗑️) for deleted mice records
+- Improved visual differentiation between deceased and deleted statuses
+- Fixed ASU ID extraction for deleted records in double-click functionality
+- Conditional deleted status legend (only shown when system is unlocked)
+
+### 🔧 System Lock & Security Improvements
+- Refined system lock functionality with proper authorization warnings
+- Deleted status indicators only visible when system is unlocked and "All" selected
+- Enhanced security controls for deletion operations
+- Improved user interface for system lock/unlock operations
+
+### 🎨 User Interface Enhancements
+- Changed "Both" to "All" in status search dropdown for better clarity
+- Dynamic legend display based on system lock state
+- Enhanced JavaScript for robust ASU ID extraction from complex HTML
+- Improved status indicator styling and alignment
+
+### 📝 Add Animals Modal System
+- Comprehensive modal system for adding single animals
+- Excel import functionality with duplicate detection
+- Custom ASU ID handling for duplicate records
+- Advanced validation for animal data entry
+
+### 🔍 Search & Filter Improvements
+- Updated status filtering with clearer naming conventions
+- Enhanced search functionality with wildcard support
+- Better user feedback for search operations
+- Improved data table state management
+
+---
+
+## 🎉 Previous Updates (beta 1.10)
 
 ### ✨ Body Weight Tracking System
 - Added comprehensive body weight tracking for individual mice
