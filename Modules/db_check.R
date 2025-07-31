@@ -492,30 +492,6 @@ process_duplicates_with_custom <- function(parsed_df, comparison_data, import_du
     if (action == "Skip") {
       skipped_count <- skipped_count + 1
       next  # Skip this record
-    } else if (action == "Modify") {
-      # Generate new ASU ID (use custom if provided)
-      row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
-      if (nrow(row_data) > 0) {
-        new_asu_id <- if (!is.null(custom_asu_map[[asu_id]])) {
-          custom_asu_map[[asu_id]]
-        } else {
-          paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
-        }
-        row_data$asu_id <- new_asu_id
-        final_df <- rbind(final_df, row_data)
-        modified_count <- modified_count + 1
-      }
-    } else if (action == "Overwrite") {
-      # Delete existing record and add new one
-      con <- dbConnect(SQLite(), DB_PATH)
-      dbExecute(con, paste0("DELETE FROM ", TABLE_NAME, " WHERE asu_id = ?"), params = list(asu_id))
-      dbDisconnect(con)
-      
-      row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
-      if (nrow(row_data) > 0) {
-        final_df <- rbind(final_df, row_data)
-        overwritten_count <- overwritten_count + 1
-      }
     } else if (action == "Keep Both") {
       # Generate new ASU ID and keep both (use custom if provided)
       row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
@@ -562,26 +538,6 @@ process_duplicates <- function(parsed_df, comparison_data, import_duplicates, db
     if (action == "Skip") {
       skipped_count <- skipped_count + 1
       next  # Skip this record
-    } else if (action == "Modify") {
-      # Generate new ASU ID
-      row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
-      if (nrow(row_data) > 0) {
-        new_asu_id <- paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
-        row_data$asu_id <- new_asu_id
-        final_df <- rbind(final_df, row_data)
-        modified_count <- modified_count + 1
-      }
-    } else if (action == "Overwrite") {
-      # Delete existing record and add new one
-      con <- dbConnect(SQLite(), DB_PATH)
-      dbExecute(con, paste0("DELETE FROM ", TABLE_NAME, " WHERE asu_id = ?"), params = list(asu_id))
-      dbDisconnect(con)
-      
-      row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
-      if (nrow(row_data) > 0) {
-        final_df <- rbind(final_df, row_data)
-        overwritten_count <- overwritten_count + 1
-      }
     } else if (action == "Keep Both") {
       # Generate new ASU ID and keep both
       row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
@@ -1009,7 +965,7 @@ validate_column_mappings <- function(input, column_count) {
   selected_mappings <- list()
   duplicate_fields <- character(0)
   
-  for (i in 1:column_count) {
+  for (i in seq_len(column_count)) {
     input_id <- paste0("mapping_col_", i)
     selected_value <- input[[input_id]]
     
@@ -1031,32 +987,29 @@ validate_column_mappings <- function(input, column_count) {
 }
 
 # Function to generate warning CSS for duplicate mappings
-generate_mapping_warnings <- function(validation_result, column_count) {
+generate_mapping_warnings <- function(validation_result, column_count, input = NULL) {
   warning_css <- ""
   
-  if (!validation_result$is_valid) {
-    # Create CSS to highlight dropdown boxes that have duplicate selections
-    duplicate_columns <- character(0)
+  if (!validation_result$is_valid && !is.null(input)) {
+    # Find which input elements have duplicate field selections
+    duplicate_input_ids <- character(0)
     
-    for (i in 1:column_count) {
-      input_id <- paste0("mapping_col_", i)
-      # Find which columns have duplicate mappings
-      for (field in validation_result$duplicate_fields) {
-        if (field %in% names(validation_result$selected_mappings)) {
-          # This is a duplicate field, find all columns that selected it
-          for (j in 1:column_count) {
-            check_input_id <- paste0("mapping_col_", j)
-            # We need to check this in the actual UI validation
-            duplicate_columns <- c(duplicate_columns, check_input_id)
-          }
+    # For each duplicate field, find all columns that selected it
+    for (field in validation_result$duplicate_fields) {
+      for (i in seq_len(column_count)) {
+        input_id <- paste0("mapping_col_", i)
+        selected_value <- input[[input_id]]
+        
+        if (!is.null(selected_value) && selected_value == field) {
+          duplicate_input_ids <- c(duplicate_input_ids, input_id)
         }
       }
     }
     
-    if (length(duplicate_columns) > 0) {
+    if (length(duplicate_input_ids) > 0) {
       warning_css <- paste0(
         "<style>",
-        paste(sapply(unique(duplicate_columns), function(col_id) {
+        paste(sapply(unique(duplicate_input_ids), function(col_id) {
           paste0("#", col_id, " { border: 2px solid #ff6b6b !important; background-color: #ffe6e6 !important; }")
         }), collapse = " "),
         "</style>"

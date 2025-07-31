@@ -402,7 +402,6 @@ handle_single_entry_submission <- function(input, DB_PATH, TABLE_NAME) {
   
   if (result) {
     showModal(modalDialog(title = "Success", "Animal added successfully!", easyClose = TRUE))
-    removeModal() # Close the single entry modal
     return(TRUE)
   } else {
     showModal(modalDialog(title = "Error", "Failed to add animal to database.", easyClose = TRUE))
@@ -411,12 +410,12 @@ handle_single_entry_submission <- function(input, DB_PATH, TABLE_NAME) {
 }
 
 # Function to show duplicates modal with detailed comparison
-show_duplicates_modal <- function(duplicate_check, import_data) {
+show_duplicates_modal <- function(duplicate_check, import_data, previous_selections = NULL) {
   
   # Create the duplicate conflicts table if there are comparison records
   duplicate_table_ui <- NULL
   if (nrow(duplicate_check$comparison_data) > 0) {
-    duplicate_table_ui <- create_duplicate_conflicts_html_table(import_data)
+    duplicate_table_ui <- create_duplicate_conflicts_html_table(import_data, previous_selections)
   }
   
   showModal(modalDialog(
@@ -472,7 +471,7 @@ show_duplicates_modal <- function(duplicate_check, import_data) {
 }
 
 # Function to create duplicate conflicts HTML table for modal display
-create_duplicate_conflicts_html_table <- function(import_data) {
+create_duplicate_conflicts_html_table <- function(import_data, previous_selections = NULL) {
   req(import_data$comparison_data)
   
   # Helper function to create comparison cell with highlighting
@@ -501,18 +500,22 @@ create_duplicate_conflicts_html_table <- function(import_data) {
   for (i in seq_len(nrow(import_data$comparison_data))) {
     row_data <- import_data$comparison_data[i, ]
     
-    # Create action dropdown
+    # Create action dropdown with previous selection if available
+    input_id <- paste0("action_", i)
+    selected_value <- "Skip"  # Default
+    if (!is.null(previous_selections) && input_id %in% names(previous_selections)) {
+      selected_value <- previous_selections[[input_id]]
+    }
+    
     action_dropdown <- as.character(selectInput(
-      paste0("action_", i),
+      input_id,
       label = NULL,
       choices = list(
         "Skip (don't import)" = "Skip",
-        "Modify ASU ID" = "Modify",
-        "Overwrite DB record" = "Overwrite",
-        "Keep both records" = "Keep Both"
+        "Keep both and modify ASU ID" = "Keep Both"
       ),
-      selected = "Skip",
-      width = "160px"
+      selected = selected_value,
+      width = "180px"
     ))
     
     table_rows <- paste0(table_rows, 
@@ -579,81 +582,21 @@ check_asu_id_availability <- function(asu_id, import_data = NULL, db_path, table
 }
 
 
-# Function to show custom ASU ID modal for Modify and Keep Both actions
-show_custom_asu_modal <- function(modify_records, keep_both_records) {
+# Function to show custom ASU ID modal for Keep Both actions
+show_custom_asu_modal <- function(keep_both_records) {
   # Create UI elements for each record that needs a custom ASU ID
   custom_asu_inputs <- list()
   
-  # Add inputs for Modify records
-  if (length(modify_records) > 0) {
+  # Add inputs for Keep Both records
+  if (length(keep_both_records) > 0) {
     custom_asu_inputs <- append(custom_asu_inputs, list(
       div(
         style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
-        h4("Records to Modify (generate new ASU ID):", style = "color: #ff9800; margin: 0;"),
+        h4("Records to Keep Both (generate new ASU ID for import):", style = "color: #2196f3; margin: 0;"),
         actionButton("check_all_asu_ids", "Check All", 
                     style = "background-color: #28a745; color: white; border: none; font-size: 0.9em; padding: 6px 16px;")
       )
     ))
-    
-    for (record in modify_records) {
-      custom_asu_inputs <- append(custom_asu_inputs, list(
-        div(
-          style = "margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #fff3e0;",
-          fluidRow(
-            column(4, 
-              div(style = "font-weight: bold; margin-bottom: 5px;", paste("Original ASU ID:", record$asu_id)),
-              div(style = "font-size: 0.9em; color: #666;", paste("Action: Modify"))
-            ),
-            column(6,
-              textInput(
-                paste0("custom_asu_modify_", record$index),
-                "New ASU ID:",
-                value = record$default_new_asu_id,
-                placeholder = "Enter new ASU ID"
-              )
-            ),
-            column(2,
-              div(style = "margin-top: 25px;",
-                actionButton(
-                  paste0("check_asu_modify_", record$index),
-                  "Check",
-                  style = "background-color: #17a2b8; color: white; border: none; width: 100%; font-size: 0.9em;",
-                  onclick = paste0("checkAsuAvailability('custom_asu_modify_", record$index, "', 'modify_", record$index, "')")
-                ),
-                div(
-                  id = paste0("asu_status_modify_", record$index),
-                  style = "margin-top: 5px; font-size: 0.8em; text-align: center;",
-                  ""
-                )
-              )
-            )
-          )
-        )
-      ))
-    }
-  }
-  
-  # Add inputs for Keep Both records
-  if (length(keep_both_records) > 0) {
-    if (length(modify_records) > 0) {
-      custom_asu_inputs <- append(custom_asu_inputs, list(hr()))
-    }
-    
-    # If no modify records, put Check All button here
-    if (length(modify_records) == 0) {
-      custom_asu_inputs <- append(custom_asu_inputs, list(
-        div(
-          style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
-          h4("Records to Keep Both (generate new ASU ID for import):", style = "color: #2196f3; margin: 0;"),
-          actionButton("check_all_asu_ids", "Check All", 
-                      style = "background-color: #28a745; color: white; border: none; font-size: 0.9em; padding: 6px 16px;")
-        )
-      ))
-    } else {
-      custom_asu_inputs <- append(custom_asu_inputs, list(
-        h4("Records to Keep Both (generate new ASU ID for import):", style = "color: #2196f3; margin-bottom: 10px;")
-      ))
-    }
     
     for (record in keep_both_records) {
       custom_asu_inputs <- append(custom_asu_inputs, list(
@@ -781,10 +724,8 @@ handle_process_duplicates <- function(input, import_data) {
   
   # Get user actions from the selectInputs
   user_actions <- list()
-  modify_records <- list()
   keep_both_records <- list()
   skip_records <- list()
-  overwrite_records <- list()
   
   # Debug: Show all available inputs that match our pattern
   input_names <- names(reactiveValuesToList(input))
@@ -811,43 +752,28 @@ handle_process_duplicates <- function(input, import_data) {
     )
     
     # Collect records based on action type
-    if (action == "Modify") {
-      modify_records[[length(modify_records) + 1]] <- record_info
-    } else if (action == "Keep Both") {
+    if (action == "Keep Both") {
       keep_both_records[[length(keep_both_records) + 1]] <- record_info
     } else if (action == "Skip") {
       skip_records[[length(skip_records) + 1]] <- record_info
-    } else if (action == "Overwrite") {
-      overwrite_records[[length(overwrite_records) + 1]] <- record_info
     }
   }
   
   # Check if we need to show custom ASU ID modal
-  needs_custom_asu <- length(modify_records) > 0 || length(keep_both_records) > 0
+  needs_custom_asu <- length(keep_both_records) > 0
   
   return(list(
     user_actions = user_actions,
-    modify_records = modify_records,
     keep_both_records = keep_both_records,
     skip_records = skip_records,
-    overwrite_records = overwrite_records,
     needs_custom_asu = needs_custom_asu
   ))
 }
 
 
 # Function to collect custom ASU IDs from the modal
-collect_custom_asu_ids <- function(input, modify_records, keep_both_records) {
+collect_custom_asu_ids <- function(input, keep_both_records) {
   custom_asu_map <- list()
-  
-  # Collect custom ASU IDs for Modify records
-  for (record in modify_records) {
-    input_id <- paste0("custom_asu_modify_", record$index)
-    custom_asu <- input[[input_id]]
-    if (!is.null(custom_asu) && custom_asu != "") {
-      custom_asu_map[[record$asu_id]] <- custom_asu
-    }
-  }
   
   # Collect custom ASU IDs for Keep Both records
   for (record in keep_both_records) {
@@ -945,7 +871,7 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
       import_data$duplicate_actions <- duplicate_actions
       
       # Show custom ASU ID modal
-      show_custom_asu_modal(duplicate_actions$modify_records, duplicate_actions$keep_both_records)
+      show_custom_asu_modal(duplicate_actions$keep_both_records)
     } else {
       # No custom ASU IDs needed, process directly
       result <- process_duplicates(
@@ -967,7 +893,6 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
           if (result$overwritten_count > 0) msg <- paste0(msg, result$overwritten_count, " overwritten.")
           
           showModal(modalDialog(title = "Import Success", msg, easyClose = TRUE))
-          removeModal()
           refresh_all_mice_table()
         } else {
           showModal(modalDialog(title = "Import Error", "Failed to import animals.", easyClose = TRUE))
@@ -1025,7 +950,6 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     
     # Collect custom ASU IDs from the modal
     custom_asu_map <- collect_custom_asu_ids(input, 
-                                           import_data$duplicate_actions$modify_records, 
                                            import_data$duplicate_actions$keep_both_records)
     
     # Validate custom ASU IDs (check for duplicates with existing database and import)
@@ -1120,7 +1044,6 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
         if (result$overwritten_count > 0) msg <- paste0(msg, result$overwritten_count, " overwritten.")
         
         showModal(modalDialog(title = "Import Success", msg, easyClose = TRUE))
-        removeModal()
         refresh_all_mice_table()
       } else {
         showModal(modalDialog(title = "Import Error", "Failed to import animals.", easyClose = TRUE))
@@ -1136,14 +1059,61 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     removeModal()
     
     # Show the custom ASU modal again
-    show_custom_asu_modal(import_data$duplicate_actions$modify_records, 
-                         import_data$duplicate_actions$keep_both_records)
+    show_custom_asu_modal(import_data$duplicate_actions$keep_both_records)
   })
   
+  # Handle going back to column mapping modal from duplicate mapping warning
+  observeEvent(input$go_back_to_mapping, {
+    req(import_data$df, import_data$mappings, import_data$available_columns, import_data$field_suggestions)
+    removeModal()
+    
+    # Recreate the mapping result structure
+    mapping_result <- list(
+      mappings = import_data$mappings,
+      available_columns = import_data$available_columns,
+      field_suggestions = import_data$field_suggestions
+    )
+    
+    # Create column mapping UI using function from db_check.R
+    mapping_ui <- create_column_mapping_ui(mapping_result, import_data$df)
+    
+    showModal(modalDialog(
+      title = "Confirm Column Mappings",
+      size = "xl",
+      div(
+        style = "width: 100%; max-width: none;",
+        mapping_ui
+      ),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_mappings_btn", "Confirm and Import", style = "background-color: #1976d2; color: white; border: none;")
+      ),
+      # Add custom CSS to make modal extra wide
+      tags$head(tags$style(HTML("
+        .modal-xl {
+          max-width: 98% !important;
+          width: 98% !important;
+        }
+        .modal-xl .modal-content {
+          width: 100% !important;
+        }
+        .modal-xl .modal-body {
+          padding: 15px !important;
+        }
+      ")))
+    ))
+  })
+
   # Handle going back to duplicates modal from custom ASU modal
   observeEvent(input$go_back_to_duplicates, {
     req(import_data$comparison_data, import_data$exact_matches)
     removeModal()
+    
+    # Collect previous selections if they exist
+    previous_selections <- NULL
+    if (!is.null(import_data$duplicate_actions) && !is.null(import_data$duplicate_actions$user_actions)) {
+      previous_selections <- import_data$duplicate_actions$user_actions
+    }
     
     # Recreate the duplicate check structure
     duplicate_check <- list(
@@ -1152,8 +1122,8 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
       has_duplicates = TRUE
     )
     
-    # Show the duplicates modal again
-    show_duplicates_modal(duplicate_check, import_data)
+    # Show the duplicates modal again with previous selections
+    show_duplicates_modal(duplicate_check, import_data, previous_selections)
   })
 
   # Handle Single Entry Submission
@@ -1177,5 +1147,33 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
   # Handle Excel Import
   observeEvent(input$submit_import_excel_btn, {
     import_data <- handle_excel_import(input, import_data)
+  })
+  
+  # Reactive output for mapping warnings
+  output$mapping_warnings <- renderUI({
+    # Only show warnings if we have import data and are in the column mapping modal
+    if (is.null(import_data$df)) return(NULL)
+    
+    col_names <- names(import_data$df)
+    if (length(col_names) == 0) return(NULL)
+    
+    # Validate current mappings
+    validation_result <- validate_column_mappings(input, length(col_names))
+    
+    if (!validation_result$is_valid) {
+      # Create warning message
+      warning_message <- create_duplicate_mapping_warning(validation_result$duplicate_fields)
+      
+      # Generate CSS to highlight problematic dropdowns
+      warning_css <- generate_mapping_warnings(validation_result, length(col_names), input)
+      
+      # Return both warning message and CSS
+      tagList(
+        warning_message,
+        if (nchar(warning_css) > 0) HTML(warning_css) else NULL
+      )
+    } else {
+      return(NULL)
+    }
   })
 }
