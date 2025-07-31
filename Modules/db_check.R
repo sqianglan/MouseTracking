@@ -1112,9 +1112,3 @@ create_duplicate_mapping_warning <- function(duplicate_fields) {
   )
 }
 
-# Independent function: Get modification history for a mouse by ASU ID
-get_mouse_modification_history <- function(asu_id, db_path = DB_PATH) {
-  # This function is now handled by the enhanced audit trail system
-  # Use the enhanced get_mouse_modification_history from audit_trail.R instead
-  cat("Using enhanced audit trail system from audit_trail.R\n")
-} 

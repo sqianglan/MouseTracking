@@ -40,6 +40,7 @@ shorten_path <- function(path, keep = 2) {
 # For production, move these source() calls back to the global section (outside server) for better performance.
 source("Modules/audit_trail.R")
 source("Modules/db_check.R")
+source("Modules/modal_add_animal.R")
 source("Modules/modal_mice_history.R")
 source("Modules/tab_all_mice.R")
 #source("Modules/tab_breeding.R")
@@ -901,186 +902,28 @@ server <- function(input, output, session) {
 
   # Add Animals Modal Logic
   observeEvent(input$welcome_add_animals_btn, {
-    showModal(modalDialog(
-      title = "Add Animals",
-      div(
-        actionButton("add_single_entry_btn", "Single Entry", style = "margin-right: 16px; background-color: #90caf9; color: #222; border: none; font-size: 1.1em; padding: 8px 24px;"),
-        actionButton("add_import_excel_btn", "Import from Excel", style = "background-color: #a5d6a7; color: #222; border: none; font-size: 1.1em; padding: 8px 24px;"),
-        style = "display: flex; justify-content: center; gap: 16px; margin-top: 12px; margin-bottom: 12px;"
-      ),
-      footer = modalButton("Close")
-    ))
+    show_add_animals_modal()
   })
 
   # Show Single Entry Form
   observeEvent(input$add_single_entry_btn, {
-    # Get existing values from database for dropdowns
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    breeding_lines <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT breeding_line FROM ", TABLE_NAME, " WHERE breeding_line IS NOT NULL"))$breeding_line)
-    genotypes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT genotype FROM ", TABLE_NAME, " WHERE genotype IS NOT NULL"))$genotype)
-    responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
-    project_codes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT project_code FROM ", TABLE_NAME, " WHERE project_code IS NOT NULL"))$project_code)
-    DBI::dbDisconnect(con)
-    
-    showModal(modalDialog(
-      title = "Add Single Animal",
-      size = "l",
-      fluidRow(
-        column(6, textInput("single_entry_asu_id", "ASU ID *", placeholder = "Enter ASU ID")),
-        column(6, textInput("single_entry_animal_id", "Animal ID", placeholder = "Enter Animal ID"))
-      ),
-      fluidRow(
-        column(6, textInput("single_entry_ear_mark", "Ear Mark", placeholder = "Enter ear mark")),
-        column(6, selectInput("single_entry_gender", "Gender *", choices = c("", "Male", "Female"), selected = ""))
-      ),
-      fluidRow(
-        column(6, dateInput("single_entry_dob", "Date of Birth *", value = NULL)),
-        column(6, selectizeInput("single_entry_breeding_line", "Breeding Line", 
-                                choices = c("", breeding_lines), 
-                                options = list(create = TRUE, placeholder = "Select or type new")))
-      ),
-      fluidRow(
-        column(6, selectizeInput("single_entry_genotype", "Genotype", 
-                                choices = c("", genotypes), 
-                                options = list(create = TRUE, placeholder = "Select or type new"))),
-        column(6, selectizeInput("single_entry_breeding_line", "Breeding Line", 
-                                choices = c("", breeding_lines), 
-                                options = list(create = TRUE, placeholder = "Select or type new")))
-      ),
-     
-      fluidRow(
-        column(6, selectInput("single_entry_status", "Status", 
-                             choices = c("Alive", "Deceased"), 
-                             selected = "Alive")),
-        column(6, selectizeInput("single_entry_responsible_person", "Responsible Person", 
-                                choices = c("", responsible_persons), 
-                                options = list(create = TRUE, placeholder = "Select or type new")))
-      ),
-      fluidRow(
-        column(6, selectInput("single_entry_protocol", "Protocol", 
-                              choices = c("", 
-                                          "1 (Breeding and maintenance of genetically altered animals)",
-                                          "2 (Epithelial stem cell fate and dynamics during tissue development and regeneration)",
-                                          "3 (Mouse tumor model)"), 
-                              selected = "")),
-        column(6, selectizeInput("single_entry_project_code", "Project Code", 
-                                choices = c("", project_codes), 
-                                options = list(create = TRUE, placeholder = "Select or type new"))),
-      ),
-      fluidRow(
-        column(6, selectInput("single_entry_study_plan", "Study Plan", 
-                              choices = c("", "SP2500090", "SP2500083", "SP2500082", "SP2500081"), 
-                              selected = "SP2500090")),
-        column(6, selectInput("single_entry_stock_category", "Stock Category", 
-                              choices = c("Experiment", "Breeding", "Charles River"), 
-                              selected = "Experiment")),
-      ),
-      div(
-        style = "margin-top: 15px; font-size: 12px; color: #666;",
-        "* Required fields"
-      ),
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("submit_single_entry_btn", "Add Animal", style = "background-color: #1976d2; color: white; border: none;")
-      )
-    ))
+    show_single_entry_form(DB_PATH, TABLE_NAME)
   })
 
   # Show Import from Excel UI
   observeEvent(input$add_import_excel_btn, {
-    showModal(modalDialog(
-      title = "Import Animals from Excel",
-      size = "s",
-      fileInput("import_excel_file", "Choose Excel File", accept = c(".xls", ".xlsx")),
-      selectInput("import_stock_category", "Stock Category for Imported Records", 
-                  choices = c("Experiment", "Breeding", "Charles River"), 
-                  selected = "Experiment"),
-      div(
-        style = "margin-top: 10px; font-size: 12px; color: #666;",
-        "Note: This stock category will be applied to all imported records."
-      ),
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("submit_import_excel_btn", "Import", style = "background-color: #1976d2; color: white; border: none;")
-      )
-    ))
+    show_import_excel_modal()
   })
 
   # Handle Excel Import
   observeEvent(input$submit_import_excel_btn, {
-    req(input$import_excel_file)
-    file_path <- input$import_excel_file$datapath
-    library(readxl)
-    df <- tryCatch(readxl::read_excel(file_path), error = function(e) NULL)
-    if (is.null(df)) {
-      showModal(modalDialog(title = "Import Error", "Failed to read Excel file.", easyClose = TRUE))
-      return()
-    }
-    
-    # Get column mappings with suggestions
-    mapping_result <- tryCatch(parse_excel_to_mice_stock(df), error = function(e) NULL)
-    if (is.null(mapping_result)) {
-      showModal(modalDialog(title = "Import Error", "Failed to analyze Excel file columns.", easyClose = TRUE))
-      return()
-    }
-    
-    # Filter out excluded columns before storing
-    excluded_columns <- c(
-      "Age", "age", "AGE",
-      "No. of animals", "No of animals", "Number of animals", "Count", "Num", "Animals",
-      "Team", "TEAM", "team", 
-      "Cage Type", "Cage type", "cage type", "CageType", "CAGE TYPE"
-    )
-    
-    df_columns <- names(df)
-    columns_to_keep <- df_columns[!sapply(df_columns, function(col) {
-      col_lower <- tolower(col)
-      any(sapply(excluded_columns, function(excl) {
-        excl_lower <- tolower(excl)
-        grepl(excl_lower, col_lower, fixed = TRUE) || grepl(col_lower, excl_lower, fixed = TRUE)
-      }))
-    })]
-    
-    # Store the filtered data for later use
-    import_data$df <- df[, columns_to_keep, drop = FALSE]
-    import_data$mappings <- mapping_result$mappings
-    import_data$available_columns <- mapping_result$available_columns
-    import_data$field_suggestions <- mapping_result$field_suggestions
-    
-    # Create column mapping UI using function from db_check.R
-    mapping_ui <- create_column_mapping_ui(mapping_result, import_data$df)
-    
-    showModal(modalDialog(
-      title = "Confirm Column Mappings",
-      size = "xl",
-      div(
-        style = "width: 100%; max-width: none;",
-        mapping_ui
-      ),
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("confirm_mappings_btn", "Confirm and Import", style = "background-color: #1976d2; color: white; border: none;")
-      ),
-      # Add custom CSS to make modal extra wide
-      tags$head(tags$style(HTML("
-        .modal-xl {
-          max-width: 98% !important;
-          width: 98% !important;
-        }
-        .modal-xl .modal-content {
-          width: 100% !important;
-        }
-        .modal-xl .modal-body {
-          padding: 15px !important;
-        }
-      ")))
-    ))
+    import_data <- handle_excel_import(input, import_data)
     
     # Add reactive observer for real-time mapping validation
     observeEvent({
       # React to any changes in mapping dropdown selections
       col_names <- names(import_data$df)
-      lapply(1:length(col_names), function(i) {
+      lapply(seq_along(col_names), function(i) {
         input[[paste0("mapping_col_", i)]]
       })
     }, {
