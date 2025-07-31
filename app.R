@@ -1024,14 +1024,31 @@ server <- function(input, output, session) {
       return()
     }
     
-    # Store the original data and mappings for later use
-    import_data$df <- df
+    # Filter out excluded columns before storing
+    excluded_columns <- c(
+      "Age", "age", "AGE",
+      "No. of animals", "No of animals", "Number of animals", "Count", "Num", "Animals",
+      "Team", "TEAM", "team", 
+      "Cage Type", "Cage type", "cage type", "CageType", "CAGE TYPE"
+    )
+    
+    df_columns <- names(df)
+    columns_to_keep <- df_columns[!sapply(df_columns, function(col) {
+      col_lower <- tolower(col)
+      any(sapply(excluded_columns, function(excl) {
+        excl_lower <- tolower(excl)
+        grepl(excl_lower, col_lower, fixed = TRUE) || grepl(col_lower, excl_lower, fixed = TRUE)
+      }))
+    })]
+    
+    # Store the filtered data for later use
+    import_data$df <- df[, columns_to_keep, drop = FALSE]
     import_data$mappings <- mapping_result$mappings
     import_data$available_columns <- mapping_result$available_columns
     import_data$field_suggestions <- mapping_result$field_suggestions
     
     # Create column mapping UI using function from db_check.R
-    mapping_ui <- create_column_mapping_ui(mapping_result, df)
+    mapping_ui <- create_column_mapping_ui(mapping_result, import_data$df)
     
     showModal(modalDialog(
       title = "Confirm Column Mappings",
@@ -1708,7 +1725,7 @@ server <- function(input, output, session) {
     
     # Add action column to the data
     display_data <- import_data$comparison_data
-    display_data$Action <- sapply(actions, function(x) as.character(x$children[[1]]$children[[2]]$attribs$value))
+    display_data$Action <- sapply(actions, function(x) as.character(x))
     
     DT::datatable(
       display_data,
@@ -1755,10 +1772,19 @@ server <- function(input, output, session) {
     modify_records <- list()
     keep_both_records <- list()
     
+    # Debug: Show all available inputs that match our pattern
+    input_names <- names(reactiveValuesToList(input))
+    action_inputs <- input_names[grepl("^action_", input_names)]
+    cat("DEBUG: Available action inputs:", paste(action_inputs, collapse = ", "), "\n")
+    
     for (i in 1:nrow(import_data$comparison_data)) {
       action_input <- input[[paste0("action_", i)]]
       action <- if (is.null(action_input)) "Skip" else action_input
       user_actions[[paste0("action_", i)]] <- action
+      
+      # Debug: log what actions we're getting
+      cat("DEBUG: Row", i, "input[[paste0('action_', i)]]:", action_input, "final action:", action, "\n")
+      
       
       # Collect records that need custom ASU ID input
       if (action == "Modify" || action == "Keep Both") {

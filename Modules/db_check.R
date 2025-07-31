@@ -486,6 +486,9 @@ process_duplicates_with_custom <- function(parsed_df, comparison_data, import_du
     
     asu_id <- comparison_data$ASU_ID[i]
     
+    # Debug: log what we're processing
+    cat("DEBUG process_duplicates_with_custom: Row", i, "ASU_ID:", asu_id, "Action:", action, "\n")
+    
     if (action == "Skip") {
       skipped_count <- skipped_count + 1
       next  # Skip this record
@@ -772,7 +775,7 @@ create_column_mapping_ui <- function(mapping_result, df) {
   available_columns <- mapping_result$available_columns
   field_suggestions <- mapping_result$field_suggestions
   
-  # Get first 3 rows for preview
+  # Get first 3 rows for preview (df is already filtered upstream)
   preview_data <- head(df, 3)
   
   ui_elements <- list()
