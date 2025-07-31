@@ -109,7 +109,7 @@ show_import_excel_modal <- function() {
     fileInput("import_excel_file", "Choose Excel File", accept = c(".xls", ".xlsx")),
     selectInput("import_stock_category", "Stock Category for Imported Records", 
                 choices = c("Experiment", "Breeding", "Charles River"), 
-                selected = "Experiment"),
+                selected = "Breeding"),
     div(
       style = "margin-top: 10px; font-size: 12px; color: #666;",
       "Note: This stock category will be applied to all imported records."
@@ -557,11 +557,11 @@ create_duplicate_conflicts_html_table <- function(import_data) {
 }
 
 # Function to check if an ASU ID already exists
-check_asu_id_availability <- function(asu_id, import_data = NULL) {
+check_asu_id_availability <- function(asu_id, import_data = NULL, db_path, table_name) {
   # Check database
-  con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
   existing_count <- DBI::dbGetQuery(con, 
-    paste0("SELECT COUNT(*) as count FROM ", TABLE_NAME, " WHERE asu_id = ?"), 
+    paste0("SELECT COUNT(*) as count FROM ", table_name, " WHERE asu_id = ?"), 
     params = list(asu_id))$count
   DBI::dbDisconnect(con)
   
@@ -587,7 +587,12 @@ show_custom_asu_modal <- function(modify_records, keep_both_records) {
   # Add inputs for Modify records
   if (length(modify_records) > 0) {
     custom_asu_inputs <- append(custom_asu_inputs, list(
-      h4("Records to Modify (generate new ASU ID):", style = "color: #ff9800; margin-bottom: 10px;")
+      div(
+        style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
+        h4("Records to Modify (generate new ASU ID):", style = "color: #ff9800; margin: 0;"),
+        actionButton("check_all_asu_ids", "Check All", 
+                    style = "background-color: #28a745; color: white; border: none; font-size: 0.9em; padding: 6px 16px;")
+      )
     ))
     
     for (record in modify_records) {
@@ -634,9 +639,21 @@ show_custom_asu_modal <- function(modify_records, keep_both_records) {
       custom_asu_inputs <- append(custom_asu_inputs, list(hr()))
     }
     
-    custom_asu_inputs <- append(custom_asu_inputs, list(
-      h4("Records to Keep Both (generate new ASU ID for import):", style = "color: #2196f3; margin-bottom: 10px;")
-    ))
+    # If no modify records, put Check All button here
+    if (length(modify_records) == 0) {
+      custom_asu_inputs <- append(custom_asu_inputs, list(
+        div(
+          style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
+          h4("Records to Keep Both (generate new ASU ID for import):", style = "color: #2196f3; margin: 0;"),
+          actionButton("check_all_asu_ids", "Check All", 
+                      style = "background-color: #28a745; color: white; border: none; font-size: 0.9em; padding: 6px 16px;")
+        )
+      ))
+    } else {
+      custom_asu_inputs <- append(custom_asu_inputs, list(
+        h4("Records to Keep Both (generate new ASU ID for import):", style = "color: #2196f3; margin-bottom: 10px;")
+      ))
+    }
     
     for (record in keep_both_records) {
       custom_asu_inputs <- append(custom_asu_inputs, list(
@@ -691,8 +708,9 @@ show_custom_asu_modal <- function(modify_records, keep_both_records) {
         // Show loading state
         $('#asu_status_' + statusId).html('<span style=\"color: #6c757d;\">⏳ Checking...</span>');
         
-        // Send request to Shiny server
-        Shiny.setInputValue('check_asu_id', {
+        // Send request to Shiny server with unique input ID to avoid conflicts
+        var uniqueInputId = 'check_asu_id_' + Math.random().toString(36).substr(2, 9);
+        Shiny.setInputValue(uniqueInputId, {
           asu_id: asuId,
           status_element: 'asu_status_' + statusId,
           timestamp: new Date().getTime()
@@ -704,8 +722,18 @@ show_custom_asu_modal <- function(modify_records, keep_both_records) {
         // Find all ASU ID inputs and their corresponding status elements
         $('input[id^=\"custom_asu_\"]').each(function() {
           var inputId = $(this).attr('id');
-          var statusId = inputId.replace('custom_asu_', '');
-          checkAsuAvailability(inputId, statusId);
+          var statusId = '';
+          
+          // Extract the correct status ID based on input ID pattern
+          if (inputId.startsWith('custom_asu_modify_')) {
+            statusId = inputId.replace('custom_asu_modify_', 'modify_');
+          } else if (inputId.startsWith('custom_asu_keep_both_')) {
+            statusId = inputId.replace('custom_asu_keep_both_', 'keep_both_');
+          }
+          
+          if (statusId) {
+            checkAsuAvailability(inputId, statusId);
+          }
         });
       }
       
@@ -730,18 +758,17 @@ show_custom_asu_modal <- function(modify_records, keep_both_records) {
       ),
       custom_asu_inputs
     ),
-    footer = tagList(
-      div(style = "display: flex; gap: 10px; align-items: center;",
-        actionButton("check_all_asu_ids", "Check All", 
-                    style = "background-color: #28a745; color: white; border: none; font-size: 0.9em;"),
-        span(style = "color: #6c757d; font-size: 0.85em;", "Check all ASU IDs at once")
-      ),
-      div(style = "margin-left: auto; display: flex; gap: 10px;",
-        actionButton("go_back_to_duplicates", "← Back to Duplicates", 
-                    style = "background-color: #6c757d; color: white; border: none;"),
+    footer = div(
+      style = "display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background-color: #f8f9fa; border-top: 1px solid #dee2e6;",
+      # Left side - Back button
+      actionButton("go_back_to_duplicates", "← Back to Duplicates", 
+                  style = "background-color: #6c757d; color: white; border: none; padding: 8px 16px;"),
+      # Right side - Cancel and Confirm buttons
+      div(
+        style = "display: flex; gap: 10px;",
         modalButton("Cancel Import"),
         actionButton("confirm_custom_asu", "Confirm and Import", 
-                    class = "btn-primary", style = "font-weight: 600;")
+                    class = "btn-primary", style = "font-weight: 600; padding: 8px 16px;")
       )
     )
   ))
@@ -951,35 +978,45 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     }
   })
   
-  # Handle ASU ID availability checking
-  observeEvent(input$check_asu_id, {
-    req(input$check_asu_id)
+  # Handle ASU ID availability checking for dynamically created input IDs
+  observe({
+    # Get all input names that start with check_asu_id_
+    input_names <- names(reactiveValuesToList(input))
+    check_asu_inputs <- input_names[grepl("^check_asu_id_", input_names)]
     
-    asu_id <- input$check_asu_id$asu_id
-    status_element <- input$check_asu_id$status_element
-    
-    # Check availability using the function from modal_add_animal.R
-    availability <- check_asu_id_availability(asu_id, import_data)
-    
-    # Create status message
-    if (availability$available) {
-      status_html <- '<span style="color: #28a745;">✅ Available</span>'
-    } else {
-      reasons <- c()
-      if (availability$in_database) {
-        reasons <- c(reasons, "exists in database")
+    # Process each check request
+    for (input_name in check_asu_inputs) {
+      check_data <- input[[input_name]]
+      if (!is.null(check_data) && !is.null(check_data$asu_id)) {
+        asu_id <- check_data$asu_id
+        status_element <- check_data$status_element
+
+        # Check availability using the function from modal_add_animal.R
+        availability <- check_asu_id_availability(asu_id, import_data, 
+                                                 db_path, table_name)
+
+        # Create status message
+        if (availability$available) {
+          status_html <- "<span style=\"color: #28a745;\">✅ Available</span>"
+        } else {
+          reasons <- c()
+          if (availability$in_database) {
+            reasons <- c(reasons, "exists in database")
+          }
+          if (availability$in_import) {
+            reasons <- c(reasons, "exists in current import")
+          }
+          status_html <- paste0("<span style=\"color: #dc3545;\">❌ ", 
+                               paste(reasons, collapse = ", "), "</span>")
+        }
+
+        # Send message to client to update the status
+        session$sendCustomMessage("updateAsuStatus", list(
+          element_id = status_element,
+          html = status_html
+        ))
       }
-      if (availability$in_import) {
-        reasons <- c(reasons, "exists in current import")
-      }
-      status_html <- paste0('<span style="color: #dc3545;">❌ ', paste(reasons, collapse = ", "), '</span>')
     }
-    
-    # Send message to client to update the status
-    session$sendCustomMessage("updateAsuStatus", list(
-      element_id = status_element,
-      html = status_html
-    ))
   })
   
   # Handle Custom ASU ID Confirmation
