@@ -68,7 +68,19 @@ validate_gender <- function(gender) {
 }
 
 validate_date_of_birth <- function(dob) {
-  if (is.null(dob) || dob == "") {
+  # Handle all possible empty/null cases first
+  if (is.null(dob) || length(dob) == 0) {
+    return(list(valid = FALSE, message = "Date of Birth is required"))
+  }
+  
+  # Check for NA values safely
+  if (length(dob) > 0 && all(is.na(dob))) {
+    return(list(valid = FALSE, message = "Date of Birth is required"))
+  }
+  
+  # Convert to character to handle various input types
+  dob_char <- as.character(dob)
+  if (dob_char == "" || dob_char == "NA") {
     return(list(valid = FALSE, message = "Date of Birth is required"))
   }
   
@@ -76,20 +88,22 @@ validate_date_of_birth <- function(dob) {
   parsed_date <- tryCatch({
     as.Date(dob)
   }, error = function(e) {
-    return(NULL)
+    return(as.Date(NA))
   })
   
-  if (is.null(parsed_date)) {
+  if (length(parsed_date) == 0 || all(is.na(parsed_date))) {
     return(list(valid = FALSE, message = "Invalid date format. Use YYYY-MM-DD"))
   }
   
-  # Check if date is in the future
-  if (parsed_date > Sys.Date()) {
+  # Check if date is in the future (safely)
+  current_date <- Sys.Date()
+  if (any(is.na(parsed_date)) || any(parsed_date > current_date, na.rm = TRUE)) {
     return(list(valid = FALSE, message = "Date of Birth cannot be in the future"))
   }
   
   # Check if date is too far in the past (more than 5 years)
-  if (parsed_date < Sys.Date() - years(5)) {
+  past_limit <- current_date - years(5)
+  if (any(is.na(parsed_date)) || any(parsed_date < past_limit, na.rm = TRUE)) {
     return(list(valid = FALSE, message = "Date of Birth seems too far in the past (more than 5 years)"))
   }
   
@@ -335,11 +349,7 @@ validate_mouse_data <- function(data, require_all_fields = TRUE) {
     }
   }
   
-  # Check for duplicate ASU ID if this is a new record
-  if ("asu_id" %in% names(data) && !is.null(data$asu_id) && data$asu_id != "") {
-    # This check should be done at the database level, but we can add a warning here
-    warnings[["asu_id"]] <- "Please ensure ASU ID is unique in the database"
-  }
+  # Note: ASU ID uniqueness is now checked dynamically in the UI, so no warning needed here
   
   return(list(
     valid = length(errors) == 0,

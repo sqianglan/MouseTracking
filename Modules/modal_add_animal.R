@@ -28,7 +28,7 @@ show_add_animals_modal <- function() {
 }
 
 # Function to show the single entry form
-show_single_entry_form <- function(DB_PATH, TABLE_NAME) {
+show_single_entry_form <- function(DB_PATH, TABLE_NAME, previous_values = NULL) {
   # Get existing values from database for dropdowns
   con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
   breeding_lines <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT breeding_line FROM ", TABLE_NAME, " WHERE breeding_line IS NOT NULL"))$breeding_line)
@@ -38,37 +38,47 @@ show_single_entry_form <- function(DB_PATH, TABLE_NAME) {
   DBI::dbDisconnect(con)
   
   showModal(modalDialog(
-    title = "Add Single Animal",
+    title = uiOutput("single_entry_modal_title"),
     size = "l",
     fluidRow(
-      column(6, textInput("single_entry_asu_id", "ASU ID *", placeholder = "Enter ASU ID")),
-      column(6, textInput("single_entry_animal_id", "Animal ID", placeholder = "Enter Animal ID"))
+      column(6, textInput("single_entry_asu_id", "ASU ID *", 
+                         value = if (!is.null(previous_values)) previous_values$asu_id else "",
+                         placeholder = "Enter ASU ID")),
+      column(6, textInput("single_entry_animal_id", "Animal ID", 
+                         value = if (!is.null(previous_values)) previous_values$animal_id else "",
+                         placeholder = "Enter Animal ID"))
     ),
     fluidRow(
-      column(6, textInput("single_entry_ear_mark", "Ear Mark", placeholder = "Enter ear mark")),
-      column(6, selectInput("single_entry_gender", "Gender *", choices = c("", "Male", "Female"), selected = ""))
+      column(6, textInput("single_entry_ear_mark", "Ear Mark", 
+                         value = if (!is.null(previous_values)) previous_values$ear_mark else "",
+                         placeholder = "Enter ear mark")),
+      column(6, selectInput("single_entry_gender", "Gender *", 
+                           choices = c("", "Male", "Female"), 
+                           selected = if (!is.null(previous_values)) previous_values$gender else ""))
     ),
     fluidRow(
-      column(6, dateInput("single_entry_dob", "Date of Birth *", value = NULL)),
+      column(6, dateInput("single_entry_dob", "Date of Birth *", 
+                         value = if (!is.null(previous_values)) previous_values$dob else NULL)),
       column(6, selectizeInput("single_entry_breeding_line", "Breeding Line", 
                               choices = c("", breeding_lines), 
+                              selected = if (!is.null(previous_values)) previous_values$breeding_line else "",
                               options = list(create = TRUE, placeholder = "Select or type new")))
     ),
     fluidRow(
       column(6, selectizeInput("single_entry_genotype", "Genotype", 
                               choices = c("", genotypes), 
+                              selected = if (!is.null(previous_values)) previous_values$genotype else "",
                               options = list(create = TRUE, placeholder = "Select or type new"))),
-      column(6, selectizeInput("single_entry_breeding_line", "Breeding Line", 
-                              choices = c("", breeding_lines), 
-                              options = list(create = TRUE, placeholder = "Select or type new")))
+      column(6, div()) # Empty column to maintain layout
     ),
    
     fluidRow(
       column(6, selectInput("single_entry_status", "Status", 
                            choices = c("Alive", "Deceased"), 
-                           selected = "Alive")),
+                           selected = if (!is.null(previous_values)) previous_values$status else "Alive")),
       column(6, selectizeInput("single_entry_responsible_person", "Responsible Person", 
                               choices = c("", responsible_persons), 
+                              selected = if (!is.null(previous_values)) previous_values$responsible_person else "",
                               options = list(create = TRUE, placeholder = "Select or type new")))
     ),
     fluidRow(
@@ -77,18 +87,19 @@ show_single_entry_form <- function(DB_PATH, TABLE_NAME) {
                                         "1 (Breeding and maintenance of genetically altered animals)",
                                         "2 (Epithelial stem cell fate and dynamics during tissue development and regeneration)",
                                         "3 (Mouse tumor model)"), 
-                            selected = "")),
+                            selected = if (!is.null(previous_values)) previous_values$protocol else "")),
       column(6, selectizeInput("single_entry_project_code", "Project Code", 
                               choices = c("", project_codes), 
+                              selected = if (!is.null(previous_values)) previous_values$project_code else "",
                               options = list(create = TRUE, placeholder = "Select or type new"))),
     ),
     fluidRow(
       column(6, selectInput("single_entry_study_plan", "Study Plan", 
                             choices = c("", "SP2500090", "SP2500083", "SP2500082", "SP2500081"), 
-                            selected = "SP2500090")),
+                            selected = if (!is.null(previous_values)) previous_values$study_plan else "SP2500090")),
       column(6, selectInput("single_entry_stock_category", "Stock Category", 
                             choices = c("Experiment", "Breeding", "Charles River"), 
-                            selected = "Experiment")),
+                            selected = if (!is.null(previous_values)) previous_values$stock_category else "Experiment")),
     ),
     div(
       style = "margin-top: 15px; font-size: 12px; color: #666;",
@@ -96,7 +107,7 @@ show_single_entry_form <- function(DB_PATH, TABLE_NAME) {
     ),
     footer = tagList(
       modalButton("Cancel"),
-      actionButton("submit_single_entry_btn", "Add Animal", style = "background-color: #1976d2; color: white; border: none;")
+      uiOutput("single_entry_submit_button")
     )
   ))
 }
@@ -296,25 +307,17 @@ handle_single_entry_submission <- function(input, DB_PATH, TABLE_NAME) {
     showModal(modalDialog(
       title = "Validation Errors",
       error_html,
-      easyClose = TRUE
-    ))
-    return(FALSE)
-  }
-  
-  # Show warnings if any
-  if (length(validation_result$warnings) > 0) {
-    warning_html <- display_validation_warnings(validation_result)
-    showModal(modalDialog(
-      title = "Validation Warnings",
-      warning_html,
       footer = tagList(
-        modalButton("Cancel"),
-        actionButton("proceed_with_warnings", "Proceed Anyway", 
-                    style = "background-color: #ff9800; color: white; border: none;")
+        actionButton("go_back_to_single_entry", "Go Back to Modify", 
+                    style = "background-color: #1976d2; color: white; border: none;"),
+        modalButton("Cancel")
       )
     ))
     return(FALSE)
   }
+  
+  # Note: Warnings are no longer shown as a modal since critical validations 
+  # (like ASU ID uniqueness) are now handled dynamically in the UI
   
   # Apply standardized values from validation
   if (length(validation_result$standardized_data) > 0) {
@@ -343,11 +346,11 @@ handle_single_entry_submission <- function(input, DB_PATH, TABLE_NAME) {
         protocol, study_plan, stock_category, status, date_of_death, age_at_death_weeks, 
         max_severity, procedure, stage, deceased_timestamp, notes, imported_from_excel, 
         date_created, last_updated
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))",
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       params = list(
         input_data$asu_id,
         if (is.null(input_data$animal_id) || input_data$animal_id == "") NA else input_data$animal_id,
-        NA, # ear_mark
+        if (is.null(input_data$ear_mark) || input_data$ear_mark == "") NA else input_data$ear_mark,
         input_data$gender,
         as.character(input_data$dob),
         if (is.null(input_data$genotype) || input_data$genotype == "") NA else input_data$genotype,
@@ -371,7 +374,9 @@ handle_single_entry_submission <- function(input, DB_PATH, TABLE_NAME) {
         NA, # stage
         NA, # deceased_timestamp
         NA, # notes
-        FALSE # imported_from_excel
+        FALSE, # imported_from_excel
+        format(Sys.time(), "%Y-%m-%d %H:%M:%S"), # date_created
+        format(Sys.time(), "%Y-%m-%d %H:%M:%S") # last_updated
       )
     )
     
@@ -394,17 +399,22 @@ handle_single_entry_submission <- function(input, DB_PATH, TABLE_NAME) {
                     user = 'system', 
                     operation_details = "Single entry via UI")
     
-    TRUE
+    list(success = TRUE, error = NULL)
   }, error = function(e) {
-    FALSE
+    list(success = FALSE, error = e$message)
   })
   DBI::dbDisconnect(con)
   
-  if (result) {
+  if (result$success) {
     showModal(modalDialog(title = "Success", "Animal added successfully!", easyClose = TRUE))
     return(TRUE)
   } else {
-    showModal(modalDialog(title = "Error", "Failed to add animal to database.", easyClose = TRUE))
+    error_message <- if (!is.null(result$error)) {
+      paste("Failed to add animal to database. Error:", result$error)
+    } else {
+      "Failed to add animal to database."
+    }
+    showModal(modalDialog(title = "Error", error_message, easyClose = TRUE))
     return(FALSE)
   }
 }
@@ -1137,12 +1147,7 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     }
   })
   
-  # Handle proceeding with warnings
-  observeEvent(input$proceed_with_warnings, {
-    removeModal()
-    # Trigger the submission again
-    input$submit_single_entry_btn
-  })
+  # Note: proceed_with_warnings observer removed since warnings modal is no longer used
   
   # Handle Excel Import
   observeEvent(input$submit_import_excel_btn, {
@@ -1175,5 +1180,90 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     } else {
       return(NULL)
     }
+  })
+  
+  # Reactive output for single entry submit button
+  output$single_entry_submit_button <- renderUI({
+    asu_id <- input$single_entry_asu_id
+    
+    if (is.null(asu_id) || asu_id == "") {
+      return(actionButton("submit_single_entry_btn", "Add Animal", 
+                         style = "background-color: #1976d2; color: white; border: none;"))
+    }
+    
+    # Check if ASU ID exists in database
+    is_unique <- tryCatch({
+      con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+      existing_count <- DBI::dbGetQuery(con, 
+        paste0("SELECT COUNT(*) as count FROM ", table_name, " WHERE asu_id = ?"), 
+        params = list(asu_id))$count
+      DBI::dbDisconnect(con)
+      existing_count == 0
+    }, error = function(e) {
+      TRUE  # If database check fails, allow submission
+    })
+    
+    if (is_unique) {
+      actionButton("submit_single_entry_btn", "Add Animal", 
+                  style = "background-color: #1976d2; color: white; border: none;")
+    } else {
+      actionButton("submit_single_entry_btn_disabled", "Add Animal", 
+                  disabled = TRUE,
+                  style = "background-color: #ccc; color: #666; border: none; cursor: not-allowed;")
+    }
+  })
+  
+  # Reactive output for modal title that shows warning when ASU ID is not unique
+  output$single_entry_modal_title <- renderUI({
+    asu_id <- input$single_entry_asu_id
+    
+    if (is.null(asu_id) || asu_id == "") {
+      return("Add Single Animal")
+    }
+    
+    # Check if ASU ID exists in database
+    is_unique <- tryCatch({
+      con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+      existing_count <- DBI::dbGetQuery(con, 
+        paste0("SELECT COUNT(*) as count FROM ", table_name, " WHERE asu_id = ?"), 
+        params = list(asu_id))$count
+      DBI::dbDisconnect(con)
+      existing_count == 0
+    }, error = function(e) {
+      TRUE  # If database check fails, don't show warning
+    })
+    
+    if (is_unique) {
+      "Add Single Animal"
+    } else {
+      div(
+        style = "color: #d32f2f;",
+        "⚠️ Add Single Animal - ASU ID already exists in database"
+      )
+    }
+  })
+  
+  # Handle going back to single entry modal from validation errors
+  observeEvent(input$go_back_to_single_entry, {
+    # Collect current input values before removing the modal
+    current_values <- list(
+      asu_id = input$single_entry_asu_id,
+      animal_id = input$single_entry_animal_id,
+      ear_mark = input$single_entry_ear_mark,
+      gender = input$single_entry_gender,
+      dob = input$single_entry_dob,
+      genotype = input$single_entry_genotype,
+      breeding_line = input$single_entry_breeding_line,
+      project_code = input$single_entry_project_code,
+      responsible_person = input$single_entry_responsible_person,
+      protocol = input$single_entry_protocol,
+      study_plan = input$single_entry_study_plan,
+      stock_category = input$single_entry_stock_category,
+      status = input$single_entry_status
+    )
+    
+    removeModal()
+    # Reshow the single entry form with preserved values
+    show_single_entry_form(db_path, table_name, current_values)
   })
 }
