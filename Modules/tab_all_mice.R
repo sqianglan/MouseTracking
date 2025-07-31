@@ -34,7 +34,7 @@ all_mice_tab_ui <- function() {
                      choices = c("All" = "", "Experiment" = "Experiment", "Breeding" = "Breeding", "Charles River" = "Charles River"), 
                      selected = "", width = "100%"),
           selectInput("all_mice_search_status", "Status", 
-                     choices = c("Live" = "Live", "Deceased" = "Deceased", "Both" = "Both"), 
+                     choices = c("Live" = "Live", "Deceased" = "Deceased", "All" = "Both"), 
                      selected = "Live", width = "100%"),
           div(
             style = "margin-top: 6px; padding: 4px; background: #f8f9fa; border-radius: 4px; font-size: 9.5px; color: #6c757d; border-left: 3px solid #17a2b8;",
@@ -58,29 +58,7 @@ all_mice_tab_ui <- function() {
                         style = "background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; border: none; padding: 5px 10px; font-size: 11px; border-radius: 6px;"),
             add_plugging_modal_ui("add_plugging_modal_all_mice"),
             uiOutput("bulk_delete_btn_ui"),
-            div(
-              style = "margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px;",
-              span(
-                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
-                span(class = "status-indicator status-free", style = "background-color: #4CAF50; width: 12px; height: 12px; display: inline-block; border-radius: 50%; margin-right: 0px;"),
-                "Free"
-              ),
-              span(
-                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
-                span(class = "status-indicator status-busy", style = "background-color: #FF9800; width: 12px; height: 12px; display: inline-block; border-radius: 50%;margin-right: 0px;"),
-                "Busy"
-              ),
-              span(
-                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
-                span(class = "status-indicator status-deceased", style = "background-color: #F44336; width: 12px; height: 12px; display: inline-block; border-radius: 50%; margin-right: 0px;"),
-                "Deceased (Not shown in the default)"
-              ),
-              span(
-                style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 0px;",
-                tags$img(src = "scale_keynote.svg", style = "width: 14px; height: 14px; vertical-align: middle;"),
-                "Body Weight Recorded"
-              )
-            )
+            uiOutput("status_legend_ui")
           ),
           div(
             style = "margin-bottom: 6px; padding: 5px 8px; background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); border-radius: 6px; border-left: 4px solid #2196f3; font-size: 11px;",
@@ -212,6 +190,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
         "Free" = "#4CAF50",      # Green
         "Busy" = "#FF9800",      # Orange
         "Deceased" = "#F44336",  # Red
+        "Deleted" = "#D32F2F",   # Dark Red
         "Unknown" = "#9E9E9E"    # Gray
       )
       
@@ -223,9 +202,17 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       }
       
       # Create HTML for the lights and ASU ID with improved styling and alignment
+      status_indicator <- if (status_tag == "Deleted") {
+        # Use trash bin icon for deleted records
+        '<span class="status-indicator status-deleted" style="display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; vertical-align: middle;" title="Status: Deleted">🗑️</span>'
+      } else {
+        # Use colored circle for other statuses
+        paste0('<span class="status-indicator status-', tolower(status_tag), '" style="background-color: ', light_color, '; width: 12px; height: 12px; border-radius: 50%; display: inline-block; vertical-align: middle;" title="Status: ', status_tag, '"></span>')
+      }
+      
       paste0(
         '<div style="display: flex; align-items: center; height: 20px;">',
-        '<span class="status-indicator status-', tolower(status_tag), '" style="background-color: ', light_color, '; width: 12px; height: 12px; border-radius: 50%; display: inline-block; vertical-align: middle;" title="Status: ', status_tag, '"></span>',
+        status_indicator,
         body_weight_indicator,
         '<span style="font-weight: 500; color: #2c3e50; margin-left: 6px; line-height: 20px;">', asu_id, '</span>',
         '</div>'
@@ -396,7 +383,18 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
           var data = table.row(this).data();
           if (data && data.length > 0) {
             var asuIdCell = data[0];
-            var asuId = asuIdCell.replace(/<[^>]*>/g, '').trim();
+            // Create a temporary div to parse the HTML properly
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = asuIdCell;
+            // Find the span containing the ASU ID (it has font-weight: 500)
+            var asuIdSpan = tempDiv.querySelector('span[style*=\"font-weight: 500\"]');
+            var asuId = '';
+            if (asuIdSpan) {
+              asuId = asuIdSpan.textContent.trim();
+            } else {
+              // Fallback: try to extract using regex (remove HTML tags and emojis)
+              asuId = asuIdCell.replace(/<[^>]*>/g, '').replace(/[\\u{1F600}-\\u{1F64F}]|[\\u{1F300}-\\u{1F5FF}]|[\\u{1F680}-\\u{1F6FF}]|[\\u{1F1E0}-\\u{1F1FF}]|[\\u{2600}-\\u{26FF}]|[\\u{2700}-\\u{27BF}]/gu, '').trim();
+            }
             Shiny.setInputValue('mouse_double_click', asuId, {priority: 'event'});
           }
         });
@@ -1390,6 +1388,41 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     } else {
       NULL
     }
+  })
+
+  # Render status legend with conditional deleted status indicator
+  output$status_legend_ui <- renderUI({
+    div(
+      style = "margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px;",
+      span(
+        style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
+        span(class = "status-indicator status-free", style = "background-color: #4CAF50; width: 12px; height: 12px; display: inline-block; border-radius: 50%; margin-right: 0px;"),
+        "Free"
+      ),
+      span(
+        style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
+        span(class = "status-indicator status-busy", style = "background-color: #FF9800; width: 12px; height: 12px; display: inline-block; border-radius: 50%;margin-right: 0px;"),
+        "Busy"
+      ),
+      span(
+        style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
+        span(class = "status-indicator status-deceased", style = "background-color: #F44336; width: 12px; height: 12px; display: inline-block; border-radius: 50%; margin-right: 0px;"),
+        "Deceased (Not shown in the default)"
+      ),
+      # Only show deleted status legend when system is unlocked
+      if (!is_system_locked()) {
+        span(
+          style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 5px;",
+          span(class = "status-indicator status-deleted", style = "display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; margin-right: 0px; font-size: 10px;", title = "Deleted", HTML("🗑️")),
+          "Deleted"
+        )
+      },
+      span(
+        style = "display: inline-flex; align-items: center; gap: 4px; margin-right: 0px;",
+        tags$img(src = "scale_keynote.svg", style = "width: 14px; height: 14px; vertical-align: middle;"),
+        "Body Weight Recorded"
+      )
+    )
   })
 
   # Validation workflow function to decide if modal should be activated

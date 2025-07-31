@@ -725,9 +725,13 @@ mice_status_tag_all_mice <- function(asu_id) {
       return("Unknown")
     }
     
-    # If mouse is not alive, return "Deceased"
-    if (mouse_info$status != "Alive") {
+    # Check specific status for non-alive mice
+    if (mouse_info$status == "Deceased") {
       return("Deceased")
+    } else if (mouse_info$status == "Deleted") {
+      return("Deleted")
+    } else if (mouse_info$status != "Alive") {
+      return("Deceased")  # Fallback for any other non-alive status
     }
     
     # Check active plugging records
