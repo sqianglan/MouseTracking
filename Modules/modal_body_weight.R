@@ -89,7 +89,7 @@ show_body_weight_input <- function(input, output, session, asu_id) {
       style = "font-size: 1.5rem; font-weight: bold; color: #2196f3;",
       paste("Body Weight Management -", asu_id)
     ),
-    size = "xl",
+    size = "m",
     fade = FALSE,
     div(
       style = "max-height: 80vh; overflow-y: auto;",
