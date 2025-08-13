@@ -127,7 +127,15 @@ plugging_calendar_modal_ui <- function(id) {
           flex-direction: row;
           gap: 8px;
           min-width: 300px;
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
+          align-items: flex-start;
+        }
+        
+        .stage-filters-panel {
+          display: flex;
+          flex-direction: row;
+          gap: 8px;
+          flex-wrap: nowrap;
         }
         
         .export-section {
@@ -274,6 +282,16 @@ plugging_calendar_modal_ui <- function(id) {
           color: #1e3a5f;
           font-size: 13px;
           letter-spacing: -0.2px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .legend-checkbox {
+          width: 16px;
+          height: 16px;
+          accent-color: #87CEEB;
+          cursor: pointer;
         }
         
         .legend-item {
@@ -327,6 +345,89 @@ plugging_calendar_modal_ui <- function(id) {
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
           border: 1px solid rgba(135, 206, 235, 0.3);
+          position: relative;
+          width: 80px;
+          height: 80px;
+        }
+        
+        .stat-card.total-events {
+          width: 100px;
+          height: 80px;
+        }
+        
+        .stat-card-with-checkbox {
+          position: relative;
+        }
+        
+        .stat-checkbox {
+          position: absolute;
+          top: 2px;
+          right: 2px;
+          width: 12px;
+          height: 12px;
+          accent-color: #1e3a5f;
+          cursor: pointer;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        
+        .stat-content {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 100%;
+        }
+        
+        .stage-filter-card {
+          background: linear-gradient(135deg, rgba(135, 206, 235, 0.9) 0%, rgba(173, 216, 230, 0.9) 100%);
+          color: #1e3a5f;
+          padding: 8px;
+          border-radius: 8px;
+          text-align: center;
+          box-shadow: 0 2px 8px rgba(135, 206, 235, 0.2);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          border: 1px solid rgba(135, 206, 235, 0.3);
+          position: relative;
+          width: 80px;
+          height: 80px;
+        }
+        
+        .stage-filter-title {
+          font-size: 10px;
+          font-weight: 600;
+          color: #1e3a5f;
+          margin-bottom: 4px;
+          letter-spacing: 0.2px;
+        }
+        
+        .stage-checkbox-group {
+          display: flex;
+          flex-direction: row;
+          gap: 4px;
+          flex-wrap: nowrap;
+          justify-content: center;
+          align-items: center;
+        }
+        
+        .stage-checkbox-item {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          font-size: 8px;
+          color: #1e3a5f;
+          font-weight: 600;
+        }
+        
+        .stage-checkbox-input {
+          width: 10px;
+          height: 10px;
+          accent-color: #1e3a5f;
+          cursor: pointer;
+          margin: 0;
+          padding: 0;
         }
         
         .stat-number {
@@ -339,7 +440,7 @@ plugging_calendar_modal_ui <- function(id) {
         .stat-label {
           font-size: 10px;
           opacity: 0.9;
-          font-weight: 600;
+          font-weight: 700;
           letter-spacing: 0.2px;
         }
         
@@ -426,6 +527,15 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
     # Reactive values for current month/year
     current_month <- reactiveVal(as.integer(format(Sys.Date(), "%m")))
     current_year <- reactiveVal(as.integer(format(Sys.Date(), "%Y")))
+    
+    # Reactive values for category visibility (default all checked)
+    show_confirmed <- reactiveVal(TRUE)
+    show_observed <- reactiveVal(TRUE)
+    show_estimated <- reactiveVal(TRUE)
+    show_waiting <- reactiveVal(TRUE)
+    
+    # Reactive values for stage filtering
+    selected_stages <- reactiveVal(NULL)  # Will hold list of selected stages
 
     # Update current month display
     output$current_month_year_display <- renderText({
@@ -449,6 +559,56 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         current_year(current_year() + 1)
       }
       current_month(new_month)
+    })
+
+    # Category visibility observers
+    observeEvent(input$show_confirmed_check, {
+      show_confirmed(input$show_confirmed_check)
+    })
+    
+    observeEvent(input$show_observed_check, {
+      show_observed(input$show_observed_check)
+    })
+    
+    observeEvent(input$show_estimated_check, {
+      show_estimated(input$show_estimated_check)
+    })
+    
+    observeEvent(input$show_waiting_check, {
+      show_waiting(input$show_waiting_check)
+    })
+    
+    # Dynamic observers for stage checkboxes
+    observeEvent(available_stages(), {
+      stages <- available_stages()
+      if (length(stages) > 0) {
+        # Initialize selected_stages to all available stages if null
+        if (is.null(selected_stages())) {
+          selected_stages(stages)
+        }
+        
+        # Create observers for each stage checkbox
+        lapply(stages, function(stage) {
+          checkbox_id <- paste0("stage_", gsub("\\.", "_", stage))
+          
+          observeEvent(input[[checkbox_id]], {
+            current_selected <- selected_stages()
+            if (is.null(current_selected)) {
+              current_selected <- character(0)
+            }
+            
+            if (input[[checkbox_id]]) {
+              # Add stage if checked
+              if (!stage %in% current_selected) {
+                selected_stages(c(current_selected, stage))
+              }
+            } else {
+              # Remove stage if unchecked
+              selected_stages(setdiff(current_selected, stage))
+            }
+          }, ignoreInit = TRUE)
+        })
+      }
     })
 
     # Use ggsci NPG color palette for clear distinction
@@ -798,8 +958,104 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       pluggings <- plugging_data()
       create_calendar_events(pluggings)
     })
+    
+    # Reactive: Get unique stages available in current month
+    available_stages <- reactive({
+      events <- current_month_events_unfiltered()
+      if (is.null(events) || nrow(events) == 0) {
+        return(character(0))
+      }
+      
+      # Extract unique stages and sort them
+      stages <- unique(events$expected_age)
+      stages <- stages[!is.na(stages)]
+      stages <- sort(stages)
+      
+      # Format as E13.5, E14.5, etc.
+      paste0("E", stages + 0.5)
+    })
 
-    # Reactive: Filter events for current month/year
+    # Reactive: Get unfiltered events for current month/year (for legend)
+    current_month_events_unfiltered <- reactive({
+      req(current_month(), current_year())
+      
+      month_num <- current_month()
+      year_num <- current_year()
+      
+      events <- all_calendar_events()
+      
+      if (is.null(events) || nrow(events) == 0) {
+        # Return empty data frame with proper structure
+        return(data.frame(
+          asu_id = character(0),
+          label = character(0),
+          day = integer(0),
+          date = as.Date(character(0)),
+          target_month = integer(0),
+          target_year = integer(0),
+          color = character(0),
+          status = character(0),
+          status_category = character(0),
+          is_estimated = logical(0),
+          expected_age = numeric(0),
+          is_surprising_plug = logical(0),
+          stringsAsFactors = FALSE
+        ))
+      }
+      
+      # Ensure events has the required columns
+      required_cols <- c("target_month", "target_year", "day")
+      if (!all(required_cols %in% names(events))) {
+        warning("Events data missing required columns")
+        return(data.frame(
+          asu_id = character(0),
+          label = character(0),
+          day = integer(0),
+          date = as.Date(character(0)),
+          target_month = integer(0),
+          target_year = integer(0),
+          color = character(0),
+          status = character(0),
+          status_category = character(0),
+          is_estimated = logical(0),
+          expected_age = numeric(0),
+          is_surprising_plug = logical(0),
+          stringsAsFactors = FALSE
+        ))
+      }
+      
+      # Filter for current month/year and validate days (NO category filtering)
+      filtered <- events[
+        events$target_month == month_num & 
+        events$target_year == year_num & 
+        !is.na(events$day) & 
+        events$day > 0 & 
+        events$day <= 31, 
+      ]
+      
+      # Ensure filtered result is a data frame
+      if (nrow(filtered) == 0) {
+        return(data.frame(
+          asu_id = character(0),
+          label = character(0),
+          day = integer(0),
+          date = as.Date(character(0)),
+          target_month = integer(0),
+          target_year = integer(0),
+          color = character(0),
+          status = character(0),
+          status_category = character(0),
+          is_estimated = logical(0),
+          expected_age = numeric(0),
+          is_surprising_plug = logical(0),
+          stringsAsFactors = FALSE
+        ))
+      }
+      
+      return(filtered)
+    })
+
+    # Reactive: Filter events for current month/year (for calendar plot)
     current_month_events <- reactive({
       req(current_month(), current_year())
       
@@ -857,6 +1113,33 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         events$day <= 31, 
       ]
       
+      # Apply category visibility filters
+      if (nrow(filtered) > 0) {
+        category_filter <- rep(FALSE, nrow(filtered))
+        
+        if (show_confirmed()) {
+          category_filter <- category_filter | filtered$status_category == "confirmed"
+        }
+        if (show_observed()) {
+          category_filter <- category_filter | filtered$status_category == "observed"
+        }
+        if (show_estimated()) {
+          category_filter <- category_filter | filtered$status_category == "estimated"
+        }
+        if (show_waiting()) {
+          category_filter <- category_filter | filtered$status_category == "waiting"
+        }
+        
+        filtered <- filtered[category_filter, ]
+        
+        # Apply stage filters
+        stages <- selected_stages()
+        if (!is.null(stages) && length(stages) > 0 && nrow(filtered) > 0) {
+          stage_filter <- paste0("E", filtered$expected_age + 0.5) %in% stages
+          filtered <- filtered[stage_filter, ]
+        }
+      }
+      
       # Ensure filtered result is a data frame
       if (nrow(filtered) == 0) {
         return(data.frame(
@@ -881,7 +1164,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
 
     # Statistics outputs
     output$total_events <- renderText({
-      events <- current_month_events()
+      events <- current_month_events_unfiltered()
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
@@ -889,7 +1172,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
     })
 
     output$confirmed_events <- renderText({
-      events <- current_month_events()
+      events <- current_month_events_unfiltered()
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
@@ -897,7 +1180,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
     })
 
     output$observed_events <- renderText({
-      events <- current_month_events()
+      events <- current_month_events_unfiltered()
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
@@ -905,7 +1188,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
     })
 
     output$estimated_events <- renderText({
-      events <- current_month_events()
+      events <- current_month_events_unfiltered()
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
@@ -913,11 +1196,41 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
     })
 
     output$waiting_events <- renderText({
-      events <- current_month_events()
+      events <- current_month_events_unfiltered()
       if (is.null(events) || nrow(events) == 0) {
         return("0")
       }
       as.character(length(unique(events$asu_id[events$status_category == "waiting"])))
+    })
+    
+    # Render stage filters
+    output$stage_filters <- renderUI({
+      stages <- available_stages()
+      
+      if (length(stages) == 0) {
+        return(NULL)
+      }
+      
+      # Initialize selected_stages if NULL
+      if (is.null(selected_stages())) {
+        selected_stages(stages)  # Default all stages selected
+      }
+      
+      stage_checkboxes <- lapply(stages, function(stage) {
+        checkbox_id <- paste0("stage_", gsub("\\.", "_", stage))
+        div(class = "stage-filter-card",
+          div(class = "stat-checkbox",
+            checkboxInput(ns(checkbox_id), NULL, value = stage %in% selected_stages(), width = "auto")
+          ),
+          div(class = "stat-content",
+            div(class = "stat-label", stage)
+          )
+        )
+      })
+      
+      div(style = "display: flex; flex-direction: row; gap: 8px; flex-wrap: nowrap;",
+        do.call(tagList, stage_checkboxes)
+      )
     })
 
     # Render the calendar plot
@@ -1155,7 +1468,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
     output$calendar_legend <- renderUI({
       req(current_month(), current_year())
       
-      events <- current_month_events()
+      events <- current_month_events_unfiltered()
       
       # Handle empty events case - show "No events" in legend area instead of empty categories
       if (is.null(events) || nrow(events) == 0) {
@@ -1425,26 +1738,49 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                 )
               ),
               div(class = "stats-panel",
-                div(class = "stat-card",
+                div(class = "stat-card total-events",
                   div(class = "stat-number", textOutput(ns("total_events"))),
                   div(class = "stat-label", "Total Events")
                 ),
-                div(class = "stat-card",
-                  div(class = "stat-number", textOutput(ns("confirmed_events"))),
-                  div(class = "stat-label", "Confirmed")
+                div(class = "stat-card stat-card-with-checkbox",
+                  div(class = "stat-checkbox",
+                    checkboxInput(ns("show_confirmed_check"), NULL, value = TRUE, width = "auto")
+                  ),
+                  div(class = "stat-content",
+                    div(class = "stat-number", textOutput(ns("confirmed_events"))),
+                    div(class = "stat-label", "Confirmed")
+                  )
                 ),
-                div(class = "stat-card",
-                  div(class = "stat-number", textOutput(ns("observed_events"))),
-                  div(class = "stat-label", "Observed")
+                div(class = "stat-card stat-card-with-checkbox",
+                  div(class = "stat-checkbox",
+                    checkboxInput(ns("show_observed_check"), NULL, value = TRUE, width = "auto")
+                  ),
+                  div(class = "stat-content",
+                    div(class = "stat-number", textOutput(ns("observed_events"))),
+                    div(class = "stat-label", "Observed")
+                  )
                 ),
-                div(class = "stat-card",
-                  div(class = "stat-number", textOutput(ns("estimated_events"))),
-                  div(class = "stat-label", "Estimated")
+                div(class = "stat-card stat-card-with-checkbox",
+                  div(class = "stat-checkbox",
+                    checkboxInput(ns("show_estimated_check"), NULL, value = TRUE, width = "auto")
+                  ),
+                  div(class = "stat-content",
+                    div(class = "stat-number", textOutput(ns("estimated_events"))),
+                    div(class = "stat-label", "Estimated")
+                  )
                 ),
-                div(class = "stat-card",
-                  div(class = "stat-number", textOutput(ns("waiting_events"))),
-                  div(class = "stat-label", "Waiting")
+                div(class = "stat-card stat-card-with-checkbox",
+                  div(class = "stat-checkbox",
+                    checkboxInput(ns("show_waiting_check"), NULL, value = TRUE, width = "auto")
+                  ),
+                  div(class = "stat-content",
+                    div(class = "stat-number", textOutput(ns("waiting_events"))),
+                    div(class = "stat-label", "Waiting")
+                  )
                 )
+              ),
+              div(class = "stage-filters-panel",
+                uiOutput(ns("stage_filters"))
               )
             )
           ),
