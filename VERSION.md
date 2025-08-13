@@ -6,6 +6,8 @@
 - Separated the category for Plugged and Plug Confirmed
 - Increased the modal size for better visibility
 - Added direct link to show plugging details from calendar legends
+- Added clickable filter buttons for event categories and stages
+- Enhanced export functionality to include only filtered events
 
 ---
 

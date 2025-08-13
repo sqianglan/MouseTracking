@@ -128,7 +128,7 @@ plugging_calendar_modal_ui <- function(id) {
           gap: 8px;
           min-width: 300px;
           flex-wrap: nowrap;
-          align-items: flex-start;
+          
         }
         
         .stage-filters-panel {
@@ -355,20 +355,74 @@ plugging_calendar_modal_ui <- function(id) {
           height: 80px;
         }
         
-        .stat-card-with-checkbox {
-          position: relative;
+        .stat-button {
+          border: none !important;
+          background: linear-gradient(135deg, rgba(135, 206, 235, 0.9) 0%, rgba(173, 216, 230, 0.9) 100%) !important;
+          color: #1e3a5f !important;
+          padding: 2px !important;
+          border-radius: 8px !important;
+          text-align: center !important;
+          box-shadow: 0 2px 2px rgba(135, 206, 235, 0.2) !important;
+          backdrop-filter: blur(10px) !important;
+          -webkit-backdrop-filter: blur(10px) !important;
+          border: 1px solid rgba(135, 206, 235, 0.3) !important;
+          position: relative !important;
+          width: 80px !important;
+          height: 80px !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
         }
         
-        .stat-checkbox {
-          position: absolute;
-          top: 2px;
-          right: 2px;
-          width: 12px;
-          height: 12px;
-          accent-color: #1e3a5f;
-          cursor: pointer;
-          margin: 0 !important;
-          padding: 0 !important;
+        .stat-button:hover {
+          transform: translateY(-2px) !important;
+          box-shadow: 0 4px 12px rgba(135, 206, 235, 0.3) !important;
+        }
+        
+        .stat-button.selected {
+          background: linear-gradient(135deg, rgba(135, 206, 235, 0.9) 0%, rgba(173, 216, 230, 0.9) 100%) !important;
+          border: 2px solid rgba(135, 206, 235, 0.8) !important;
+        }
+        
+        .stat-button.deselected {
+          background: rgba(200, 200, 200, 0.5) !important;
+          color: #666 !important;
+          border: 1px solid rgba(200, 200, 200, 0.5) !important;
+          opacity: 0.6 !important;
+        }
+        
+        .stage-filter-card {
+          border: none !important;
+          background: linear-gradient(135deg, rgba(135, 206, 235, 0.9) 0%, rgba(173, 216, 230, 0.9) 100%) !important;
+          color: #1e3a5f !important;
+          padding: 8px !important;
+          border-radius: 8px !important;
+          text-align: center !important;
+          box-shadow: 0 2px 8px rgba(135, 206, 235, 0.2) !important;
+          backdrop-filter: blur(10px) !important;
+          -webkit-backdrop-filter: blur(10px) !important;
+          border: 1px solid rgba(135, 206, 235, 0.3) !important;
+          position: relative !important;
+          width: 80px !important;
+          height: 80px !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
+        }
+        
+        .stage-filter-card:hover {
+          transform: translateY(-2px) !important;
+          box-shadow: 0 4px 12px rgba(135, 206, 235, 0.3) !important;
+        }
+        
+        .stage-filter-card.selected {
+          background: linear-gradient(135deg, rgba(135, 206, 235, 0.9) 0%, rgba(173, 216, 230, 0.9) 100%) !important;
+          border: 2px solid rgba(135, 206, 235, 0.8) !important;
+        }
+        
+        .stage-filter-card.deselected {
+          background: rgba(200, 200, 200, 0.5) !important;
+          color: #666 !important;
+          border: 1px solid rgba(200, 200, 200, 0.5) !important;
+          opacity: 0.6 !important;
         }
         
         .stat-content {
@@ -380,28 +434,28 @@ plugging_calendar_modal_ui <- function(id) {
           height: 100%;
         }
         
-        .stage-filter-card {
-          background: linear-gradient(135deg, rgba(135, 206, 235, 0.9) 0%, rgba(173, 216, 230, 0.9) 100%);
-          color: #1e3a5f;
-          padding: 8px;
-          border-radius: 8px;
-          text-align: center;
-          box-shadow: 0 2px 8px rgba(135, 206, 235, 0.2);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          border: 1px solid rgba(135, 206, 235, 0.3);
-          position: relative;
-          width: 80px;
-          height: 80px;
-        }
-        
         .stage-filter-title {
-          font-size: 10px;
+          font-size: 14px;
           font-weight: 600;
           color: #1e3a5f;
           margin-bottom: 4px;
           letter-spacing: 0.2px;
         }
+        
+        .stage-filter-card .stat-label {
+          font-size: 14px;
+          font-weight: 600;
+        }
+        </style>
+        <script>
+        Shiny.addCustomMessageHandler('updateButtonClass', function(data) {
+          var element = document.getElementById(data.id);
+          if (element) {
+            element.classList.remove(data.removeClass);
+            element.classList.add(data.addClass);
+          }
+        });
+        </script>
         
         .stage-checkbox-group {
           display: flex;
@@ -431,17 +485,18 @@ plugging_calendar_modal_ui <- function(id) {
         }
         
         .stat-number {
-          font-size: 20px;
+          font-size: 24px;
           font-weight: 700;
           margin-bottom: 2px;
           letter-spacing: -0.3px;
         }
         
         .stat-label {
-          font-size: 10px;
+          font-size: 8px;
           opacity: 0.9;
-          font-weight: 700;
+          font-weight: normal;
           letter-spacing: 0.2px;
+          text-align: center;
         }
         
         /* Custom scrollbar for legend */
@@ -496,9 +551,19 @@ plugging_calendar_modal_ui <- function(id) {
         }
         
         /* Custom modal size - larger than default 'l' */
-        .modal-lg {
+        .modal-lg,
+        .modal-dialog.modal-lg,
+        .modal.show .modal-dialog,
+        .modal-dialog {
           max-width: 85% !important;
           width: 85% !important;
+        }
+        
+        /* Force modal container to use full width */
+        .modal.fade.show {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
         }
         
         /* Animation for smooth transitions */
@@ -562,20 +627,20 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
     })
 
     # Category visibility observers
-    observeEvent(input$show_confirmed_check, {
-      show_confirmed(input$show_confirmed_check)
+    observeEvent(input$show_confirmed_btn, {
+      show_confirmed(!show_confirmed())
     })
     
-    observeEvent(input$show_observed_check, {
-      show_observed(input$show_observed_check)
+    observeEvent(input$show_observed_btn, {
+      show_observed(!show_observed())
     })
     
-    observeEvent(input$show_estimated_check, {
-      show_estimated(input$show_estimated_check)
+    observeEvent(input$show_estimated_btn, {
+      show_estimated(!show_estimated())
     })
     
-    observeEvent(input$show_waiting_check, {
-      show_waiting(input$show_waiting_check)
+    observeEvent(input$show_waiting_btn, {
+      show_waiting(!show_waiting())
     })
     
     # Dynamic observers for stage checkboxes
@@ -587,24 +652,22 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           selected_stages(stages)
         }
         
-        # Create observers for each stage checkbox
+        # Create observers for each stage button
         lapply(stages, function(stage) {
-          checkbox_id <- paste0("stage_", gsub("\\.", "_", stage))
+          button_id <- paste0("stage_", gsub("\\.", "_", stage))
           
-          observeEvent(input[[checkbox_id]], {
+          observeEvent(input[[button_id]], {
             current_selected <- selected_stages()
             if (is.null(current_selected)) {
               current_selected <- character(0)
             }
             
-            if (input[[checkbox_id]]) {
-              # Add stage if checked
-              if (!stage %in% current_selected) {
-                selected_stages(c(current_selected, stage))
-              }
-            } else {
-              # Remove stage if unchecked
+            if (stage %in% current_selected) {
+              # Remove stage if currently selected
               selected_stages(setdiff(current_selected, stage))
+            } else {
+              # Add stage if not currently selected
+              selected_stages(c(current_selected, stage))
             }
           }, ignoreInit = TRUE)
         })
@@ -1216,21 +1279,47 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         selected_stages(stages)  # Default all stages selected
       }
       
-      stage_checkboxes <- lapply(stages, function(stage) {
-        checkbox_id <- paste0("stage_", gsub("\\.", "_", stage))
-        div(class = "stage-filter-card",
-          div(class = "stat-checkbox",
-            checkboxInput(ns(checkbox_id), NULL, value = stage %in% selected_stages(), width = "auto")
-          ),
-          div(class = "stat-content",
-            div(class = "stat-label", stage)
-          )
+      stage_buttons <- lapply(stages, function(stage) {
+        button_id <- paste0("stage_", gsub("\\.", "_", stage))
+        button_class <- if(stage %in% selected_stages()) "stage-filter-card stage-button selected" else "stage-filter-card stage-button deselected"
+        actionButton(ns(button_id), 
+          div(class = "stat-label", stage),
+          class = button_class
         )
       })
       
       div(style = "display: flex; flex-direction: row; gap: 8px; flex-wrap: nowrap;",
-        do.call(tagList, stage_checkboxes)
+        do.call(tagList, stage_buttons)
       )
+    })
+
+    # Update statistics button visual states
+    observe({
+      session$sendCustomMessage(type = "updateButtonClass", 
+        list(id = paste0(session$ns("show_confirmed_btn")), 
+             addClass = if(show_confirmed()) "selected" else "deselected",
+             removeClass = if(show_confirmed()) "deselected" else "selected"))
+    })
+    
+    observe({
+      session$sendCustomMessage(type = "updateButtonClass", 
+        list(id = paste0(session$ns("show_observed_btn")), 
+             addClass = if(show_observed()) "selected" else "deselected",
+             removeClass = if(show_observed()) "deselected" else "selected"))
+    })
+    
+    observe({
+      session$sendCustomMessage(type = "updateButtonClass", 
+        list(id = paste0(session$ns("show_estimated_btn")), 
+             addClass = if(show_estimated()) "selected" else "deselected",
+             removeClass = if(show_estimated()) "deselected" else "selected"))
+    })
+    
+    observe({
+      session$sendCustomMessage(type = "updateButtonClass", 
+        list(id = paste0(session$ns("show_waiting_btn")), 
+             addClass = if(show_waiting()) "selected" else "deselected",
+             removeClass = if(show_waiting()) "deselected" else "selected"))
     })
 
     # Render the calendar plot
@@ -1739,44 +1828,38 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               ),
               div(class = "stats-panel",
                 div(class = "stat-card total-events",
-                  div(class = "stat-number", textOutput(ns("total_events"))),
-                  div(class = "stat-label", "Total Events")
-                ),
-                div(class = "stat-card stat-card-with-checkbox",
-                  div(class = "stat-checkbox",
-                    checkboxInput(ns("show_confirmed_check"), NULL, value = TRUE, width = "auto")
-                  ),
                   div(class = "stat-content",
+                    div(class = "stat-number", textOutput(ns("total_events"))),
+                    div(class = "stat-label", "Total Events")
+                  )
+                ),
+                actionButton(ns("show_confirmed_btn"), 
+                  div(
                     div(class = "stat-number", textOutput(ns("confirmed_events"))),
                     div(class = "stat-label", "Confirmed")
-                  )
-                ),
-                div(class = "stat-card stat-card-with-checkbox",
-                  div(class = "stat-checkbox",
-                    checkboxInput(ns("show_observed_check"), NULL, value = TRUE, width = "auto")
                   ),
-                  div(class = "stat-content",
+                  class = "stat-card stat-button selected"
+                ),
+                actionButton(ns("show_observed_btn"), 
+                  div(
                     div(class = "stat-number", textOutput(ns("observed_events"))),
                     div(class = "stat-label", "Observed")
-                  )
-                ),
-                div(class = "stat-card stat-card-with-checkbox",
-                  div(class = "stat-checkbox",
-                    checkboxInput(ns("show_estimated_check"), NULL, value = TRUE, width = "auto")
                   ),
-                  div(class = "stat-content",
+                  class = "stat-card stat-button selected"
+                ),
+                actionButton(ns("show_estimated_btn"), 
+                  div(
                     div(class = "stat-number", textOutput(ns("estimated_events"))),
                     div(class = "stat-label", "Estimated")
-                  )
-                ),
-                div(class = "stat-card stat-card-with-checkbox",
-                  div(class = "stat-checkbox",
-                    checkboxInput(ns("show_waiting_check"), NULL, value = TRUE, width = "auto")
                   ),
-                  div(class = "stat-content",
+                  class = "stat-card stat-button selected"
+                ),
+                actionButton(ns("show_waiting_btn"), 
+                  div(
                     div(class = "stat-number", textOutput(ns("waiting_events"))),
                     div(class = "stat-label", "Waiting")
-                  )
+                  ),
+                  class = "stat-card stat-button selected"
                 )
               ),
               div(class = "stage-filters-panel",
@@ -1837,7 +1920,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                 h5("👫 Breeding Pair", style = "margin: 0 0 8px 0; color: #2c3e50;"),
                 div(
                   div(
-                    strong("♂️ Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
+                    strong("Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
                     br(),
                     "Line: ", ifelse(is.na(row$male_breeding_line), "Unknown", row$male_breeding_line),
                     br(),
@@ -1845,7 +1928,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                   ),
                   br(),
                   div(
-                    strong("♀️ Female: "), paste0(row$female_id, " (", ifelse(is.na(female_age), "Unknown age", paste0(female_age, " wks")), ")"),
+                    strong("Female: "), paste0(row$female_id, " (", ifelse(is.na(female_age), "Unknown age", paste0(female_age, " wks")), ")"),
                     br(),
                     "Line: ", ifelse(is.na(row$female_breeding_line), "Unknown", row$female_breeding_line),
                     br(),
@@ -1857,7 +1940,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               # Timeline Information
               div(
                 style = "background: rgba(135, 206, 235, 0.1); border-radius: 8px; padding: 16px; border-left: 4px solid #87CEEB; flex: 1; min-width: 200px;",
-                h5("📅 Timeline", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                h5("Timeline", style = "margin: 0 0 8px 0; color: #2c3e50;"),
                 div(
                   "Pairing Start: ", strong(ifelse(is.na(row$pairing_start_date) || row$pairing_start_date == "", "Unknown", row$pairing_start_date)),
                   br(),
@@ -1870,7 +1953,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               # Status Information
               div(
                 style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 16px; border-left: 4px solid #ffc107; flex: 1; min-width: 200px;",
-                h5("🔍 Status", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                h5("Status", style = "margin: 0 0 8px 0; color: #2c3e50;"),
                 div(
                   "Current Status: ", strong(row$plugging_status),
                   br(),
@@ -1907,7 +1990,17 @@ show_plugging_calendar_modal <- function(id = "plugging_calendar_modal", db_path
     footer = tagList(
       div(style = "text-align: center; width: 100%;",
         modalButton("Close")
-      )
+      ),
+      tags$script(HTML("
+        $(document).ready(function() {
+          setTimeout(function() {
+            $('.modal-dialog').css({
+              'max-width': '85%',
+              'width': '85%'
+            });
+          }, 50);
+        });
+      "))
     )
   ))
   plugging_calendar_modal_server(id, db_path, shared_plugging_state)
