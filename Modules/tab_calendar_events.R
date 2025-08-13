@@ -203,7 +203,7 @@ plugging_calendar_modal_ui <- function(id) {
           margin-left: 16px;
           max-height: 600px;
           overflow-y: auto;
-          width: 300px;
+          width: 250px;
           flex-shrink: 0;
         }
         
@@ -1029,13 +1029,13 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         return(character(0))
       }
       
-      # Extract unique stages and sort them
-      stages <- unique(events$expected_age)
+      # Use floor() + 0.5: group E14 and E14.5 as E14.5
+      stages <- unique(floor(events$expected_age) + 0.5)
       stages <- stages[!is.na(stages)]
       stages <- sort(stages)
       
       # Format as E13.5, E14.5, etc.
-      paste0("E", stages + 0.5)
+      paste0("E", stages)
     })
 
     # Reactive: Get unfiltered events for current month/year (for legend)
@@ -1198,7 +1198,9 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         # Apply stage filters
         stages <- selected_stages()
         if (!is.null(stages) && length(stages) > 0 && nrow(filtered) > 0) {
-          stage_filter <- paste0("E", filtered$expected_age + 0.5) %in% stages
+          # Use floor() + 0.5: both E14 and E14.5 treated as E14.5
+          processed_ages <- paste0("E", floor(filtered$expected_age) + 0.5)
+          stage_filter <- processed_ages %in% stages
           filtered <- filtered[stage_filter, ]
         }
       }
@@ -1880,7 +1882,9 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               div(style = "margin-top: 16px; text-align: center;",
                 downloadButton(paste0(id, "-export_ical_btn"), 
                               "📅 Export iCal", 
-                              class = "export-btn")
+                              class = "export-btn"),
+                div(style = "margin-top: 8px; font-size: 11px; color: #6c757d; font-style: italic;",
+                    "💡 Tip: Click the events summary buttons above to filter events")
               )
             )
           )
