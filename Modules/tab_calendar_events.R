@@ -24,10 +24,10 @@ plugging_calendar_modal_ui <- function(id) {
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
           border-radius: 16px;
-          padding: 24px;
+          padding: 8px;
           box-shadow: 0 8px 32px rgba(135, 206, 235, 0.15);
           border: 1px solid rgba(135, 206, 235, 0.2);
-          margin-bottom: 24px;
+          margin-bottom: 8px;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
         
@@ -37,8 +37,8 @@ plugging_calendar_modal_ui <- function(id) {
           -webkit-backdrop-filter: blur(10px);
           border: 1px solid rgba(135, 206, 235, 0.3);
           border-radius: 12px;
-          padding: 12px;
-          margin-bottom: 12px;
+          padding: 6px;
+          margin-bottom: 6px;
           box-shadow: 0 4px 16px rgba(135, 206, 235, 0.1);
         }
         
@@ -180,19 +180,8 @@ plugging_calendar_modal_ui <- function(id) {
           border-radius: 12px;
           overflow: hidden;
           box-shadow: 0 4px 16px rgba(135, 206, 235, 0.1);
-          height: 520px;
+          height: 600px;
           background: rgba(255, 255, 255, 0.8);
-        }
-        
-        .calendar-legend-container {
-          display: flex;
-          gap: 24px;
-          align-items: flex-start;
-          width: 100%;
-        }
-        
-        .calendar-plot-container {
-          flex: 0 0 75%;
         }
         
         .legend-container {
@@ -201,13 +190,24 @@ plugging_calendar_modal_ui <- function(id) {
           -webkit-backdrop-filter: blur(20px);
           border: 1px solid rgba(135, 206, 235, 0.2);
           border-radius: 12px;
-          padding: 20px;
+          padding: 16px;
           box-shadow: 0 4px 16px rgba(135, 206, 235, 0.1);
-          min-width: 200px;
-          max-width: 240px;
-          flex: 0 0 25%;
-          max-height: 520px;
+          margin-left: 16px;
+          max-height: 600px;
           overflow-y: auto;
+          width: 300px;
+          flex-shrink: 0;
+        }
+        
+        .calendar-plot-container {
+          flex: 1;
+          min-width: 0;
+        }
+        
+        .calendar-main-content {
+          display: flex;
+          gap: 0;
+          align-items: stretch;
         }
         
         .legend-title {
@@ -221,8 +221,9 @@ plugging_calendar_modal_ui <- function(id) {
         
         .legend-grid {
           display: flex;
-          flex-direction: column;
-          gap: 12px;
+          flex-direction: row;
+          gap: 20px;
+          flex-wrap: wrap;
         }
         
         .legend-section {
@@ -232,21 +233,39 @@ plugging_calendar_modal_ui <- function(id) {
           border-left: 4px solid rgba(135, 206, 235, 0.6);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
+          flex: 1;
+          min-width: 200px;
+        }
+        
+        .legend-items-column {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 8px;
         }
         
         .legend-section.confirmed {
-          border-left-color: rgba(76, 175, 80, 0.8);
-          background: rgba(76, 175, 80, 0.08);
+          border-left-color: rgba(46, 139, 87, 0.9);
+          background: rgba(46, 139, 87, 0.08);
+          box-shadow: 0 2px 8px rgba(46, 139, 87, 0.15);
+        }
+        
+        .legend-section.observed {
+          border-left-color: rgba(65, 105, 225, 0.9);
+          background: rgba(65, 105, 225, 0.08);
+          box-shadow: 0 2px 8px rgba(65, 105, 225, 0.15);
         }
         
         .legend-section.estimated {
-          border-left-color: rgba(255, 152, 0, 0.8);
-          background: rgba(255, 152, 0, 0.08);
+          border-left-color: rgba(255, 140, 0, 0.9);
+          background: rgba(255, 140, 0, 0.08);
+          box-shadow: 0 2px 8px rgba(255, 140, 0, 0.15);
         }
         
         .legend-section.waiting {
-          border-left-color: rgba(158, 158, 158, 0.8);
-          background: rgba(158, 158, 158, 0.08);
+          border-left-color: rgba(112, 128, 144, 0.9);
+          background: rgba(112, 128, 144, 0.08);
+          box-shadow: 0 2px 8px rgba(112, 128, 144, 0.15);
         }
         
         .legend-section-title {
@@ -260,27 +279,27 @@ plugging_calendar_modal_ui <- function(id) {
         .legend-item {
           display: flex;
           align-items: center;
-          gap: 10px;
-          margin: 6px 0;
-          padding: 8px;
-          border-radius: 8px;
-          background: rgba(255, 255, 255, 0.8);
-          box-shadow: 0 2px 8px rgba(135, 206, 235, 0.1);
+          gap: 8px;
+          padding: 6px 10px;
+          border-radius: 6px;
+          background: rgba(255, 255, 255, 0.9);
+          box-shadow: 0 2px 6px rgba(135, 206, 235, 0.1);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
-          border: 1px solid rgba(135, 206, 235, 0.1);
+          border: 1px solid rgba(135, 206, 235, 0.15);
+          flex: 0 0 auto;
         }
         
         .color-indicator {
-          width: 18px;
-          height: 18px;
+          width: 14px;
+          height: 14px;
           border-radius: 50%;
           border: 2px solid rgba(255, 255, 255, 0.9);
-          box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+          box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+          flex-shrink: 0;
         }
         
         .mouse-info {
-          flex: 1;
           font-size: 12px;
         }
         
@@ -288,12 +307,14 @@ plugging_calendar_modal_ui <- function(id) {
           font-weight: 700;
           color: #1e3a5f;
           letter-spacing: -0.2px;
+          cursor: pointer;
+          transition: all 0.2s ease;
         }
         
-        .mouse-details {
-          font-size: 11px;
-          color: #5a6c7d;
-          margin-top: 2px;
+        .mouse-id:hover {
+          color: #87CEEB;
+          text-decoration: underline;
+          transform: translateY(-1px);
         }
         
         .stat-card {
@@ -356,17 +377,12 @@ plugging_calendar_modal_ui <- function(id) {
             justify-content: center;
           }
           
-          .calendar-legend-container {
+          .legend-grid {
             flex-direction: column;
           }
           
-          .calendar-plot-container {
-            flex: 0 0 100%;
-          }
-          
-          .legend-container {
-            flex: 0 0 100%;
-            max-width: none;
+          .legend-section {
+            min-width: auto;
           }
           
           .calendar-container {
@@ -378,6 +394,12 @@ plugging_calendar_modal_ui <- function(id) {
           }
         }
         
+        /* Custom modal size - larger than default 'l' */
+        .modal-lg {
+          max-width: 85% !important;
+          width: 85% !important;
+        }
+        
         /* Animation for smooth transitions */
         .calendar-container * {
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -387,64 +409,8 @@ plugging_calendar_modal_ui <- function(id) {
     
     # Main calendar container
     div(class = "calendar-container",
-      # Header with controls
-      div(class = "calendar-header",
-        div(class = "calendar-controls",
-          # Navigation container (Combined Year and Month navigation)
-          div(class = "navigation-container",
-            # Combined month/year navigation
-            div(class = "month-navigation",
-              actionButton(ns("prev_month"), "◀", class = "nav-btn"),
-              div(class = "current-month", 
-                  textOutput(ns("current_month_year_display"))),
-              actionButton(ns("next_month"), "▶", class = "nav-btn")
-            )
-          ),
-          
-          # Event summary on the right
-          div(class = "stats-panel",
-            div(class = "stat-card",
-              div(class = "stat-number", textOutput(ns("total_events"))),
-              div(class = "stat-label", "Total Events")
-            ),
-            div(class = "stat-card",
-              div(class = "stat-number", textOutput(ns("confirmed_events"))),
-              div(class = "stat-label", "Confirmed")
-            ),
-            div(class = "stat-card",
-              div(class = "stat-number", textOutput(ns("estimated_events"))),
-              div(class = "stat-label", "Estimated")
-            ),
-            div(class = "stat-card",
-              div(class = "stat-number", textOutput(ns("waiting_events"))),
-              div(class = "stat-label", "Waiting")
-            )
-          )
-        )
-      ),
-      
-      # Calendar and legend side by side
-      div(class = "calendar-legend-container",
-        # Calendar on the left
-        div(class = "calendar-plot-container",
-          div(class = "calendar-body",
-            div(class = "calendar-plot",
-              plotOutput(ns("calendar_plot"), height = "520px")
-            )
-          )
-        ),
-        
-        # Legend on the right
-        div(class = "legend-container",
-          uiOutput(ns("calendar_legend")),
-          # Export section below legends
-          div(class = "export-section",
-            downloadButton(ns("export_ical_btn"), 
-                          "📅 Export iCal", 
-                          class = "export-btn")
-          )
-        )
-      )
+      # Dynamic content based on view mode
+      uiOutput(ns("modal_content"))
     )
   )
 }
@@ -453,7 +419,7 @@ plugging_calendar_modal_ui <- function(id) {
 #DB_PATH <- "mice_colony_test.db"
 
 # Server logic for the plugging calendar modal
-plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
+plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_plugging_state = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
@@ -485,12 +451,44 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       current_month(new_month)
     })
 
-    # Function to generate consistent colors for different asu_id values
-    get_color_for_asu <- function(asu_id) {
-      colors <- c("#5F9EA0", "#4682B4", "#4caf50", "#388e3c", "#ff9800", 
-                  "#f57c00", "#2196f3", "#1976d2", "#9c27b0", "#673ab7")
-      hash_val <- sum(utf8ToInt(asu_id)) %% length(colors)
-      return(colors[hash_val + 1])
+    # Use ggsci NPG color palette for clear distinction
+    get_category_colors <- function() {
+      # NPG color palette from ggsci - highly distinguishable colors
+      npg_colors <- c("#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F", 
+                      "#8491B4", "#91D1C2", "#DC0000", "#7E6148", "#B09C85")
+      
+      list(
+        # Confirmed: NPG colors (high confidence with clear dates)
+        confirmed = npg_colors,
+        # Observed: NPG colors (medium confidence with observed dates)
+        observed = npg_colors,
+        # Estimated: Orange (low confidence, estimated dates)
+        estimated = "#ff9800",
+        # Waiting: Gray (pending confirmation)
+        waiting = "#9e9e9e"
+      )
+    }
+    
+    # Function to assign colors based on category and ASU ID
+    get_color_for_event <- function(status_category, asu_id) {
+      colors <- get_category_colors()
+      
+      if (status_category == "confirmed") {
+        # Use hash for variety within green palette
+        hash_val <- sum(utf8ToInt(asu_id)) %% length(colors$confirmed)
+        return(colors$confirmed[hash_val + 1])
+      } else if (status_category == "observed") {
+        # Use hash for variety within blue palette
+        hash_val <- sum(utf8ToInt(asu_id)) %% length(colors$observed)
+        return(colors$observed[hash_val + 1])
+      } else if (status_category == "estimated") {
+        return(colors$estimated)
+      } else if (status_category == "waiting") {
+        return(colors$waiting)
+      }
+      
+      # Fallback
+      return("#9e9e9e")
     }
 
     # Helper function to parse expected ages
@@ -614,6 +612,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
           status_category = character(0),
           is_estimated = logical(0),
           expected_age = numeric(0),
+          is_surprising_plug = logical(0),
           stringsAsFactors = FALSE
         ))
       }
@@ -644,16 +643,29 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
         base_date <- base_date_result$date
         is_estimated <- base_date_result$is_estimated
         
-        # Determine color and status category
+        # Determine status category and color based on new categorization
+        is_surprising_plug <- row$plugging_status == "Surprising Plug!!"
+        
         if (row$plugging_status == "Not Observed (Waiting for confirmation)") {
-          color <- "#9e9e9e"  # Gray
           status_category <- "waiting"
+        } else if (row$plugging_status == "Plug Confirmed") {
+          status_category <- "confirmed"  # High confidence events
+        } else if (is_surprising_plug) {
+          status_category <- "confirmed"  # For statistics, but special visual treatment
+        } else if (row$plugging_status == "Plugged") {
+          status_category <- "observed"   # Plug observed but not yet confirmed
         } else if (is_estimated) {
-          color <- "#ff9800"  # Orange for estimated
-          status_category <- "estimated"
+          status_category <- "estimated"  # Date estimated from pairing
         } else {
-          color <- get_color_for_asu(row$asu_id)
-          status_category <- "confirmed"
+          status_category <- "observed"   # Default fallback
+        }
+        
+        # Get color based on category, with special handling for surprising plug
+        if (is_surprising_plug) {
+          # Use NPG color for border but gray background will be handled in plotting
+          color <- get_color_for_event("confirmed", row$asu_id)
+        } else {
+          color <- get_color_for_event(status_category, row$asu_id)
         }
         
         # Parse expected ages
@@ -676,6 +688,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
               status_category = status_category,
               is_estimated = is_estimated,
               expected_age = age,
+              is_surprising_plug = is_surprising_plug,
               stringsAsFactors = FALSE
             )
             events_list[[length(events_list) + 1]] <- event
@@ -696,6 +709,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
           status_category = character(0),
           is_estimated = logical(0),
           expected_age = numeric(0),
+          is_surprising_plug = logical(0),
           stringsAsFactors = FALSE
         ))
       }
@@ -771,6 +785,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
           pairing_start_date = as.Date(character(0)),
           pairing_end_date = as.Date(character(0)),
           asu_id = character(0),
+          is_surprising_plug = logical(0),
           stringsAsFactors = FALSE
         ))
       }, finally = {
@@ -807,6 +822,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
           status_category = character(0),
           is_estimated = logical(0),
           expected_age = numeric(0),
+          is_surprising_plug = logical(0),
           stringsAsFactors = FALSE
         ))
       }
@@ -827,6 +843,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
           status_category = character(0),
           is_estimated = logical(0),
           expected_age = numeric(0),
+          is_surprising_plug = logical(0),
           stringsAsFactors = FALSE
         ))
       }
@@ -854,6 +871,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
           status_category = character(0),
           is_estimated = logical(0),
           expected_age = numeric(0),
+          is_surprising_plug = logical(0),
           stringsAsFactors = FALSE
         ))
       }
@@ -876,6 +894,14 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
         return("0")
       }
       as.character(length(unique(events$asu_id[events$status_category == "confirmed"])))
+    })
+
+    output$observed_events <- renderText({
+      events <- current_month_events()
+      if (is.null(events) || nrow(events) == 0) {
+        return("0")
+      }
+      as.character(length(unique(events$asu_id[events$status_category == "observed"])))
     })
 
     output$estimated_events <- renderText({
@@ -1052,7 +1078,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
     
         # Day numbers with Apple-style typography - moved above cells
         geom_text(aes(label = day, y = y + 0.25), 
-                  size = 5.5, fontface = "bold", 
+                  size = 7, fontface = "bold", 
                   color = ifelse(calendar_data$is_today, "#87CEEB", "#1E3A5F")) +
         # Apple-style theme
         theme_minimal() +
@@ -1080,19 +1106,46 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       
       # Add event strips and labels only if there are events
       if (nrow(event_strips) > 0) {
+        # Separate surprising plugs from regular events
+        surprising_strips <- event_strips[event_strips$is_surprising_plug == TRUE, ]
+        regular_strips <- event_strips[event_strips$is_surprising_plug == FALSE, ]
+        
         p <- p +
-          # Event strips
-          geom_tile(data = event_strips, 
+          # Regular event strips
+          geom_tile(data = regular_strips, 
                     aes(x = x, y = strip_y, fill = color, width = strip_width, height = strip_height_actual), 
                     color = "#1E3A5F", 
                     linewidth = 0.5, 
                     alpha = 0.85) +
-          # Event labels on strips
-          geom_text(data = event_strips, 
-                    aes(label = label, x = x, y = strip_y), 
-                    size = 2.8, color = "white", fontface = "bold") +
           # Custom fill scale for events
           scale_fill_identity()
+        
+        # Add surprising plug strips with gray background, same border
+        if (nrow(surprising_strips) > 0) {
+          p <- p +
+            geom_tile(data = surprising_strips, 
+                      aes(x = x, y = strip_y, width = strip_width, height = strip_height_actual), 
+                      fill = "#9e9e9e",  # Gray background
+                      color = "#1E3A5F",  # Same border as regular events
+                      linewidth = 0.5,   # Same border thickness
+                      alpha = 0.85)
+        }
+        
+        # Add labels - white for regular events, colored for surprising plugs
+        if (nrow(regular_strips) > 0) {
+          p <- p +
+            geom_text(data = regular_strips, 
+                      aes(label = label, x = x, y = strip_y), 
+                      size = 4, color = "white", fontface = "bold")
+        }
+        
+        if (nrow(surprising_strips) > 0) {
+          p <- p +
+            geom_text(data = surprising_strips, 
+                      aes(label = label, x = x, y = strip_y, color = color), 
+                      size = 4, fontface = "bold") +
+            scale_color_identity()
+        }
       }
       
       return(p)
@@ -1104,27 +1157,26 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
       
       events <- current_month_events()
       
-      # Handle empty events case
+      # Handle empty events case - show "No events" in legend area instead of empty categories
       if (is.null(events) || nrow(events) == 0) {
         return(
-          div(class = "legend-container",
-            tags$p("No events for this month.", 
-                   style = "text-align: center; color: #6c757d; font-style: italic; padding: 20px;")
-          )
+          tags$p("No events for this month.", 
+                 style = "text-align: center; color: #6c757d; font-style: italic; padding: 40px; font-size: 16px;")
         )
       }
       
-      # Group events by status category
+      # Group events by status category with priority order
       confirmed_events <- events[events$status_category == "confirmed", ]
+      observed_events <- events[events$status_category == "observed", ]
       estimated_events <- events[events$status_category == "estimated", ]
       waiting_events <- events[events$status_category == "waiting", ]
       
       legend_items <- list()
       
-      # Create legend grid
+      # Create legend grid with hierarchical sections
       legend_grid <- list()
       
-      # Confirmed events section
+      # Confirmed events section (highest priority - green)
       if (nrow(confirmed_events) > 0) {
         unique_confirmed <- confirmed_events[!duplicated(confirmed_events$asu_id), ]
         confirmed_items <- lapply(seq_len(nrow(unique_confirmed)), function(i) {
@@ -1132,19 +1184,41 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
             div(class = "color-indicator", 
                 style = paste0("background-color: ", unique_confirmed$color[i])),
             div(class = "mouse-info",
-              div(class = "mouse-id", unique_confirmed$asu_id[i]),
-              div(class = "mouse-details", 
-                  paste("Status:", unique_confirmed$status[i]))
+              div(class = "mouse-id", 
+                  unique_confirmed$asu_id[i],
+                  onclick = paste0('Shiny.setInputValue("', ns('mouse_id_clicked'), '", "', unique_confirmed$asu_id[i], '", {priority: "event"});'))
             )
           )
         })
         
         legend_grid[[length(legend_grid) + 1]] <- div(class = "legend-section confirmed",
-          confirmed_items
+          div(class = "legend-section-title", "🎯 CONFIRMED PLUGS"),
+          div(class = "legend-items-column", confirmed_items)
         )
       }
       
-      # Estimated events section
+      # Observed events section (medium-high priority - blue)
+      if (nrow(observed_events) > 0) {
+        unique_observed <- observed_events[!duplicated(observed_events$asu_id), ]
+        observed_items <- lapply(seq_len(nrow(unique_observed)), function(i) {
+          div(class = "legend-item",
+            div(class = "color-indicator", 
+                style = paste0("background-color: ", unique_observed$color[i])),
+            div(class = "mouse-info",
+              div(class = "mouse-id", 
+                  unique_observed$asu_id[i],
+                  onclick = paste0('Shiny.setInputValue("', ns('mouse_id_clicked'), '", "', unique_observed$asu_id[i], '", {priority: "event"});'))
+            )
+          )
+        })
+        
+        legend_grid[[length(legend_grid) + 1]] <- div(class = "legend-section observed",
+          div(class = "legend-section-title", "👁 OBSERVED PLUGS"),
+          div(class = "legend-items-column", observed_items)
+        )
+      }
+      
+      # Estimated events section (medium-low priority - orange)
       if (nrow(estimated_events) > 0) {
         unique_estimated <- estimated_events[!duplicated(estimated_events$asu_id), ]
         estimated_items <- lapply(seq_len(nrow(unique_estimated)), function(i) {
@@ -1152,19 +1226,20 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
             div(class = "color-indicator", 
                 style = paste0("background-color: ", unique_estimated$color[i])),
             div(class = "mouse-info",
-              div(class = "mouse-id", unique_estimated$asu_id[i]),
-              div(class = "mouse-details", 
-                  paste("Status:", unique_estimated$status[i], "(Estimated)"))
+              div(class = "mouse-id", 
+                  unique_estimated$asu_id[i],
+                  onclick = paste0('Shiny.setInputValue("', ns('mouse_id_clicked'), '", "', unique_estimated$asu_id[i], '", {priority: "event"});'))
             )
           )
         })
         
         legend_grid[[length(legend_grid) + 1]] <- div(class = "legend-section estimated",
-          estimated_items
+          div(class = "legend-section-title", "⚠ ESTIMATED DATES"),
+          div(class = "legend-items-column", estimated_items)
         )
       }
       
-      # Waiting events section
+      # Waiting events section (lowest priority - gray)
       if (nrow(waiting_events) > 0) {
         unique_waiting <- waiting_events[!duplicated(waiting_events$asu_id), ]
         waiting_items <- lapply(seq_len(nrow(unique_waiting)), function(i) {
@@ -1172,15 +1247,16 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
             div(class = "color-indicator", 
                 style = paste0("background-color: ", unique_waiting$color[i])),
             div(class = "mouse-info",
-              div(class = "mouse-id", unique_waiting$asu_id[i]),
-              div(class = "mouse-details", 
-                  paste("Status:", unique_waiting$status[i]))
+              div(class = "mouse-id", 
+                  unique_waiting$asu_id[i],
+                  onclick = paste0('Shiny.setInputValue("', ns('mouse_id_clicked'), '", "', unique_waiting$asu_id[i], '", {priority: "event"});'))
             )
           )
         })
         
         legend_grid[[length(legend_grid) + 1]] <- div(class = "legend-section waiting",
-          waiting_items
+          div(class = "legend-section-title", "⏳ AWAITING CONFIRMATION"),
+          div(class = "legend-items-column", waiting_items)
         )
       }
       
@@ -1278,11 +1354,212 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH) {
         })
       }
     )
+    
+    # Reactive value to track current view mode
+    view_mode <- reactiveVal("calendar")  # "calendar" or "details"
+    selected_mouse_data <- reactiveVal(NULL)
+    
+    # Handle mouse ID clicks in legend
+    observeEvent(input$mouse_id_clicked, {
+      asu_id <- input$mouse_id_clicked
+      if (is.null(asu_id)) return()
+      
+      con <- NULL
+      tryCatch({
+        con <- dbConnect(SQLite(), db_path)
+        
+        # Get detailed plugging information
+        plugging <- dbGetQuery(con, 
+          "SELECT ph.*, 
+                  m.dob as male_dob, m.breeding_line as male_breeding_line, 
+                  m.genotype as male_genotype, m.status as male_status,
+                  f.dob as female_dob, f.breeding_line as female_breeding_line, 
+                  f.genotype as female_genotype, f.status as female_status
+           FROM plugging_history ph
+           LEFT JOIN mice_stock m ON ph.male_id = m.asu_id
+           LEFT JOIN mice_stock f ON ph.female_id = f.asu_id
+           WHERE ph.female_id = ?
+           ORDER BY ph.pairing_start_date DESC
+           LIMIT 1",
+          params = list(asu_id))
+        
+        if (nrow(plugging) == 0) {
+          showNotification(paste("No plugging details found for", asu_id), type = "warning")
+          return()
+        }
+        
+        # Store the data and switch to details view
+        selected_mouse_data(plugging[1, ])
+        view_mode("details")
+        
+      }, error = function(e) {
+        showNotification(paste("Error fetching details:", e$message), type = "error")
+      }, finally = {
+        if (!is.null(con)) dbDisconnect(con)
+      })
+      
+      # Reset the input so the same mouse ID can be clicked again
+      session$sendInputMessage("mouse_id_clicked", NULL)
+    })
+    
+    # Handle back to calendar button
+    observeEvent(input$back_to_calendar, {
+      view_mode("calendar")
+      selected_mouse_data(NULL)
+    })
+    
+    # Dynamic modal content based on view mode
+    output$modal_content <- renderUI({
+      if (view_mode() == "calendar") {
+        # Original calendar view
+        tagList(
+          # Statistics and legend
+          div(class = "calendar-header",
+            div(class = "calendar-controls",
+              div(class = "navigation-container",
+                div(class = "month-navigation",
+                  actionButton(ns("prev_month"), "◀", class = "nav-btn"),
+                  div(class = "current-month", 
+                      textOutput(ns("current_month_year_display"))),
+                  actionButton(ns("next_month"), "▶", class = "nav-btn")
+                )
+              ),
+              div(class = "stats-panel",
+                div(class = "stat-card",
+                  div(class = "stat-number", textOutput(ns("total_events"))),
+                  div(class = "stat-label", "Total Events")
+                ),
+                div(class = "stat-card",
+                  div(class = "stat-number", textOutput(ns("confirmed_events"))),
+                  div(class = "stat-label", "Confirmed")
+                ),
+                div(class = "stat-card",
+                  div(class = "stat-number", textOutput(ns("observed_events"))),
+                  div(class = "stat-label", "Observed")
+                ),
+                div(class = "stat-card",
+                  div(class = "stat-number", textOutput(ns("estimated_events"))),
+                  div(class = "stat-label", "Estimated")
+                ),
+                div(class = "stat-card",
+                  div(class = "stat-number", textOutput(ns("waiting_events"))),
+                  div(class = "stat-label", "Waiting")
+                )
+              )
+            )
+          ),
+          div(class = "calendar-main-content",
+            div(class = "calendar-plot-container",
+              div(class = "calendar-body",
+                div(class = "calendar-plot",
+                  plotOutput(ns("calendar_plot"), height = "600px")
+                )
+              )
+            ),
+            div(class = "legend-container",
+              uiOutput(ns("calendar_legend")),
+              div(style = "margin-top: 16px; text-align: center;",
+                downloadButton(paste0(id, "-export_ical_btn"), 
+                              "📅 Export iCal", 
+                              class = "export-btn")
+              )
+            )
+          )
+        )
+      } else {
+        # Details view
+        req(selected_mouse_data())
+        row <- selected_mouse_data()
+        
+        # Calculate ages
+        male_age <- if(!is.na(row$male_dob)) round(as.numeric(Sys.Date() - as.Date(row$male_dob)) / 7, 1) else NA
+        female_age <- if(!is.na(row$female_dob)) round(as.numeric(Sys.Date() - as.Date(row$female_dob)) / 7, 1) else NA
+        
+        tagList(
+          # Back button
+          div(
+            style = "margin-bottom: 20px; text-align: left;",
+            actionButton(ns("back_to_calendar"), "← Back to Calendar", 
+                        class = "btn-primary",
+                        style = "background: #007bff; border-color: #007bff; color: white;")
+          ),
+          
+          # Details content
+          div(
+            style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;",
+            
+            h4(paste("🐭 Plugging Details:", row$female_id), 
+               style = "text-align: center; color: #1e3a5f; margin-bottom: 20px;"),
+            
+            # All information boxes in one row
+            div(
+              style = "display: flex; gap: 16px; flex-wrap: wrap;",
+              
+              # Breeding Pair Information
+              div(
+                style = "background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 8px; padding: 16px; border-left: 4px solid #28a745; flex: 1; min-width: 250px;",
+                h5("👫 Breeding Pair", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                div(
+                  div(
+                    strong("♂️ Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
+                    br(),
+                    "Line: ", ifelse(is.na(row$male_breeding_line), "Unknown", row$male_breeding_line),
+                    br(),
+                    "Genotype: ", ifelse(is.na(row$male_genotype), "Unknown", row$male_genotype)
+                  ),
+                  br(),
+                  div(
+                    strong("♀️ Female: "), paste0(row$female_id, " (", ifelse(is.na(female_age), "Unknown age", paste0(female_age, " wks")), ")"),
+                    br(),
+                    "Line: ", ifelse(is.na(row$female_breeding_line), "Unknown", row$female_breeding_line),
+                    br(),
+                    "Genotype: ", ifelse(is.na(row$female_genotype), "Unknown", row$female_genotype)
+                  )
+                )
+              ),
+              
+              # Timeline Information
+              div(
+                style = "background: rgba(135, 206, 235, 0.1); border-radius: 8px; padding: 16px; border-left: 4px solid #87CEEB; flex: 1; min-width: 200px;",
+                h5("📅 Timeline", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                div(
+                  "Pairing Start: ", strong(ifelse(is.na(row$pairing_start_date) || row$pairing_start_date == "", "Unknown", row$pairing_start_date)),
+                  br(),
+                  "Pairing End: ", strong(ifelse(is.na(row$pairing_end_date) || row$pairing_end_date == "", "Unknown", row$pairing_end_date)),
+                  br(),
+                  "Plug Observed: ", strong(ifelse(is.na(row$plug_observed_date) || row$plug_observed_date == "", "Unknown", row$plug_observed_date))
+                )
+              ),
+              
+              # Status Information
+              div(
+                style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 16px; border-left: 4px solid #ffc107; flex: 1; min-width: 200px;",
+                h5("🔍 Status", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                div(
+                  "Current Status: ", strong(row$plugging_status),
+                  br(),
+                  "Expected Harvest Age: ", strong(ifelse(is.na(row$expected_age_for_harvesting) || row$expected_age_for_harvesting == "", "Not specified", row$expected_age_for_harvesting))
+                )
+              ),
+              
+              # Notes (only if exists)
+              if (!is.na(row$notes) && row$notes != "") {
+                div(
+                  style = "background: rgba(108, 117, 125, 0.1); border-radius: 8px; padding: 16px; border-left: 4px solid #6c757d; flex: 1; min-width: 200px;",
+                  h5("📝 Notes", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                  div(style = "font-style: italic;", row$notes)
+                )
+              }
+            )
+          )
+        )
+      }
+    })
   })
 }
 
 # Function to show the calendar modal (reusable)
-show_plugging_calendar_modal <- function(id = "plugging_calendar_modal", db_path = DB_PATH) {
+show_plugging_calendar_modal <- function(id = "plugging_calendar_modal", db_path = DB_PATH, shared_plugging_state = NULL) {
   showModal(modalDialog(
     title = div(
       style = "text-align: center; font-size: 20px; font-weight: 700; color: #1e3a5f; margin-bottom: 1px;",
@@ -1292,8 +1569,10 @@ show_plugging_calendar_modal <- function(id = "plugging_calendar_modal", db_path
     plugging_calendar_modal_ui(id),
     easyClose = TRUE,
     footer = tagList(
-      modalButton("Cancel")
+      div(style = "text-align: center; width: 100%;",
+        modalButton("Close")
+      )
     )
   ))
-  plugging_calendar_modal_server(id, db_path)
+  plugging_calendar_modal_server(id, db_path, shared_plugging_state)
 }
