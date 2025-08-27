@@ -810,11 +810,17 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           return(list(date = parsed_pairing_date + 1, is_estimated = TRUE))
         }
       } else if (status == "Surprising Plug!!") {
-        # Use pairing_start_date + 1 for estimation (since plug_observed_date is "Unknown")
-        # Add 1 day to account for the day of pairing, then add embryonic age
-        parsed_pairing_date <- safe_parse_date(pairing_start_date)
-        if (!is.na(parsed_pairing_date)) {
-          return(list(date = parsed_pairing_date + 1, is_estimated = TRUE))
+        # First try to use plug_observed_date if available and not "Unknown"
+        parsed_plug_date <- safe_parse_date(plug_date)
+        if (!is.na(parsed_plug_date)) {
+          return(list(date = parsed_plug_date, is_estimated = FALSE))
+        } else {
+          # Use pairing_start_date + 1 for estimation if plug_observed_date is "Unknown"
+          # Add 1 day to account for the day of pairing, then add embryonic age
+          parsed_pairing_date <- safe_parse_date(pairing_start_date)
+          if (!is.na(parsed_pairing_date)) {
+            return(list(date = parsed_pairing_date + 1, is_estimated = TRUE))
+          }
         }
       }
       return(NULL)
@@ -899,9 +905,16 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           harvest_date <- base_date + floor(age)
           
           if (!is.na(harvest_date)) {
+            # Add surprising emoji to label if it's a surprising plug
+            label_text <- if (is_surprising_plug) {
+              paste0(row$asu_id, " @E", floor(age) + 0.5, " 😱")
+            } else {
+              paste0(row$asu_id, " @E", floor(age) + 0.5)
+            }
+            
             event <- data.frame(
               asu_id = as.character(row$asu_id),
-              label = paste0(row$asu_id, " @E", floor(age) + 0.5),
+              label = label_text,
               day = as.integer(format(harvest_date, "%d")),
               date = harvest_date,
               target_month = as.integer(format(harvest_date, "%m")),
@@ -1546,9 +1559,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         if (nrow(surprising_strips) > 0) {
           p <- p +
             geom_text(data = surprising_strips, 
-                      aes(label = label, x = x, y = strip_y, color = color), 
-                      size = 4, fontface = "bold") +
-            scale_color_identity()
+                      aes(label = label, x = x, y = strip_y), 
+                      size = 4, color = "white", fontface = "bold")
         }
       }
       
@@ -1584,19 +1596,34 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       if (nrow(confirmed_events) > 0) {
         unique_confirmed <- confirmed_events[!duplicated(confirmed_events$asu_id), ]
         confirmed_items <- lapply(seq_len(nrow(unique_confirmed)), function(i) {
+          # Add emoji to mouse ID if it's a surprising plug
+          mouse_display <- if (unique_confirmed$is_surprising_plug[i]) {
+            paste0(unique_confirmed$asu_id[i], " 😱")
+          } else {
+            unique_confirmed$asu_id[i]
+          }
+          
           div(class = "legend-item",
             div(class = "color-indicator", 
                 style = paste0("background-color: ", unique_confirmed$color[i])),
             div(class = "mouse-info",
               div(class = "mouse-id", 
-                  unique_confirmed$asu_id[i],
+                  mouse_display,
                   onclick = paste0('Shiny.setInputValue("', ns('mouse_id_clicked'), '", "', unique_confirmed$asu_id[i], '", {priority: "event"});'))
             )
           )
         })
         
+        # Check if any confirmed events are surprising plugs
+        has_surprising_plugs <- any(confirmed_events$is_surprising_plug)
+        section_title <- if (has_surprising_plugs) {
+          "🎯 CONFIRMED PLUGS (😱 = Surprising)"
+        } else {
+          "🎯 CONFIRMED PLUGS"
+        }
+        
         legend_grid[[length(legend_grid) + 1]] <- div(class = "legend-section confirmed",
-          div(class = "legend-section-title", "🎯 CONFIRMED PLUGS"),
+          div(class = "legend-section-title", section_title),
           div(class = "legend-items-column", confirmed_items)
         )
       }

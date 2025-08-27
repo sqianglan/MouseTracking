@@ -350,6 +350,20 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     })
   }
   
+  # Helper to check if pairing date is valid (not NA, empty, or "Unknown")
+  is_valid_pairing_date <- function(date_value) {
+    if (is.na(date_value) || date_value == "" || date_value == "Unknown") {
+      return(FALSE)
+    }
+    # Try to parse as date, return FALSE if it fails
+    tryCatch({
+      as.Date(date_value)
+      return(TRUE)
+    }, error = function(e) {
+      return(FALSE)
+    })
+  }
+  
   # --- Modification History UI ---
   output$modification_history_ui <- renderUI({
     req(plugging_state$viewing_id)
@@ -728,9 +742,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           ),
           fluidRow(
             column(6, dateInput("edit_pairing_start_date", "Pairing Start Date", 
-                                value = if(!is.na(row$pairing_start_date) && row$pairing_start_date != "") as.Date(row$pairing_start_date) else Sys.Date())),
+                                value = if(is_valid_pairing_date(row$pairing_start_date)) as.Date(row$pairing_start_date) else Sys.Date())),
             column(6, dateInput("edit_pairing_end_date", "Pairing End Date", 
-                                value = if(!is.na(row$pairing_end_date) && row$pairing_end_date != "") as.Date(row$pairing_end_date) else Sys.Date()))
+                                value = if(is_valid_pairing_date(row$pairing_end_date)) as.Date(row$pairing_end_date) else Sys.Date()))
           ),
           fluidRow(
             column(6, 

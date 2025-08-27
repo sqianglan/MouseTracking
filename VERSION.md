@@ -1,6 +1,19 @@
+# Version: beta 1.31 - Update Summary
+
+## 🎉 Latest Updates (beta 1.31)
+
+### 📅 Calendar & Surprising Plug Improvements
+- Fixed surprising plug text visibility in calendar (white text on gray background)
+- Enhanced date calculation for surprising plugs to use actual plug dates when available
+- Added surprising emoji (😱) to calendar events and legend for better visual identification
+- Fixed date parsing error for records with "Unknown" dates in edit modal
+- Improved robust date validation in plugging event editing
+
+---
+
 # Version: beta 1.30 - Update Summary
 
-## 🎉 Latest Updates (beta 1.30)
+## 🎉 Previous Updates (beta 1.30)
 
 ### 📅 Plugging Events Calendar Function
 - Separated the category for Plugged and Plug Confirmed
