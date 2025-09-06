@@ -655,7 +655,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                   ),
                   div(
                     id = "plugging_body_weight_preview_plot_container",
-                    style = "height: 350px;",
+                    style = "height: 400px;",
                     plotlyOutput(paste0("plugging_body_weight_preview_plot_", row$female_id))
                   )
                 )
