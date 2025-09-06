@@ -11,6 +11,7 @@ suppressPackageStartupMessages({
 
 # Source the new modal module
 source("Modules/modal_add_plugging_event.R")
+source("Modules/modal_body_weight.R")
 
 # Constants
 PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Plug Confirmed", "Not Pregnant", "Not Observed (Waiting for confirmation)", "Empty", "Not Observed (Confirmed)", "Surprising Plug!!", "Collected")
@@ -564,6 +565,20 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
          WHERE ph.id = ?",
         params = list(plugging_id))
       
+      # Get body weight data for the female mouse
+      female_body_weight_history <- tryCatch({
+        DBI::dbGetQuery(con, paste0("SELECT * FROM body_weight_history WHERE asu_id = '", plugging[1, "female_id"], "' ORDER BY measurement_date DESC"))
+      }, error = function(e) {
+        data.frame()
+      })
+      
+      # Get plugging history for the female mouse (for chart overlay)
+      female_plugging_history <- tryCatch({
+        DBI::dbGetQuery(con, paste0("SELECT * FROM plugging_history WHERE female_id = '", plugging[1, "female_id"], "' AND plugging_status != 'Deleted'"))
+      }, error = function(e) {
+        data.frame()
+      })
+      
       if (nrow(plugging) == 0) return()
       
       row <- plugging[1, ]
@@ -623,6 +638,30 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               )
             )
           ),
+          # Body Weight Chart Section
+          if (nrow(female_body_weight_history) > 0) {
+            fluidRow(
+              column(12,
+                wellPanel(
+                  div(
+                    style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
+                    tags$h4("Female Body Weight Trend", style = "color: #4caf50; border-bottom: 2px solid #4caf50; padding-bottom: 5px; margin: 0;"),
+                    actionButton(
+                      inputId = "add_body_weight_from_plugging_btn",
+                      label = "Add Body Weight",
+                      class = "btn-success btn-sm",
+                      onclick = paste0("Shiny.setInputValue('add_body_weight_clicked', '", row$female_id, "', {priority: 'event'});")
+                    )
+                  ),
+                  div(
+                    id = "plugging_body_weight_preview_plot_container",
+                    style = "height: 350px;",
+                    plotlyOutput(paste0("plugging_body_weight_preview_plot_", row$female_id))
+                  )
+                )
+              )
+            )
+          },
           tags$h4("Modification History"),
           uiOutput("modification_history_ui"),
         ),
@@ -661,6 +700,172 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           )
         )
       ))
+      
+      # Render body weight chart if data exists
+      if (nrow(female_body_weight_history) > 0) {
+        # Use custom output name for plugging modal to avoid conflicts
+        output[[paste0("plugging_body_weight_preview_plot_", row$female_id)]] <- renderPlotly({
+          # Create the base plotly chart
+          weight_data <- female_body_weight_history
+          
+          # Robust date conversion - handle various date formats
+          weight_data$measurement_date <- tryCatch({
+            if (is.character(weight_data$measurement_date)) {
+              as.Date(weight_data$measurement_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+            } else {
+              as.Date(weight_data$measurement_date)
+            }
+          }, error = function(e) {
+            # If date conversion fails, use current date as fallback
+            rep(Sys.Date(), nrow(weight_data))
+          })
+          
+          p <- plot_ly(
+            data = weight_data,
+            x = ~measurement_date,
+            y = ~weight_grams,
+            type = "scatter",
+            mode = "lines+markers",
+            marker = list(size = 6, color = "#2196f3"),
+            line = list(color = "#2196f3", width = 2),
+            name = "Body Weight",
+            showlegend = FALSE,
+            hovertemplate = paste(
+              "<b>Date:</b> %{x}<br>",
+              "<b>Weight:</b> %{y} grams<br>",
+              "<extra></extra>"
+            )
+          )
+          
+          # Initialize shapes list for layout
+          shapes_list <- list()
+          
+          # Add plugging events if they exist (simplified for preview)
+          if (nrow(female_plugging_history) > 0) {
+            # Process each plugging record (simplified)
+            for (i in seq_len(nrow(female_plugging_history))) {
+              plug_row <- female_plugging_history[i, ]
+              
+              # Add gray shaded area for pairing period
+              if (!is.na(plug_row$pairing_start_date) && plug_row$pairing_start_date != "") {
+                start_date <- tryCatch({
+                  if (is.character(plug_row$pairing_start_date)) {
+                    as.Date(plug_row$pairing_start_date, 
+                           tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                         "%d/%m/%Y", "%Y/%m/%d"))
+                  } else {
+                    as.Date(plug_row$pairing_start_date)
+                  }
+                }, error = function(e) {
+                  Sys.Date()  # Fallback to today
+                })
+                
+                end_date <- if (!is.na(plug_row$pairing_end_date) && plug_row$pairing_end_date != "") {
+                  tryCatch({
+                    if (is.character(plug_row$pairing_end_date)) {
+                      as.Date(plug_row$pairing_end_date, 
+                           tryFormats = c("%Y-%m-%d", "%m/%d/%Y", 
+                                         "%d/%m/%Y", "%Y/%m/%d"))
+                    } else {
+                      as.Date(plug_row$pairing_end_date)
+                    }
+                  }, error = function(e) {
+                    max(weight_data$measurement_date, Sys.Date())
+                  })
+                } else {
+                  max(weight_data$measurement_date, Sys.Date())
+                }
+                
+                # Add rectangle shape for pairing period
+                shapes_list[[length(shapes_list) + 1]] <- list(
+                  type = "rect",
+                  x0 = start_date, x1 = end_date,
+                  y0 = 0, y1 = 1, yref = "paper",
+                  fillcolor = "rgba(128, 128, 128, 0.3)",
+                  line = list(color = "rgba(0,0,0,0)", width = 0),
+                  layer = "below"
+                )
+              }
+              
+              # Add plug observed markers
+              if (!is.na(plug_row$plug_observed_date) && plug_row$plug_observed_date != "") {
+                plug_date <- tryCatch({
+                  if (is.character(plug_row$plug_observed_date)) {
+                    as.Date(plug_row$plug_observed_date, tryFormats = c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"))
+                  } else {
+                    as.Date(plug_row$plug_observed_date)
+                  }
+                }, error = function(e) {
+                  NULL  # Skip this marker if date parsing fails
+                })
+                
+                if (!is.null(plug_date)) {
+                  # Determine color based on plugging status
+                  plug_color <- if (plug_row$plugging_status == "Collected") {
+                    "#388e3c"  # Success - Green
+                  } else if (plug_row$plugging_status %in% c("Empty", "Not Pregnant (Confirmed)", "Not Pregnant")) {
+                    "#d32f2f"  # Failed - Red
+                  } else {
+                    "#ff9800"  # Pending - Orange
+                  }
+                  
+                  # Add line shape for vertical line
+                  shapes_list[[length(shapes_list) + 1]] <- list(
+                    type = "line",
+                    x0 = plug_date, x1 = plug_date,
+                    y0 = 0, y1 = 1, yref = "paper",
+                    line = list(color = plug_color, width = 2)
+                  )
+                }
+              }
+            }
+          }
+          
+          # Calculate x-axis range
+          all_dates <- weight_data$measurement_date
+          if (length(all_dates) > 0) {
+            date_range <- range(all_dates, na.rm = TRUE)
+            date_diff <- as.numeric(diff(date_range))
+            
+            # For single data point or very short periods, use minimum 7-day window
+            if (date_diff <= 3) {
+              center_date <- mean(date_range)
+              x_range <- c(center_date - 3.5, center_date + 3.5)
+            } else {
+              date_padding <- date_diff * 0.15
+              x_range <- c(date_range[1] - date_padding, 
+                           date_range[2] + date_padding)
+            }
+          } else {
+            x_range <- NULL
+          }
+          
+          # Apply layout with shapes
+          p <- p %>% layout(
+            xaxis = list(
+              title = "",
+              showgrid = TRUE,
+              gridcolor = "#e0e0e0",
+              tickformat = "%d-%b",
+              range = x_range
+            ),
+            yaxis = list(
+              title = "Weight (grams)",
+              showgrid = TRUE,
+              gridcolor = "#e0e0e0",
+              range = c(0, max(weight_data$weight_grams) * 1.1)
+            ),
+            shapes = shapes_list,
+            hovermode = "closest",
+            plot_bgcolor = "rgba(0,0,0,0)",
+            paper_bgcolor = "rgba(0,0,0,0)",
+            margin = list(t = 20, b = 30, l = 50, r = 20),
+            showlegend = FALSE
+          )
+          
+          return(p)
+        })
+      }
       
       plugging_state$viewing_id <- plugging_id
       

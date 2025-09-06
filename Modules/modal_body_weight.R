@@ -424,7 +424,8 @@ render_body_weight_preview_chart <- function(output, asu_id, body_weight_history
       yaxis = list(
         title = "Weight (grams)",
         showgrid = TRUE,
-        gridcolor = "#e0e0e0"
+        gridcolor = "#e0e0e0",
+        range = c(0, max(weight_data$weight_grams) * 1.1)
       ),
       shapes = shapes_list,
       annotations = annotations_list,
@@ -895,7 +896,8 @@ render_body_weight_chart <- function(output, asu_id, body_weight_history, pluggi
       yaxis = list(
         title = "Weight (grams)",
         showgrid = TRUE,
-        gridcolor = "#e0e0e0"
+        gridcolor = "#e0e0e0",
+        range = c(0, max(weight_data$weight_grams) * 1.1)
       ),
       shapes = shapes_list,
       annotations = annotations_list,
