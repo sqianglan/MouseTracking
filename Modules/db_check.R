@@ -5,33 +5,61 @@ suppressPackageStartupMessages({
   library(stringr)
 })
 
-# Set default database path and name
+# Set default database path and name with distribution support
 if (Sys.getenv("MOUSE_DB_DIR") != "") {
   DB_DIR <- Sys.getenv("MOUSE_DB_DIR")
 } else {
-  DB_DIR <- getwd()
+  # Default to .mousemanagement_DontRemove folder in current working directory
+  DB_DIR <- file.path(getwd(), ".mousemanagement_DontRemove")
 }
 
 if (Sys.getenv("MOUSE_DB_NAME") != "") {
   DB_NAME <- Sys.getenv("MOUSE_DB_NAME")
 } else {
-  DB_NAME <- "mice_colony_test.db"
+  # Always use mice_colony.db as the main database name
+  DB_NAME <- "mice_colony.db"
 }
 
-DEFAULT_DB_NAME <- file.path(DB_DIR, DB_NAME)
+# Store directories for app use
+if (Sys.getenv("MOUSE_DB_DIR") != "") {
+  # Running with run_shiny.sh - use structured directories in the same location as the app
+  HIDDEN_DIR <- file.path(DB_DIR, ".mousemanagement_DontRemove")
+  BACKUPS_DIR <- file.path(HIDDEN_DIR, "backups")
+  CONFIG_DIR <- file.path(HIDDEN_DIR, "config")
+} else {
+  # Development mode - use current working directory structure
+  HIDDEN_DIR <- file.path(getwd(), ".mousemanagement_DontRemove")
+  BACKUPS_DIR <- file.path(HIDDEN_DIR, "backups")
+  CONFIG_DIR <- file.path(HIDDEN_DIR, "config")
+}
+
+DEFAULT_DB_NAME <- file.path(HIDDEN_DIR, DB_NAME)
 TABLE_NAME <- "mice_stock"
 
 # Ensure database directory exists
 ensure_db_directory <- function() {
-  if (!dir.exists(DB_DIR)) {
-    dir.create(DB_DIR, recursive = TRUE, showWarnings = FALSE)
-    cat("Created database directory:", DB_DIR, "\n")
+  if (!dir.exists(HIDDEN_DIR)) {
+    dir.create(HIDDEN_DIR, recursive = TRUE, showWarnings = FALSE)
+    cat("Created database directory:", HIDDEN_DIR, "\n")
+  }
+}
+
+# Ensure all hidden directories exist
+ensure_hidden_directories <- function() {
+  dirs_to_create <- c(HIDDEN_DIR, BACKUPS_DIR, CONFIG_DIR)
+  
+  for (dir_path in dirs_to_create) {
+    if (!dir.exists(dir_path)) {
+      dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+      cat("Created directory:", dir_path, "\n")
+    }
   }
 }
 
 # Create the mice_stock table with full schema if DB does not exist
 initialize_db <- function() {
-  # Ensure database directory exists
+  # Ensure all directories exist
+  ensure_hidden_directories()
   ensure_db_directory()
   
   if (!file.exists(DEFAULT_DB_NAME)) {
@@ -303,7 +331,22 @@ add_plugging_tables()
 add_body_weight_table()
 # add_audit_trail_table() # Removed - now handled by enhanced audit trail
 
-DB_PATH <<- normalizePath(DEFAULT_DB_NAME)
+# Set DB_PATH - check config file for session switches, otherwise use main database
+config_file <- file.path(CONFIG_DIR, "current_db.conf")
+if (file.exists(config_file)) {
+  tryCatch({
+    temp_db_path <- readLines(config_file, n = 1, warn = FALSE)
+    if (length(temp_db_path) > 0 && file.exists(temp_db_path)) {
+      DB_PATH <<- normalizePath(temp_db_path)
+    } else {
+      DB_PATH <<- normalizePath(DEFAULT_DB_NAME)
+    }
+  }, error = function(e) {
+    DB_PATH <<- normalizePath(DEFAULT_DB_NAME)
+  })
+} else {
+  DB_PATH <<- normalizePath(DEFAULT_DB_NAME)
+}
 
 # Note: Audit trail functions are now provided by the enhanced audit_trail.R module
 

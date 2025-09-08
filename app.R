@@ -40,6 +40,7 @@ shorten_path <- function(path, keep = 2) {
 # For production, move these source() calls back to the global section (outside server) for better performance.
 source("Modules/audit_trail.R")
 source("Modules/db_check.R")
+source("Modules/database_manager.R")
 source("Modules/modal_add_animal.R")
 source("Modules/modal_mice_history.R")
 source("Modules/tab_all_mice.R")
@@ -53,6 +54,50 @@ source("Modules/analytics_tracker.R")
 
 # Initialize audit trail
 initialize_audit_trail()
+
+# Initialize hidden directories for database management
+initialize_hidden_directories()
+
+# Database setup function
+check_and_setup_database <- function() {
+  # First priority: Check if database exists at the configured location (DEFAULT_DB_NAME)
+  if (file.exists(DEFAULT_DB_NAME)) {
+    return(list(setup_needed = FALSE, db_path = DEFAULT_DB_NAME))
+  }
+  
+  # Second priority: Check current working directory for .db files (development mode)
+  current_dir <- getwd()
+  current_db_files <- list.files(current_dir, pattern = "\\.db$", full.names = TRUE)
+  if (length(current_db_files) > 0) {
+    return(list(setup_needed = FALSE, db_path = current_db_files[1]))
+  }
+  
+  # Third: Check for any existing databases in other locations
+  search_locations <- c(
+    HIDDEN_DIR,  # Main database directory
+    BACKUPS_DIR,  # Backup directory
+    file.path(Sys.getenv("HOME"), ".mousemanagement_DontRemove"),  # Home hidden directory 
+    current_dir  # Current directory
+  )
+  
+  found_databases <- c()
+  for (location in search_locations) {
+    if (dir.exists(location)) {
+      db_files <- list.files(location, pattern = "\\.db$", full.names = TRUE)
+      found_databases <- c(found_databases, db_files)
+    }
+  }
+  
+  # If running with run_shiny.sh (environment variables set), don't ask for folder
+  ask_for_folder <- Sys.getenv("MOUSE_DB_DIR") == ""
+  
+  return(list(
+    setup_needed = TRUE,
+    found_databases = found_databases,
+    default_path = DEFAULT_DB_NAME,
+    ask_for_folder = ask_for_folder
+  ))
+}
 
 # Add a global reactive value for timezone
 user_timezone <- reactiveVal(Sys.timezone())
@@ -709,8 +754,12 @@ ui <- fluidPage(
     div(
       style = "display: grid; grid-template-columns: auto 1fr auto; align-items: center; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 12px 16px; margin-top: 32px; border-radius: 0 0 8px 8px; margin-left: 0px; margin-right: 50px;",
       div(
-        style = "font-size: 0.9em; color: #6c757d; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
-        paste("📊 Database:", shorten_path(DB_PATH))
+        style = "font-size: 0.9em; color: #6c757d; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 8px;",
+        paste("📊 Database:", shorten_path(DB_PATH)),
+        actionButton("db_settings_btn", "⚙️", 
+                    class = "btn btn-outline-secondary btn-sm",
+                    style = "padding: 2px 6px; font-size: 12px;",
+                    title = "Database Settings")
       ),
       div(
         HTML('💬 Please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #5F9EA0; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol for any inquiries.'),
@@ -726,6 +775,94 @@ ui <- fluidPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
+  # Check database setup on app startup
+  db_setup_info <- check_and_setup_database()
+  
+  # Show database setup modal if needed
+  if (db_setup_info$setup_needed) {
+    showModal(modalDialog(
+      title = div(
+        style = "font-size: 1.5rem; font-weight: bold; color: #2c3e50; text-align: center;",
+        "🚀 Welcome to Mouse Management System"
+      ),
+      size = "l",
+      easyClose = FALSE,
+      div(
+        div(
+          style = "background: #e3f2fd; border-radius: 8px; padding: 20px; margin-bottom: 20px; text-align: center;",
+          h4("Database Setup Required", style = "color: #1976d2; margin-bottom: 15px;"),
+          p("No database found at the default location. Please choose one of the options below to get started.", 
+            style = "color: #555; font-size: 1.1em;")
+        ),
+        
+        if (length(db_setup_info$found_databases) > 0) {
+          div(
+            style = "background: #e8f5e8; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
+            h4("📁 Found Existing Databases", style = "color: #388e3c; margin-bottom: 10px;"),
+            p("Select an existing database:", style = "margin-bottom: 10px;"),
+            selectInput("startup_existing_db", NULL,
+                       choices = setNames(db_setup_info$found_databases, 
+                                        paste0(basename(db_setup_info$found_databases), " (", dirname(db_setup_info$found_databases), ")")),
+                       width = "100%"),
+            actionButton("use_existing_db", "Use Selected Database", 
+                        class = "btn-success", style = "width: 100%; margin-top: 10px;")
+          )
+        },
+        
+        div(
+          style = "background: #fff3e0; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
+          h4("📂 Import Database File", style = "color: #f57c00; margin-bottom: 10px;"),
+          fileInput("startup_import_file", "Select a database file (.db):",
+                   accept = c(".db", ".sqlite", ".sqlite3"), width = "100%"),
+          actionButton("import_and_use_db", "Import and Use Database", 
+                      class = "btn-warning", style = "width: 100%;")
+        ),
+        
+        if (!is.null(db_setup_info$ask_for_folder) && db_setup_info$ask_for_folder) {
+          div(
+            style = "background: #f3e5f5; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
+            h4("📁 Choose Database Folder", style = "color: #7b1fa2; margin-bottom: 10px;"),
+            p("Select a folder where you want to save your database:", style = "margin-bottom: 10px;"),
+            div(
+              style = "display: flex; align-items: center; gap: 10px;",
+              textInput("custom_db_folder", NULL, placeholder = "Select folder...", width = "70%"),
+              shinyDirButton("browse_folder", "Browse", "Select folder", 
+                            style = "height: 34px;", class = "btn-outline-secondary")
+            ),
+            textInput("custom_db_name", "Database name:", value = "mice_colony.db", width = "100%"),
+            actionButton("create_custom_db", "Create Database in Selected Folder", 
+                        class = "btn-success", style = "width: 100%; margin-top: 10px;")
+          )
+        },
+        
+        div(
+          style = "background: #fce4ec; border-radius: 8px; padding: 15px;",
+          h4("🆕 Create New Database (Default Location)", style = "color: #c2185b; margin-bottom: 10px;"),
+          p(paste("Create a new database at:", db_setup_info$default_path), 
+            style = "font-family: monospace; background: white; padding: 8px; border-radius: 4px; margin: 10px 0;"),
+          actionButton("create_new_db", "Create New Database", 
+                      class = "btn-primary", style = "width: 100%;")
+        )
+      ),
+      footer = div(
+        style = "text-align: center; color: #666; font-size: 0.9em;",
+        "You can change the database location later from the settings menu."
+      )
+    ))
+  }
+  
+  # Create automatic backup on app startup
+  tryCatch({
+    if (file.exists(DB_PATH)) {
+      backup_result <- create_startup_backup()
+      if (backup_result$success && !grepl("skipping", backup_result$message, ignore.case = TRUE)) {
+        message("Automatic backup created: ", backup_result$message)
+      }
+    }
+  }, error = function(e) {
+    message("Failed to create automatic backup: ", e$message)
+  })
+
   # Log visitor data in background
   tryCatch({
     log_visitor(session, use_github = TRUE)
@@ -1119,6 +1256,352 @@ server <- function(input, output, session) {
     ))
   })
 
+  # Database Settings Modal
+  observeEvent(input$db_settings_btn, {
+    current_db_info <- get_database_info()
+    available_dbs <- list_hidden_databases()
+    
+    showModal(modalDialog(
+      title = div(
+        style = "font-size: 1.4rem; font-weight: bold; color: #2c3e50;",
+        "🗃️ Database Management"
+      ),
+      size = "l",
+      div(
+        # Current Database Info
+        div(
+          style = "background: #f8f9fa; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
+          h4("Current Database", style = "color: #495057; margin-bottom: 10px;"),
+          if (!is.null(current_db_info$error)) {
+            div(style = "color: #dc3545;", paste("Error:", current_db_info$error))
+          } else {
+            div(
+              strong("Name: "), current_db_info$name, br(),
+              strong("Path: "), current_db_info$path, br(),
+              strong("Size: "), round(current_db_info$size / 1024, 2), " KB", br(),
+              strong("Modified: "), format(current_db_info$modified, "%Y-%m-%d %H:%M"), br(),
+              if (!is.null(current_db_info$mice_count)) {
+                tagList(strong("Records: "), 
+                       current_db_info$mice_count, " mice, ",
+                       if (!is.null(current_db_info$plugging_count)) current_db_info$plugging_count else 0, " plugging events, ",
+                       if (!is.null(current_db_info$weight_records_count)) current_db_info$weight_records_count else 0, " weight records")
+              }
+            )
+          }
+        ),
+        
+        # Database Selector
+        div(
+          style = "background: #e3f2fd; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
+          h4("Switch Database", style = "color: #1976d2; margin-bottom: 10px;"),
+          fluidRow(
+            column(8,
+              selectInput("db_selector", 
+                         "Choose from hidden databases:",
+                         choices = available_dbs,
+                         selected = if (DB_PATH %in% available_dbs) DB_PATH else NULL)
+            ),
+            column(4,
+              br(),
+              actionButton("switch_db_btn", "Switch Database", 
+                          class = "btn-primary",
+                          style = "margin-top: 5px;")
+            )
+          )
+        ),
+        
+        # Import Database
+        div(
+          style = "background: #e8f5e8; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
+          h4("Import Database", style = "color: #388e3c; margin-bottom: 10px;"),
+          fluidRow(
+            column(8,
+              fileInput("import_db_file", 
+                       "Select database file to import:",
+                       accept = c(".db", ".sqlite", ".sqlite3"))
+            ),
+            column(4,
+              br(),
+              textInput("import_db_name", "New name (optional):", 
+                       placeholder = "Leave empty to keep original name"),
+              actionButton("import_db_btn", "Import Database", 
+                          class = "btn-success",
+                          style = "margin-top: 5px;")
+            )
+          )
+        ),
+        
+        # Create New Database
+        div(
+          style = "background: #fff3e0; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
+          h4("Create New Database", style = "color: #f57c00; margin-bottom: 10px;"),
+          fluidRow(
+            column(8,
+              textInput("new_db_name", "Database name:", 
+                       placeholder = "Enter database name (without .db extension)")
+            ),
+            column(4,
+              br(),
+              actionButton("create_db_btn", "Create Database", 
+                          class = "btn-warning",
+                          style = "margin-top: 5px;")
+            )
+          )
+        ),
+        
+        # Backup Options
+        div(
+          style = "background: #fce4ec; border-radius: 8px; padding: 15px;",
+          h4("Backup & Maintenance", style = "color: #c2185b; margin-bottom: 10px;"),
+          fluidRow(
+            column(6,
+              actionButton("manual_backup_btn", "📁 Create Backup", 
+                          class = "btn-info btn-sm")
+            ),
+            column(6,
+              actionButton("clean_backups_btn", "🧹 Clean Old Backups", 
+                          class = "btn-secondary btn-sm")
+            )
+          )
+        )
+      ),
+      footer = tagList(
+        div(id = "db_status_message", style = "margin-right: 10px;"),
+        modalButton("Close"),
+        actionButton("refresh_db_list", "🔄 Refresh", 
+                    class = "btn-outline-secondary btn-sm")
+      )
+    ))
+  })
+  
+  # Database management event handlers
+  observeEvent(input$switch_db_btn, {
+    req(input$db_selector)
+    
+    if (input$db_selector == "" || input$db_selector == DB_PATH) {
+      showNotification("Please select a different database", type = "warning")
+      return()
+    }
+    
+    result <- switch_database(input$db_selector)
+    
+    if (result$success) {
+      showNotification(result$message, type = "message", duration = 5)
+      
+      # Reload the app to use the switched database
+      session$reload()
+    } else {
+      showNotification(result$message, type = "error", duration = 5)
+    }
+  })
+  
+  observeEvent(input$import_db_btn, {
+    req(input$import_db_file)
+    
+    result <- import_database_to_main(input$import_db_file$datapath)
+    
+    if (result$success) {
+      showNotification(result$message, type = "message", duration = 5)
+      # Refresh database list
+      updateSelectInput(session, "db_selector", choices = list_hidden_databases())
+      # Add delay before refresh to show success message
+      invalidateLater(2000, session)
+      observe({
+        # Trigger global refresh before reload
+        global_refresh_trigger(Sys.time())
+        session$reload()
+      })
+    } else {
+      showNotification(result$message, type = "error", duration = 5)
+    }
+  })
+  
+  observeEvent(input$create_db_btn, {
+    req(input$new_db_name)
+    
+    if (trimws(input$new_db_name) == "") {
+      showNotification("Please enter a database name", type = "warning")
+      return()
+    }
+    
+    result <- create_new_database(input$new_db_name)
+    
+    if (result$success) {
+      showNotification(result$message, type = "message", duration = 5)
+      # Refresh database list
+      updateSelectInput(session, "db_selector", choices = list_hidden_databases())
+    } else {
+      showNotification(result$message, type = "error", duration = 5)
+    }
+  })
+  
+  observeEvent(input$manual_backup_btn, {
+    result <- create_backup()
+    
+    if (result$success) {
+      showNotification(result$message, type = "message", duration = 5)
+      # Refresh database list after backup
+      updateSelectInput(session, "db_selector", choices = list_hidden_databases())
+    } else {
+      showNotification(result$message, type = "error", duration = 5)
+    }
+  })
+  
+  observeEvent(input$clean_backups_btn, {
+    result <- clean_old_backups()
+    
+    if (result$success) {
+      showNotification(result$message, type = "message", duration = 5)
+      # Refresh database list after cleanup
+      updateSelectInput(session, "db_selector", choices = list_hidden_databases())
+    } else {
+      showNotification(result$message, type = "error", duration = 5)
+    }
+  })
+  
+  observeEvent(input$refresh_db_list, {
+    updateSelectInput(session, "db_selector", choices = list_hidden_databases())
+    showNotification("Database list refreshed", type = "message", duration = 2)
+  })
+  
+  # Startup database setup handlers
+  observeEvent(input$use_existing_db, {
+    req(input$startup_existing_db)
+    
+    tryCatch({
+      # Ensure the database directory exists
+      target_dir <- dirname(DB_PATH)
+      if (!dir.exists(target_dir)) {
+        dir.create(target_dir, recursive = TRUE, showWarnings = FALSE)
+      }
+      
+      # Copy the selected database to the default location
+      file.copy(input$startup_existing_db, DB_PATH, overwrite = TRUE)
+      
+      removeModal()
+      showNotification("Database setup complete! The app will now load your data.", 
+                      type = "message", duration = 5)
+      
+      # Refresh the app data
+      session$reload()
+      
+    }, error = function(e) {
+      showNotification(paste("Error setting up database:", e$message), 
+                      type = "error", duration = 8)
+    })
+  })
+  
+  observeEvent(input$import_and_use_db, {
+    req(input$startup_import_file)
+    
+    tryCatch({
+      # Import database using the new function
+      result <- import_database_to_main(input$startup_import_file$datapath)
+      
+      if (!result$success) {
+        showNotification(paste("Import failed:", result$message), 
+                        type = "error", duration = 8)
+        return()
+      }
+      
+      removeModal()
+      showNotification("Database imported successfully! The app will now load your data.", 
+                      type = "message", duration = 5)
+      
+      # Trigger global refresh before reload
+      global_refresh_trigger(Sys.time())
+      
+      # Refresh the app data
+      session$reload()
+      
+    }, error = function(e) {
+      showNotification(paste("Error importing database:", e$message), 
+                      type = "error", duration = 8)
+    })
+  })
+  
+  observeEvent(input$create_new_db, {
+    tryCatch({
+      # Ensure the database directory exists
+      target_dir <- dirname(DB_PATH)
+      if (!dir.exists(target_dir)) {
+        dir.create(target_dir, recursive = TRUE, showWarnings = FALSE)
+      }
+      
+      # Create a new database (the initialize_db function will handle this)
+      # Just need to ensure the directory exists and let the normal initialization run
+      
+      removeModal()
+      showNotification("New database will be created. The app is ready to use!", 
+                      type = "message", duration = 5)
+      
+      # Refresh the app data
+      session$reload()
+      
+    }, error = function(e) {
+      showNotification(paste("Error creating database:", e$message), 
+                      type = "error", duration = 8)
+    })
+  })
+  
+  # Setup directory chooser
+  roots <- c(Home = Sys.getenv("HOME"), getVolumes()())
+  shinyDirChoose(input, "browse_folder", roots = roots, session = session)
+  
+  # Handle folder selection
+  observeEvent(input$browse_folder, {
+    if (!is.null(input$browse_folder) && length(input$browse_folder$path) > 0) {
+      selected_path <- parseDirPath(roots, input$browse_folder)
+      if (length(selected_path) > 0) {
+        updateTextInput(session, "custom_db_folder", value = selected_path)
+      }
+    }
+  })
+  
+  # Create database in custom folder
+  observeEvent(input$create_custom_db, {
+    req(input$custom_db_folder, input$custom_db_name)
+    
+    tryCatch({
+      custom_folder <- input$custom_db_folder
+      custom_name <- input$custom_db_name
+      
+      # Ensure folder exists
+      if (!dir.exists(custom_folder)) {
+        dir.create(custom_folder, recursive = TRUE, showWarnings = FALSE)
+      }
+      
+      # Clean up database name
+      if (!grepl("\\.db$", custom_name)) {
+        custom_name <- paste0(custom_name, ".db")
+      }
+      
+      custom_db_path <- file.path(custom_folder, custom_name)
+      
+      # Create database using database_manager function
+      result <- create_new_database(custom_name)
+      if (result$success) {
+        # Move the created database to custom location
+        file.copy(result$path, custom_db_path, overwrite = TRUE)
+        file.remove(result$path)
+        
+        # Update DB_PATH to point to new location
+        DB_PATH <<- normalizePath(custom_db_path)
+        
+        removeModal()
+        showNotification(paste("Database created at:", custom_db_path), 
+                        type = "message", duration = 5)
+        
+        session$reload()
+      } else {
+        showNotification(result$message, type = "error", duration = 8)
+      }
+      
+    }, error = function(e) {
+      showNotification(paste("Error creating custom database:", e$message), 
+                      type = "error", duration = 8)
+    })
+  })
 
 }
 
