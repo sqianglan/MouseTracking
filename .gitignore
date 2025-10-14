@@ -21,7 +21,7 @@ ehthumbs.db
 Thumbs.db
 
 # Database files (exclude from version control for security)
-*.db
+//*.db
 *.sqlite
 *.sqlite3
 
