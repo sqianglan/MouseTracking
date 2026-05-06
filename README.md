@@ -2,6 +2,17 @@
 
 A comprehensive web-based application for tracking and managing mouse colony plugging records in animal research facilities. Built with R Shiny, this system provides a dedicated platform for breeding pair management and plugging event tracking.
 
+## Current Version
+
+**Version beta 1.5**
+
+Recent highlights in this release:
+- Trio-style plugging entry with one male and up to three females
+- Copy-ready plugging summaries for ongoing records and individual plugging details
+- Wider Plugging Event Details modal with persistent body weight panel
+- Improved body weight modal return flow back to Plugging Details
+- Better import mapping validation and plugging warning behavior
+
 ## 📋 Table of Contents
 
 - [Overview](#overview)
@@ -41,7 +52,7 @@ The Mouse Management System addresses the critical gap in current webtools used 
 - **Body Weight Management**: Track and visualize body weight over time with integrated charts
 
 ### 🐭⚤🐭 Plugging Management
-- **Breeding Pair Management**: Create and manage breeding pairs or trios
+- **Breeding Group Management**: Create and manage breeding groups with one male and up to three females
 - **Plugging Event Tracking**: Record and track events through status stages:
   - Ongoing
   - Plugged
@@ -52,6 +63,7 @@ The Mouse Management System addresses the critical gap in current webtools used 
   - Not Observed (Confirmed)
   - Surprising Plug!!
 - **Status Workflow**: Visual progression through plugging stages
+- **Summary Export Tools**: Generate copy-ready summaries for ongoing plugging groups and individual plugging records
 - **Intelligent Date Management**: Automatic date synchronization for consistent record keeping
   - Pairing end date automatically matches plug observed date for quick updates
   - Plug observed date automatically set to "Unknown" for non-observational statuses
@@ -64,7 +76,7 @@ The Mouse Management System addresses the critical gap in current webtools used 
 - **Data Validation**: Automatic validation of weight values and measurement dates
 - **Historical Overview**: Complete weight history with timestamps
 - **Easy Data Entry**: Quick add/edit/delete functionality for weight records
-- **Integration**: Seamlessly integrated within mouse history modal
+- **Integration**: Seamlessly integrated within mouse history and plugging details modals
 
 ### 📅 Event Calendar
 - Interactive monthly calendar visualization

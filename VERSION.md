@@ -1,6 +1,33 @@
+# Version: beta 1.5 - Update Summary
+
+## 🎉 Latest Updates (beta 1.5)
+
+### 🐭 Plugging Workflow Expansion
+- **Trio support**: One male can now be recorded with up to three females in a single add workflow
+- **Smarter availability rules**: Female mice with active plugging records are filtered out; males remain selectable until they exceed the active-record limit
+- **Clearer warnings**: Active plugging warnings are shown in the mouse info panels instead of in dropdown labels
+- **Compact add modal**: The Add Plugging Event modal was resized and reorganized for faster entry
+
+### 📋 Plugging Summary Tools
+- **Ongoing summary export**: Added a copy-ready ongoing plugging summary grouped by male and sorted by pairing start date
+- **Detail summary export**: Added a one-click summary action in Plugging Event Details for ASU/lab reporting text
+- **Improved detail modal layout**: Plugging details and body weight trends now display side by side in a wider modal
+
+### 📊 Body Weight Modal Improvements
+- **Stable modal return flow**: Closing the body weight modal from Plugging Details now returns to the plugging details modal instead of exiting both
+- **Persistent chart panel**: The body weight section remains visible in Plugging Details even when no weight records exist
+- **Cleaner chart spacing**: Removed unnecessary blank space below the preview chart
+
+### 🔧 Reliability & Import Improvements
+- **Safer import mapping**: Required import fields are enforced and mapping warnings are clearer
+- **More robust edit flow**: Fixed plugging detail edit issues caused by mismatched live-mouse and database columns
+- **Backup cleanup from git**: Backup database directories are now explicitly ignored from version control
+
+---
+
 # Version: beta 1.41 - Update Summary
 
-## 🎉 Latest Updates (beta 1.41)
+## 🎉 Previous Updates (beta 1.41)
 
 ### 🗃️ Database Management System Overhaul
 - **Simplified naming**: Always use `mice_colony.db` as main database name (eliminates "0.db" issues)

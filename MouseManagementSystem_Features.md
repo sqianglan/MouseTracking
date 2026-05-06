@@ -1,5 +1,16 @@
 # Mouse Management System - Feature Summary
 
+## Current Version
+
+**Version beta 1.5**
+
+### New in beta 1.5
+- Trio-style plugging event recording with one male and up to three females
+- Copy-ready summary tools for ongoing plugging groups and individual plugging records
+- Wider Plugging Event Details modal with a persistent body weight panel and placeholder state
+- Improved return logic from body weight modal back to Plugging Details
+- Refined warning and filtering behavior for active plugging records
+
 ## Overview
 The Mouse Management System is a comprehensive web-based application built with R Shiny, designed specifically for tracking and managing mouse colony plugging records used. **This is not a replacement of facility mouse managment syste, rather then for personal or small group using.** This system addresses the critical gap in current webtools used by Animal Facilities by providing a clear tracking recordes for breeding or plugging mice and provide a summarizing table to highlight the successful rate of a given mouse.
 
@@ -17,10 +28,10 @@ The Mouse Management System is a comprehensive web-based application built with 
 - **Bulk Operations**: Edit multiple selected mice simultaneously
 - **Mouse History**: Double-click functionality to view summary of past or ongoing plugging events and final stages. This would be helpful to decide the fertility of the mice. 
 - **Status Indicators**: Visual status lights for live/deceased mice
-- **Add Plugging Pairs/Trios** By selecting maxium 3 mice and at least one male and one female, and clicking "Add Plugging Event" button, will generate plugging events for each female. The sytem will check the status of each mice, and pop out warning message if the mice is not alive, busy (two or more active plugging event for male, and one for female). 
+- **Add Plugging Pairs/Trios** By selecting up to 4 mice with exactly one male and one to three females, and clicking "Add Plugging Event", the system will generate one plugging event per female. The system checks each mouse status and warns when mice are not alive or have conflicting active plugging records.
 
 ### 🐭⚤🐭 Plugging Management
-- **Mice Pairing Management**: Create and manage Pairing pairs or trios
+- **Mice Pairing Management**: Create and manage breeding groups with one male and up to three females
 - **Plugging Event Tracking**: Record and track plugging events through multiple status stages (🔵 = active plugging event):
   - Ongoing 🔵
   - Plugged 🔵
@@ -33,6 +44,7 @@ The Mouse Management System is a comprehensive web-based application built with 
 - **Status Workflow**: Visual progression through plugging stages with automatic date tracking
 - **Show Archived/Deleted Records**: View archived and deleted plugging records
 - **Cross-module Integration**: Seamless integration with All Mice tab for data consistency
+- **Summary Export**: Generate copy-ready text for ongoing plugging groups and individual plugging details for reporting use
 
 ### 📅 Event Calendar
 - **Interactive Calendar View**: Monthly calendar visualization summarizing the plugging events

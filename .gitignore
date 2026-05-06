@@ -48,6 +48,8 @@ Thumbs.db
 *.bak
 *.backup
 *_backup.*
+/.mousemanagement/backups/
+/.mousemanagement_DontRemove/backups/
 
 # Data files (uncomment if you want to exclude data)
 # *.csv
