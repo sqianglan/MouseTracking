@@ -753,14 +753,7 @@ ui <- fluidPage(
     ),
     div(
       style = "display: grid; grid-template-columns: auto 1fr auto; align-items: center; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 12px 16px; margin-top: 32px; border-radius: 0 0 8px 8px; margin-left: 0px; margin-right: 50px;",
-      div(
-        style = "font-size: 0.9em; color: #6c757d; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 8px;",
-        paste("📊 Database:", shorten_path(DB_PATH)),
-        actionButton("db_settings_btn", "⚙️", 
-                    class = "btn btn-outline-secondary btn-sm",
-                    style = "padding: 2px 6px; font-size: 12px;",
-                    title = "Database Settings")
-      ),
+      uiOutput("database_footer_ui"),
       div(
         HTML('💬 Please contact <a href="mailto:qiang.lan@bristol.ac.uk" style="color: #5F9EA0; text-decoration: underline; font-weight: 500;">Qiang Lan</a>, University of Bristol for any inquiries.'),
         style = "text-align: center; font-size: 0.85em; color: #6c757d;"
@@ -898,6 +891,52 @@ server <- function(input, output, session) {
   
   # Global refresh trigger for cross-module data updates
   global_refresh_trigger <- reactiveVal(Sys.time())
+
+  refresh_active_database <- function() {
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    all_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id"))
+    DBI::dbDisconnect(con)
+
+    all_mice_table(all_data)
+    global_refresh_trigger(Sys.time())
+  }
+
+  output$database_footer_ui <- renderUI({
+    global_refresh_trigger()
+    current_db_path <- get_current_db_path()
+    footer_label <- if (is_viewing_main_database()) "Main DB" else "Backup View"
+
+    div(
+      style = "font-size: 0.9em; color: #6c757d; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 8px;",
+      span(paste0("📊 ", footer_label, ": ", shorten_path(current_db_path))),
+      actionButton("db_settings_btn", "⚙️",
+                  class = "btn btn-outline-secondary btn-sm",
+                  style = "padding: 2px 6px; font-size: 12px;",
+                  title = "Database Management")
+    )
+  })
+
+  output$db_status_message <- renderUI({
+    div(
+      style = "margin-right: 10px; color: #64748b;",
+      "Main database remains the canonical source unless you explicitly restore a backup as main."
+    )
+  })
+
+  refresh_database_management_selector <- function(status_message = NULL) {
+    updateSelectInput(
+      session,
+      "db_selector",
+      choices = list_hidden_databases(),
+      selected = get_current_db_path()
+    )
+
+    if (!is.null(status_message)) {
+      output$db_status_message <- renderUI({
+        div(style = "margin-right: 10px; color: #64748b;", status_message)
+      })
+    }
+  }
   
   # Shared plugging state for cross-module communication
   shared_plugging_state <- reactiveValues(
@@ -1258,7 +1297,8 @@ server <- function(input, output, session) {
 
   # Database Settings Modal
   observeEvent(input$db_settings_btn, {
-    current_db_info <- get_database_info()
+    current_db_path <- get_current_db_path()
+    current_db_info <- get_database_info(current_db_path)
     available_dbs <- list_hidden_databases()
     
     showModal(modalDialog(
@@ -1270,21 +1310,28 @@ server <- function(input, output, session) {
       div(
         # Current Database Info
         div(
-          style = "background: #f8f9fa; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
-          h4("Current Database", style = "color: #495057; margin-bottom: 10px;"),
+          style = "background: linear-gradient(180deg, #f8fafc 0%, #eef3f8 100%); border: 1px solid #d8e2eb; border-radius: 10px; padding: 16px; margin-bottom: 18px;",
+          h4("Current View", style = "color: #334155; margin-bottom: 10px; font-weight: 700;"),
           if (!is.null(current_db_info$error)) {
             div(style = "color: #dc3545;", paste("Error:", current_db_info$error))
           } else {
             div(
-              strong("Name: "), current_db_info$name, br(),
-              strong("Path: "), current_db_info$path, br(),
+              div(
+                style = "display: inline-block; padding: 4px 10px; border-radius: 999px; background: #e2e8f0; color: #1e293b; font-weight: 600; margin-bottom: 10px;",
+                if (isTRUE(current_db_info$is_main)) "Main database" else "Temporary backup view"
+              ),
+              br(),
+              strong("File: "), current_db_info$name, br(),
+              strong("Location: "), current_db_info$path, br(),
+              strong("Last modified: "), format(current_db_info$modified, "%Y-%m-%d %H:%M"), br(),
               strong("Size: "), round(current_db_info$size / 1024, 2), " KB", br(),
-              strong("Modified: "), format(current_db_info$modified, "%Y-%m-%d %H:%M"), br(),
               if (!is.null(current_db_info$mice_count)) {
-                tagList(strong("Records: "), 
-                       current_db_info$mice_count, " mice, ",
-                       if (!is.null(current_db_info$plugging_count)) current_db_info$plugging_count else 0, " plugging events, ",
-                       if (!is.null(current_db_info$weight_records_count)) current_db_info$weight_records_count else 0, " weight records")
+                tagList(
+                  strong("Records: "), 
+                  current_db_info$mice_count, " mice, ",
+                  if (!is.null(current_db_info$plugging_count)) current_db_info$plugging_count else 0, " plugging events, ",
+                  if (!is.null(current_db_info$weight_records_count)) current_db_info$weight_records_count else 0, " weight records"
+                )
               }
             )
           }
@@ -1292,28 +1339,44 @@ server <- function(input, output, session) {
         
         # Database Selector
         div(
-          style = "background: #e3f2fd; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
-          h4("Switch Database", style = "color: #1976d2; margin-bottom: 10px;"),
+          style = "background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px; margin-bottom: 18px;",
+          h4("Browse And Restore", style = "color: #1d4ed8; margin-bottom: 10px; font-weight: 700;"),
+          p(
+            "View Selected opens a backup temporarily. Return To Main returns to the live database. Restore Selected As Main replaces the live database after creating a safety backup.",
+            style = "margin-bottom: 12px; color: #1e3a8a;"
+          ),
           fluidRow(
             column(8,
               selectInput("db_selector", 
-                         "Choose from hidden databases:",
+                         "Available databases:",
                          choices = available_dbs,
-                         selected = if (DB_PATH %in% available_dbs) DB_PATH else NULL)
+                         selected = current_db_path,
+                         selectize = FALSE,
+                         width = "100%")
             ),
             column(4,
               br(),
-              actionButton("switch_db_btn", "Switch Database", 
-                          class = "btn-primary",
-                          style = "margin-top: 5px;")
+              div(
+                style = "display: flex; flex-direction: column; gap: 8px; margin-top: 5px;",
+                actionButton("switch_db_btn", "View Selected", 
+                            class = "btn-primary",
+                            style = "width: 100%;"),
+                actionButton("return_main_db_btn", "Return To Main", 
+                            class = "btn-default",
+                            style = "width: 100%;"),
+                actionButton("restore_main_db_btn", "Restore Selected As Main", 
+                            class = "btn-warning",
+                            style = "width: 100%; font-weight: 600;")
+              )
             )
           )
         ),
         
         # Import Database
         div(
-          style = "background: #e8f5e8; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
-          h4("Import Database", style = "color: #388e3c; margin-bottom: 10px;"),
+          style = "background: linear-gradient(180deg, #ecfdf5 0%, #dcfce7 100%); border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px; margin-bottom: 18px;",
+          h4("Import Into Main Database", style = "color: #15803d; margin-bottom: 10px; font-weight: 700;"),
+          p("Import replaces the main database after saving the current main database as a backup.", style = "margin-bottom: 12px; color: #166534;"),
           fluidRow(
             column(8,
               fileInput("import_db_file", 
@@ -1333,8 +1396,9 @@ server <- function(input, output, session) {
         
         # Create New Database
         div(
-          style = "background: #fff3e0; border-radius: 8px; padding: 15px; margin-bottom: 20px;",
-          h4("Create New Database", style = "color: #f57c00; margin-bottom: 10px;"),
+          style = "background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%); border: 1px solid #fed7aa; border-radius: 10px; padding: 16px; margin-bottom: 18px;",
+          h4("Create New Empty Database", style = "color: #c2410c; margin-bottom: 10px; font-weight: 700;"),
+          p("This creates a fresh database file without changing your existing backups.", style = "margin-bottom: 12px; color: #9a3412;"),
           fluidRow(
             column(8,
               textInput("new_db_name", "Database name:", 
@@ -1351,8 +1415,12 @@ server <- function(input, output, session) {
         
         # Backup Options
         div(
-          style = "background: #fce4ec; border-radius: 8px; padding: 15px;",
-          h4("Backup & Maintenance", style = "color: #c2185b; margin-bottom: 10px;"),
+          style = "background: linear-gradient(180deg, #fdf2f8 0%, #fce7f3 100%); border: 1px solid #fbcfe8; border-radius: 10px; padding: 16px;",
+          h4("Backup And Maintenance", style = "color: #be185d; margin-bottom: 10px; font-weight: 700;"),
+          p(
+            "Create Backup saves the current main database. Clean Old Backups runs only when you click it and only removes backups outside the retention rules.",
+            style = "margin-bottom: 12px; color: #9d174d;"
+          ),
           fluidRow(
             column(6,
               actionButton("manual_backup_btn", "📁 Create Backup", 
@@ -1366,7 +1434,7 @@ server <- function(input, output, session) {
         )
       ),
       footer = tagList(
-        div(id = "db_status_message", style = "margin-right: 10px;"),
+        uiOutput("db_status_message"),
         modalButton("Close"),
         actionButton("refresh_db_list", "🔄 Refresh", 
                     class = "btn-outline-secondary btn-sm")
@@ -1386,12 +1454,38 @@ server <- function(input, output, session) {
     result <- switch_database(input$db_selector)
     
     if (result$success) {
+      refresh_active_database()
+      refresh_database_management_selector(result$message)
       showNotification(result$message, type = "message", duration = 5)
-      
-      # Reload the app to use the switched database
-      session$reload()
+      removeModal()
     } else {
       showNotification(result$message, type = "error", duration = 5)
+    }
+  })
+
+  observeEvent(input$return_main_db_btn, {
+    result <- return_to_main_database()
+
+    if (result$success) {
+      refresh_active_database()
+      refresh_database_management_selector(result$message)
+      showNotification(result$message, type = "message", duration = 5)
+    } else {
+      showNotification(result$message, type = "error", duration = 5)
+    }
+  })
+
+  observeEvent(input$restore_main_db_btn, {
+    req(input$db_selector)
+
+    result <- restore_backup_as_main(input$db_selector)
+
+    if (result$success) {
+      refresh_active_database()
+      refresh_database_management_selector(result$message)
+      showNotification(result$message, type = "message", duration = 6)
+    } else {
+      showNotification(result$message, type = "error", duration = 6)
     }
   })
   
@@ -1460,7 +1554,7 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$refresh_db_list, {
-    updateSelectInput(session, "db_selector", choices = list_hidden_databases())
+    refresh_database_management_selector("Database list refreshed.")
     showNotification("Database list refreshed", type = "message", duration = 2)
   })
   

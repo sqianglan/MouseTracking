@@ -41,7 +41,7 @@ plugging_tab_ui <- function() {
       ),
       div(
         style = "padding: 12px; background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 6px; border-left: 4px solid #28a745;",
-        "📊 Record plugging events for breeding pairs or trios and track their progress through different stages."
+        "📊 Record plugging events for breeding groups with one male and up to three females, and track their progress through different stages."
       )
     ),
     div(
@@ -99,6 +99,157 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     if (!is.null(con)) {
       tryCatch(DBI::dbDisconnect(con), error = function(e) NULL)
     }
+  }
+
+  safe_parse_plugging_date <- function(date_string) {
+    if (is.null(date_string) || is.na(date_string) || date_string == "" || date_string == "Unknown") {
+      return(as.Date(NA))
+    }
+
+    date_formats <- c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%m-%d-%Y", "%d-%m-%Y")
+
+    for (date_format in date_formats) {
+      parsed_date <- tryCatch(as.Date(date_string, format = date_format), error = function(e) as.Date(NA))
+      if (!is.na(parsed_date)) {
+        return(unname(parsed_date))
+      }
+    }
+
+    as.Date(NA)
+  }
+
+  calculate_plugging_base_date <- function(status, plug_observed_date, pairing_start_date) {
+    if (status %in% c("Plugged", "Plug Confirmed")) {
+      parsed_plug_date <- safe_parse_plugging_date(plug_observed_date)
+      if (!is.na(parsed_plug_date)) {
+        return(parsed_plug_date)
+      }
+
+      parsed_pairing_start_date <- safe_parse_plugging_date(pairing_start_date)
+      if (!is.na(parsed_pairing_start_date)) {
+        return(parsed_pairing_start_date)
+      }
+    }
+
+    if (status %in% c("Not Observed (Waiting for confirmation)", "Surprising Plug!!", "Ongoing")) {
+      parsed_pairing_start_date <- safe_parse_plugging_date(pairing_start_date)
+      if (!is.na(parsed_pairing_start_date)) {
+        return(parsed_pairing_start_date + 1)
+      }
+    }
+
+    as.Date(NA)
+  }
+
+  format_day_month <- function(date_value) {
+    if (is.na(date_value)) {
+      return(NULL)
+    }
+
+    paste0(as.integer(format(date_value, "%d")), ".", as.integer(format(date_value, "%m")))
+  }
+
+  format_embryonic_age_today <- function(base_date) {
+    if (is.na(base_date)) {
+      return(NULL)
+    }
+
+    embryonic_age <- as.numeric(Sys.Date() - base_date) + 0.5
+    paste0("E", floor(embryonic_age) + 0.5, " today")
+  }
+
+  build_plugging_mouse_label <- function(mouse_id, genotype, breeding_line, sex_label) {
+    descriptor <- NA_character_
+
+    if (!is.null(genotype) && !is.na(genotype) && trimws(genotype) != "") {
+      descriptor <- trimws(genotype)
+    } else if (!is.null(breeding_line) && !is.na(breeding_line) && trimws(breeding_line) != "") {
+      descriptor <- trimws(breeding_line)
+    }
+
+    if (is.na(descriptor)) {
+      paste0("#", mouse_id, " (", sex_label, ")")
+    } else {
+      paste0("#", mouse_id, " (", descriptor, ", ", sex_label, ")")
+    }
+  }
+
+  build_plugging_details_clipboard_text <- function(row) {
+    female_label <- build_plugging_mouse_label(row$female_id, row$female_genotype, row$female_breeding_line, "female")
+    male_label <- build_plugging_mouse_label(row$male_id, row$male_genotype, row$male_breeding_line, "male")
+
+    base_text <- paste(female_label, "plugged with", male_label)
+    suffix_parts <- character(0)
+
+    if (identical(row$plugging_status, "Surprising Plug!!")) {
+      suffix_parts <- c(suffix_parts, "surprising plug")
+    }
+
+    observed_date <- safe_parse_plugging_date(row$plug_observed_date)
+    observed_text <- format_day_month(observed_date)
+    if (!is.null(observed_text)) {
+      suffix_parts <- c(suffix_parts, paste0("@", observed_text))
+    }
+
+    current_age_text <- format_embryonic_age_today(
+      calculate_plugging_base_date(row$plugging_status, row$plug_observed_date, row$pairing_start_date)
+    )
+    if (!is.null(current_age_text)) {
+      suffix_parts <- c(suffix_parts, current_age_text)
+    }
+
+    if (length(suffix_parts) == 0) {
+      return(base_text)
+    }
+
+    if (suffix_parts[1] == "surprising plug") {
+      if (length(suffix_parts) == 1) {
+        return(paste(base_text, suffix_parts[1]))
+      }
+
+      return(paste0(base_text, " ", suffix_parts[1], ", ", paste(suffix_parts[-1], collapse = ", ")))
+    }
+
+    paste0(base_text, " ", paste(suffix_parts, collapse = ", "))
+  }
+
+  build_ongoing_plugging_summary <- function() {
+    con <- db_connect()
+
+    tryCatch({
+      ongoing_records <- DBI::dbGetQuery(
+        con,
+        "SELECT male_id, female_id, pairing_start_date
+         FROM plugging_history
+         WHERE plugging_status = 'Ongoing'
+         ORDER BY pairing_start_date ASC, male_id ASC, female_id ASC"
+      )
+
+      if (nrow(ongoing_records) == 0) {
+        return("No ongoing plugging records.")
+      }
+
+      ongoing_records$pairing_start_date[is.na(ongoing_records$pairing_start_date) | ongoing_records$pairing_start_date == ""] <- "9999-12-31"
+      grouped_records <- split(ongoing_records, ongoing_records$male_id)
+
+      group_sort_dates <- vapply(grouped_records, function(group_df) {
+        min(group_df$pairing_start_date, na.rm = TRUE)
+      }, character(1))
+
+      grouped_records <- grouped_records[order(group_sort_dates, names(grouped_records))]
+
+      formatted_lines <- vapply(grouped_records, function(group_df) {
+        female_ids <- unique(group_df$female_id)
+        female_text <- paste(female_ids, collapse = " and ")
+        paste0(group_df$male_id[1], " with females ", female_text, ";")
+      }, character(1))
+
+      paste(formatted_lines, collapse = "\n\n")
+    }, error = function(e) {
+      paste("Unable to load ongoing plugging summary:", e$message)
+    }, finally = {
+      db_disconnect(con)
+    })
   }
   
   # Unified modal function for Empty (Alive) status
@@ -167,6 +318,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           style = "font-size: 11px; color: #666; margin-left: 20px; margin-top: -12px;",
           "(Entries by mistake)"
         )
+      ),
+      div(
+        style = "margin-left: 8px;",
+        actionButton("show_ongoing_plugging_summary_btn", "📝 Ongoing Summary",
+                    class = "btn-secondary",
+                    style = "padding: 6px 12px; font-size: 12px; border-radius: 4px;")
       ),
       div(
         style = "margin-left: auto;",
@@ -315,6 +472,35 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       session$sendCustomMessage(type = "eval", message = "setTimeout(function() { if(typeof restoreDataTableState === 'function') restoreDataTableState('plugging_history_table'); }, 100);")
       session$sendCustomMessage(type = "eval", message = "setTimeout(function() { if(typeof restoreScrollForAllTables === 'function') restoreScrollForAllTables(); }, 200);")
     })
+  })
+
+  observeEvent(input$show_ongoing_plugging_summary_btn, {
+    summary_text <- build_ongoing_plugging_summary()
+
+    showModal(modalDialog(
+      title = "Ongoing Plugging Summary",
+      size = "m",
+      tagList(
+        div(
+          style = "margin-bottom: 10px; color: #6c757d; font-size: 12px;",
+          "Only ongoing plugging records are included. Entries are grouped by male and sorted by pairing start date."
+        ),
+        tags$textarea(
+          id = "ongoing_plugging_summary_text",
+          readonly = "readonly",
+          style = "width: 100%; min-height: 220px; font-family: monospace; font-size: 13px; white-space: pre-wrap;",
+          summary_text
+        )
+      ),
+      footer = tagList(
+        modalButton("Close")
+      )
+    ))
+
+    session$sendCustomMessage(
+      type = "eval",
+      message = "setTimeout(function(){ var el = document.getElementById('ongoing_plugging_summary_text'); if (el) { el.focus(); el.select(); } }, 100);"
+    )
   })
   
   # Helper to check if status is Plugged
@@ -548,11 +734,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     })
   })
   
-  # Edit plugging event - show detailed information
-  observeEvent(input$plugging_history_table_row_dblclicked, {
-    plugging_id <- input$plugging_history_table_row_dblclicked
+  show_plugging_details_modal <- function(plugging_id) {
     if (is.null(plugging_id)) return()
-    
+
     con <- db_connect()
     tryCatch({
       plugging <- DBI::dbGetQuery(con, 
@@ -582,88 +766,141 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       if (nrow(plugging) == 0) return()
       
       row <- plugging[1, ]
+      summary_text <- build_plugging_details_clipboard_text(row)
+      summary_text_area_id <- paste0("plugging_summary_text_", row$id)
+      copy_summary_onclick <- paste0(
+        "(function(){",
+        "var el = document.getElementById('", summary_text_area_id, "');",
+        "if (!el) { return; }",
+        "el.style.display = 'block';",
+        "el.focus();",
+        "el.select();",
+        "el.setSelectionRange(0, el.value.length);",
+        "var copied = false;",
+        "try { copied = document.execCommand('copy'); } catch (e) { copied = false; }",
+        "el.style.display = 'none';",
+        "if (copied) {",
+        "  if (window.Shiny && Shiny.setInputValue) { Shiny.setInputValue('plugging_summary_copied', Date.now(), {priority: 'event'}); }",
+        "} else {",
+        "  window.prompt('Copy to clipboard:', el.value);",
+        "}",
+        "})();"
+      )
       
       # Calculate ages
       male_age <- if(!is.na(row$male_dob)) round(as.numeric(Sys.Date() - as.Date(row$male_dob)) / 7, 1) else NA
       female_age <- if(!is.na(row$female_dob)) round(as.numeric(Sys.Date() - as.Date(row$female_dob)) / 7, 1) else NA
+      has_body_weight_records <- nrow(female_body_weight_history) > 0
+      info_column_width <- 7
+      body_weight_column_width <- 5
       
       showModal(modalDialog(
         title = paste("Plugging Event Details (", row$female_id, ")"),
-        size = "m",
+        size = "l",
         tagList(
+          tags$script(HTML(
+            "setTimeout(function() {
+              var dialogs = document.querySelectorAll('.modal-dialog');
+              var dialog = dialogs[dialogs.length - 1];
+              if (!dialog) {
+                return;
+              }
+              dialog.style.width = '92vw';
+              dialog.style.maxWidth = '1800px';
+              var body = dialog.querySelector('.modal-body');
+              if (body) {
+                body.style.maxHeight = '82vh';
+                body.style.overflowY = 'auto';
+              }
+            }, 0);"
+          )),
           fluidRow(
-            column(6,
-              wellPanel(
-                tags$h4("Female Information"),
-                tags$b("ASU ID:"), row$female_id, br(),
-                tags$b("Age (weeks):"), female_age, br(),
-                tags$b("Breeding Line:"), row$female_breeding_line, br(),
-                tags$b("Genotype:"), row$female_genotype, br(),
-                tags$b("Status:"), row$female_status
-              )
-            ),
-            column(6, 
-              wellPanel(
-                tags$h4("Male Information"),
-                tags$b("ASU ID:"), row$male_id, br(),
-                tags$b("Age (weeks):"), male_age, br(),
-                tags$b("Breeding Line:"), row$male_breeding_line, br(),
-                tags$b("Genotype:"), row$male_genotype, br(),
-                tags$b("Status:"), row$male_status
-              )
-            )
-          ),
-          fluidRow(
-            column(12,
+            column(info_column_width,
+              fluidRow(
+                column(6,
+                  wellPanel(
+                    tags$h4("Female Information"),
+                    tags$b("ASU ID:"), row$female_id, br(),
+                    tags$b("Age (weeks):"), female_age, br(),
+                    tags$b("Breeding Line:"), row$female_breeding_line, br(),
+                    tags$b("Genotype:"), row$female_genotype, br(),
+                    tags$b("Status:"), row$female_status
+                  )
+                ),
+                column(6,
+                  wellPanel(
+                    tags$h4("Male Information"),
+                    tags$b("ASU ID:"), row$male_id, br(),
+                    tags$b("Age (weeks):"), male_age, br(),
+                    tags$b("Breeding Line:"), row$male_breeding_line, br(),
+                    tags$b("Genotype:"), row$male_genotype, br(),
+                    tags$b("Status:"), row$male_status
+                  )
+                )
+              ),
               wellPanel(
                 tags$h4("Plugging Details"),
                 fluidRow(
-                  column(6, tags$b("Pairing Start Date:"), br(), 
+                  column(6, tags$b("Pairing Start Date:"), br(),
                          if(!is.na(row$pairing_start_date) && row$pairing_start_date != "") row$pairing_start_date else "Unknown"),
-                  column(6, tags$b("Pairing End Date:"), br(), 
+                  column(6, tags$b("Pairing End Date:"), br(),
                          if(!is.na(row$pairing_end_date) && row$pairing_end_date != "") row$pairing_end_date else "Unknown")
                 ),
                 fluidRow(
-                  column(6, tags$b("Plug Observed Date:"), br(), 
+                  column(6, tags$b("Plug Observed Date:"), br(),
                          if(is_valid_plug_date(row$plug_observed_date)) row$plug_observed_date else "Unknown"),
                   column(6, tags$b("Status:"), br(), row$plugging_status)
                 ),
                 fluidRow(
-                  column(6, tags$b("Expected Age for Harvesting:"), br(), 
+                  column(6, tags$b("Expected Age for Harvesting:"), br(),
                          if(!is.null(row$expected_age_for_harvesting) && !is.na(row$expected_age_for_harvesting) && row$expected_age_for_harvesting != "") row$expected_age_for_harvesting else "Not decided")
                 ),
                 fluidRow(
                   column(12, tags$b("Notes:"), br(), ifelse(is.na(row$notes) || row$notes == "", "No notes", row$notes))
                 )
               )
-            )
-          ),
-          # Body Weight Chart Section
-          if (nrow(female_body_weight_history) > 0) {
-            fluidRow(
-              column(12,
-                wellPanel(
-                  div(
-                    style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
-                    tags$h4("Female Body Weight Trend", style = "color: #4caf50; border-bottom: 2px solid #4caf50; padding-bottom: 5px; margin: 0;"),
-                    actionButton(
-                      inputId = "add_body_weight_from_plugging_btn",
-                      label = "Add Body Weight",
-                      class = "btn-success btn-sm",
-                      onclick = paste0("Shiny.setInputValue('add_body_weight_clicked', '", row$female_id, "', {priority: 'event'});")
-                    )
-                  ),
+            ),
+            column(body_weight_column_width,
+              wellPanel(
+                div(
+                  style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
+                  tags$h4("Female Body Weight Trend", style = "color: #4caf50; border-bottom: 2px solid #4caf50; padding-bottom: 5px; margin: 0;"),
+                  actionButton(
+                    inputId = "add_body_weight_from_plugging_btn",
+                    label = "Add Body Weight",
+                    class = "btn-success btn-sm",
+                    onclick = paste0("Shiny.setInputValue('add_body_weight_from_plugging_clicked', '", row$female_id, "', {priority: 'event'});")
+                  )
+                ),
+                if (has_body_weight_records) {
                   div(
                     id = "plugging_body_weight_preview_plot_container",
-                    style = "height: 400px;",
-                    plotlyOutput(paste0("plugging_body_weight_preview_plot_", row$female_id))
+                    style = "margin-bottom: 0;",
+                    plotlyOutput(paste0("plugging_body_weight_preview_plot_", row$female_id), height = "360px")
                   )
-                )
+                } else {
+                  div(
+                    style = "height: 360px; display: flex; align-items: center; justify-content: center; text-align: center; color: #6c757d; background: #f8f9fa; border: 1px dashed #ced4da; border-radius: 6px; padding: 16px;",
+                    div(
+                      tags$strong("No body weight records"),
+                      br(),
+                      "Add a body weight entry to show the trend here."
+                    )
+                  )
+                }
               )
             )
-          },
-          tags$h4("Modification History"),
-          uiOutput("modification_history_ui"),
+          ),
+          wellPanel(
+            tags$h4("Modification History"),
+            uiOutput("modification_history_ui")
+          ),
+          tags$textarea(
+            id = summary_text_area_id,
+            style = "position: absolute; left: -9999px; top: -9999px; opacity: 0; display: none;",
+            readonly = "readonly",
+            summary_text
+          )
         ),
         footer = tagList(
           div(
@@ -690,6 +927,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               }
             ),
             div(
+              tags$button(type = "button", class = "btn btn-info", style = "margin-right: 6px;", onclick = copy_summary_onclick, "Copy Summary"),
               actionButton("edit_plugging_details_btn", "Edit", class = "btn-primary", style = "margin-left: 6px;"),
               # Only hide the Delete button when locked, allow other actions
               if (!is_not_observed_confirmed(row$plugging_status) && row$female_status != "Deceased" && row$plugging_status != "Deleted" && row$plugging_status != "Not Observed (Waiting for confirmation)" && !is_system_locked()) {
@@ -872,15 +1110,70 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     }, finally = {
       db_disconnect(con)
     })
+  }
+
+  # Edit plugging event - show detailed information
+  observeEvent(input$plugging_history_table_row_dblclicked, {
+    plugging_id <- input$plugging_history_table_row_dblclicked
+    if (is.null(plugging_id)) return()
+
+    show_plugging_details_modal(plugging_id)
     
     # Reset the input so the same row can be double-clicked again
     session$sendInputMessage("plugging_history_table_row_dblclicked", NULL)
+  })
+
+  observeEvent(input$add_body_weight_from_plugging_clicked, {
+    asu_id <- input$add_body_weight_from_plugging_clicked
+    if (!is.null(asu_id) && asu_id != "") {
+      show_body_weight_input(
+        input,
+        output,
+        session,
+        asu_id,
+        back_input_id = "plugging_body_weight_back_clicked",
+        close_input_id = "plugging_body_weight_close_clicked"
+      )
+    }
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$plugging_body_weight_back_clicked, {
+    req(input$plugging_body_weight_back_clicked)
+
+    removeModal()
+
+    if (!is.null(plugging_state$viewing_id)) {
+      show_plugging_details_modal(plugging_state$viewing_id)
+    }
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$plugging_body_weight_close_clicked, {
+    req(input$plugging_body_weight_close_clicked)
+
+    removeModal()
+
+    if (!is.null(plugging_state$viewing_id)) {
+      show_plugging_details_modal(plugging_state$viewing_id)
+    }
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$plugging_summary_copied, {
+    showNotification("Plugging summary copied to clipboard", type = "message")
   })
   
   # Edit button from details view
   observeEvent(input$edit_plugging_details_btn, {
     plugging_id <- plugging_state$viewing_id
     if (is.null(plugging_id)) return()
+
+    align_for_binding <- function(source_df, target_columns) {
+      missing_columns <- setdiff(target_columns, colnames(source_df))
+      for (column_name in missing_columns) {
+        source_df[[column_name]] <- NA
+      }
+
+      source_df[, target_columns, drop = FALSE]
+    }
     
     con <- db_connect()
     tryCatch({
@@ -905,7 +1198,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       if (nrow(current_male) > 0 && !(current_male$asu_id[1] %in% all_males$asu_id)) {
         # Ensure columns match before rbind
         if (nrow(all_males) > 0) {
-          all_males <- rbind(current_male[, colnames(all_males)], all_males)
+          all_males <- rbind(align_for_binding(current_male, colnames(all_males)), all_males)
         } else {
           all_males <- current_male
         }
@@ -919,7 +1212,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       if (nrow(current_female) > 0 && !(current_female$asu_id[1] %in% all_females$asu_id)) {
         # Ensure columns match before rbind
         if (nrow(all_females) > 0) {
-          all_females <- rbind(current_female[, colnames(all_females)], all_females)
+          all_females <- rbind(align_for_binding(current_female, colnames(all_females)), all_females)
         } else {
           all_females <- current_female
         }

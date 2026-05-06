@@ -4,7 +4,7 @@
 # Source the body weight module
 source("Modules/modal_body_weight.R")
 
-show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_table) {
+show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_table, allow_edit = FALSE) {
   # Get mouse details
   current_data <- all_mice_table()
   mouse_info <- current_data[current_data$asu_id == asu_id, ]
@@ -339,12 +339,22 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
     modal_content,
     footer = div(
       style = "display: flex; justify-content: space-between; align-items: center;",
-      actionButton(
-        inputId = "add_body_weight_btn",
-        label = "Add Body Weight",
-        class = "btn-primary",
-        style = "margin-right: 10px;",
-        onclick = paste0("Shiny.setInputValue('add_body_weight_clicked', '", asu_id, "', {priority: 'event'});")
+      div(
+        style = "display: flex; gap: 10px; align-items: center;",
+        if (allow_edit) {
+          actionButton(
+            inputId = "edit_mouse_record_btn",
+            label = "Edit Record",
+            class = "btn-warning",
+            onclick = paste0("Shiny.setInputValue('mouse_history_edit_clicked', '", asu_id, "', {priority: 'event'});")
+          )
+        },
+        actionButton(
+          inputId = "add_body_weight_btn",
+          label = "Add Body Weight",
+          class = "btn-primary",
+          onclick = paste0("Shiny.setInputValue('add_body_weight_clicked', '", asu_id, "', {priority: 'event'});")
+        )
       ),
       modalButton("Close")
     )

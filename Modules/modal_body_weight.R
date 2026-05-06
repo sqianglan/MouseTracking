@@ -2,7 +2,7 @@
 # Body weight management functions for mouse history tracking
 
 # Function to show enhanced body weight input modal with existing records and plot preview
-show_body_weight_input <- function(input, output, session, asu_id) {
+show_body_weight_input <- function(input, output, session, asu_id, back_input_id = "body_weight_back_clicked", close_input_id = "body_weight_close_clicked") {
   # Get existing body weight data
   con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
   on.exit(DBI::dbDisconnect(con), add = TRUE)
@@ -175,14 +175,14 @@ show_body_weight_input <- function(input, output, session, asu_id) {
           label = "← Back",
           class = "btn-secondary",
           style = "font-size: 0.9em; padding: 8px 16px;",
-          onclick = paste0("Shiny.setInputValue('body_weight_back_clicked', '", asu_id, "', {priority: 'event'});")
+          onclick = paste0("Shiny.setInputValue('", back_input_id, "', '", asu_id, "', {priority: 'event'});")
         ),
         actionButton(
           inputId = "body_weight_close_btn", 
           label = "✕ Close",
           class = "btn-outline-secondary",
           style = "font-size: 0.9em; padding: 8px 16px;",
-          onclick = "Shiny.setInputValue('body_weight_close_clicked', true, {priority: 'event'});"
+          onclick = paste0("Shiny.setInputValue('", close_input_id, "', '", asu_id, "', {priority: 'event'});")
         )
       )
     )

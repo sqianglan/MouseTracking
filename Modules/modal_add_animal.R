@@ -218,8 +218,11 @@ handle_mapping_confirmation <- function(input, import_data) {
   if (!validation_result$is_valid) {
     # Show warning modal for duplicate mappings with option to go back
     showModal(modalDialog(
-      title = "Duplicate Column Mappings",
-      create_duplicate_mapping_warning(validation_result$duplicate_fields),
+      title = "Invalid Column Mappings",
+      create_duplicate_mapping_warning(
+        validation_result$duplicate_fields,
+        validation_result$missing_required_fields
+      ),
       easyClose = FALSE,
       footer = tagList(
         actionButton("go_back_to_mapping", "Go Back to Fix Mappings", 
@@ -234,9 +237,7 @@ handle_mapping_confirmation <- function(input, import_data) {
   confirmed_mappings <- list()
   
   # Check required fields first
-  required_fields <- names(import_data$field_suggestions$required)
-  # Remove asu_id from required fields since it's automatically extracted
-  required_fields <- required_fields[required_fields != "asu_id"]
+  required_fields <- REQUIRED_IMPORT_MAPPING_FIELDS
   missing_required <- c()
   
   # Collect mappings from column dropdowns
@@ -259,9 +260,11 @@ handle_mapping_confirmation <- function(input, import_data) {
   
   # Check if required fields are missing
   if (length(missing_required) > 0) {
+    field_labels <- get_import_mapping_field_labels()
+    missing_required_labels <- unname(field_labels[missing_required])
     showModal(modalDialog(
       title = "Missing Required Fields",
-      paste("The following required fields must be mapped:", paste(missing_required, collapse = ", ")),
+      paste("The following required fields must be mapped:", paste(missing_required_labels, collapse = ", ")),
       easyClose = TRUE
     ))
     return(NULL)
@@ -488,10 +491,24 @@ create_duplicate_conflicts_html_table <- function(import_data, previous_selectio
   
   # Helper function to create comparison cell with highlighting
   create_comparison_cell <- function(import_val, db_val) {
-    import_str <- if (is.na(import_val) || import_val == "") "NA" else as.character(import_val)
-    db_str <- if (is.na(db_val) || db_val == "") "NA" else as.character(db_val)
+    normalize_comparison_value <- function(value) {
+      if (is.null(value) || length(value) == 0) {
+        return("NA")
+      }
+
+      value <- value[[1]]
+
+      if (is.na(value) || trimws(as.character(value)) == "") {
+        return("NA")
+      }
+
+      as.character(value)
+    }
+
+    import_str <- normalize_comparison_value(import_val)
+    db_str <- normalize_comparison_value(db_val)
     
-    if (import_str != db_str) {
+    if (!identical(import_str, db_str)) {
       # Values are different - highlight import value in red
       paste0(
         "<span style='color: #dc3545; font-weight: bold; background-color: #f8d7da; padding: 2px 6px; border-radius: 3px;'>", 
@@ -1160,7 +1177,10 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     
     if (!validation_result$is_valid) {
       # Create warning message
-      warning_message <- create_duplicate_mapping_warning(validation_result$duplicate_fields)
+      warning_message <- create_duplicate_mapping_warning(
+        validation_result$duplicate_fields,
+        validation_result$missing_required_fields
+      )
       
       # Generate CSS to highlight problematic dropdowns
       warning_css <- generate_mapping_warnings(validation_result, length(col_names), input)

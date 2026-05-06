@@ -5,6 +5,29 @@ suppressPackageStartupMessages({
   library(stringr)
 })
 
+REQUIRED_IMPORT_MAPPING_FIELDS <- c("animal_id", "gender", "breeding_line")
+
+get_import_mapping_field_labels <- function() {
+  c(
+    animal_id = "Animal ID",
+    ear_mark = "Ear Mark",
+    gender = "Gender",
+    dob = "Date of Birth",
+    genotype = "Genotype",
+    strain = "Strain",
+    breeding_line = "Breeding Line",
+    dam = "Dam",
+    sire = "Sire",
+    cage_id = "Cage ID",
+    room = "Room",
+    project_code = "Project Code",
+    responsible_person = "Responsible Person",
+    protocol = "Protocol",
+    study_plan = "Study Plan",
+    notes = "Notes"
+  )
+}
+
 # Set default database path and name with distribution support
 if (Sys.getenv("MOUSE_DB_DIR") != "") {
   DB_DIR <- Sys.getenv("MOUSE_DB_DIR")
@@ -331,22 +354,8 @@ add_plugging_tables()
 add_body_weight_table()
 # add_audit_trail_table() # Removed - now handled by enhanced audit trail
 
-# Set DB_PATH - check config file for session switches, otherwise use main database
-config_file <- file.path(CONFIG_DIR, "current_db.conf")
-if (file.exists(config_file)) {
-  tryCatch({
-    temp_db_path <- readLines(config_file, n = 1, warn = FALSE)
-    if (length(temp_db_path) > 0 && file.exists(temp_db_path)) {
-      DB_PATH <<- normalizePath(temp_db_path)
-    } else {
-      DB_PATH <<- normalizePath(DEFAULT_DB_NAME)
-    }
-  }, error = function(e) {
-    DB_PATH <<- normalizePath(DEFAULT_DB_NAME)
-  })
-} else {
-  DB_PATH <<- normalizePath(DEFAULT_DB_NAME)
-}
+# Set DB_PATH to the canonical main database for app startup.
+DB_PATH <<- normalizePath(DEFAULT_DB_NAME, mustWork = FALSE)
 
 # Note: Audit trail functions are now provided by the enhanced audit_trail.R module
 
@@ -514,6 +523,32 @@ apply_mappings_and_create_df <- function(df, confirmed_mappings, stock_category 
   return(out)
 }
 
+# Utility: bind data frames while preserving all columns across rows.
+bind_rows_safely <- function(existing_df, new_df) {
+  if (is.null(existing_df) || ncol(existing_df) == 0) {
+    return(new_df)
+  }
+
+  if (is.null(new_df) || ncol(new_df) == 0) {
+    return(existing_df)
+  }
+
+  all_columns <- union(names(existing_df), names(new_df))
+
+  for (column_name in setdiff(all_columns, names(existing_df))) {
+    existing_df[[column_name]] <- NA
+  }
+
+  for (column_name in setdiff(all_columns, names(new_df))) {
+    new_df[[column_name]] <- NA
+  }
+
+  existing_df <- existing_df[all_columns]
+  new_df <- new_df[all_columns]
+
+  rbind(existing_df, new_df)
+}
+
 # Utility: Process duplicates based on user actions with custom ASU IDs
 process_duplicates_with_custom <- function(parsed_df, comparison_data, import_duplicates, db_conflicts, user_actions, custom_asu_map = list()) {
   # Process each duplicate based on action
@@ -543,7 +578,7 @@ process_duplicates_with_custom <- function(parsed_df, comparison_data, import_du
           paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
         }
         row_data$asu_id <- new_asu_id
-        final_df <- rbind(final_df, row_data)
+        final_df <- bind_rows_safely(final_df, row_data)
         modified_count <- modified_count + 1
       }
     }
@@ -551,7 +586,7 @@ process_duplicates_with_custom <- function(parsed_df, comparison_data, import_du
   
   # Add non-duplicate records
   non_duplicates <- parsed_df[!parsed_df$asu_id %in% c(import_duplicates, db_conflicts), ]
-  final_df <- rbind(final_df, non_duplicates)
+  final_df <- bind_rows_safely(final_df, non_duplicates)
   
   return(list(
     final_df = final_df,
@@ -585,7 +620,7 @@ process_duplicates <- function(parsed_df, comparison_data, import_duplicates, db
       if (nrow(row_data) > 0) {
         new_asu_id <- paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
         row_data$asu_id <- new_asu_id
-        final_df <- rbind(final_df, row_data)
+        final_df <- bind_rows_safely(final_df, row_data)
         modified_count <- modified_count + 1
       }
     }
@@ -593,7 +628,7 @@ process_duplicates <- function(parsed_df, comparison_data, import_duplicates, db
   
   # Add non-duplicate records
   non_duplicates <- parsed_df[!parsed_df$asu_id %in% c(import_duplicates, db_conflicts), ]
-  final_df <- rbind(final_df, non_duplicates)
+  final_df <- bind_rows_safely(final_df, non_duplicates)
   
   return(list(
     final_df = final_df,
@@ -622,7 +657,7 @@ check_duplicates_and_conflicts <- function(parsed_df) {
   if (length(import_duplicates) > 0) {
     dup_rows <- parsed_df[parsed_df$asu_id %in% import_duplicates, ]
     for (i in 1:nrow(dup_rows)) {
-      comparison_data <- rbind(comparison_data, data.frame(
+      comparison_data <- bind_rows_safely(comparison_data, data.frame(
         Type = "Import Duplicate",
         ASU_ID = dup_rows$asu_id[i],
         Animal_ID = dup_rows$animal_id[i],
@@ -675,7 +710,7 @@ check_duplicates_and_conflicts <- function(parsed_df) {
       
       if (is_identical) {
         # Truly identical records - skip them
-        exact_matches <- rbind(exact_matches, data.frame(
+        exact_matches <- bind_rows_safely(exact_matches, data.frame(
           ASU_ID = asu_id,
           Animal_ID = conflict_import$animal_id[i],
           Status = "Identical data",
@@ -683,7 +718,7 @@ check_duplicates_and_conflicts <- function(parsed_df) {
         ))
       } else {
         # Records have differences - add to comparison for user decision
-        comparison_data <- rbind(comparison_data, data.frame(
+        comparison_data <- bind_rows_safely(comparison_data, data.frame(
           Type = "Database Conflict",
           ASU_ID = asu_id,
           Import_Animal_ID = as.character(conflict_import$animal_id[i]),
@@ -777,15 +812,32 @@ create_column_mapping_ui <- function(mapping_result, df) {
   
   ui_elements <- list()
   
-  # Add mapping instructions first
+  # Add a compact summary row with instructions and warnings
   ui_elements[[length(ui_elements) + 1]] <- div(
-    style = "margin-bottom: 20px; padding: 10px; background-color: #e3f2fd; border-radius: 5px;",
-    tags$h5("Column Mapping Instructions:"),
-    tags$ul(
-      tags$li("Use the dropdown above each column to map it to a database field"),
-      tags$li("Choose 'NA' if you don't want to import that column"),
-      tags$li("Required fields (marked with *) must be mapped to proceed"),
-      tags$li("ASU ID will be automatically extracted from Animal ID")
+    style = "display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; align-items: stretch;",
+    div(
+      style = "flex: 1 1 380px; min-width: 280px; padding: 12px 14px; background-color: #e3f2fd; border-radius: 6px;",
+      tags$h5(style = "margin-top: 0; margin-bottom: 8px;", "Mapping Instructions"),
+      tags$ul(
+        style = "margin-bottom: 0; padding-left: 18px;",
+        tags$li("Map each Excel column to one database field from the dropdown above it"),
+        tags$li("Select 'NA' for columns you do not want to import"),
+        tags$li("Fields marked with * are required before you can continue"),
+        tags$li("ASU ID is extracted automatically from Animal ID")
+      )
+    ),
+    div(
+      style = "flex: 1 1 320px; min-width: 280px; padding: 12px 14px; background-color: #fff8e1; border-radius: 6px;",
+      tags$h5(style = "margin-top: 0; margin-bottom: 8px;", "Mapping Warnings"),
+      div(
+        style = "font-size: 12px; color: #6c757d; margin-bottom: 8px;",
+        "Conflicts and missing required mappings will appear here while you review the columns."
+      ),
+      div(
+        id = "mapping_warnings_container",
+        style = "min-height: 44px;",
+        uiOutput("mapping_warnings")
+      )
     )
   )
   
@@ -794,11 +846,11 @@ create_column_mapping_ui <- function(mapping_result, df) {
     "NA" = "NA",
     "Animal ID *" = "animal_id",
     "Ear Mark" = "ear_mark", 
-    "Gender" = "gender",
+    "Gender *" = "gender",
     "Date of Birth" = "dob",
     "Genotype" = "genotype",
     "Strain" = "strain",
-    "Breeding Line" = "breeding_line",
+    "Breeding Line *" = "breeding_line",
     "Dam" = "dam",
     "Sire" = "sire", 
     "Cage ID" = "cage_id",
@@ -871,17 +923,10 @@ create_column_mapping_ui <- function(mapping_result, df) {
     return("NA")
   }
   
-  # Add warning area for duplicate mappings
-  ui_elements[[length(ui_elements) + 1]] <- div(
-    id = "mapping_warnings_container",
-    style = "margin-top: 10px; margin-bottom: 10px;",
-    uiOutput("mapping_warnings")
-  )
-  
   # Create table with dropdowns above each column
   ui_elements[[length(ui_elements) + 1]] <- div(
-    style = "margin-top: 20px; margin-bottom: 20px;",
-    tags$h4("Column Mapping and Preview (first 3 rows):"),
+    style = "margin-top: 12px; margin-bottom: 20px;",
+    tags$h4(style = "margin-top: 0; margin-bottom: 12px;", "Map Columns and Preview"),
     div(
       style = "border: 1px solid #ddd; background-color: #f9f9f9; overflow-x: auto; overflow-y: visible;",
       # Create dropdown header row
@@ -894,12 +939,16 @@ create_column_mapping_ui <- function(mapping_result, df) {
             suggested_field <- find_column_suggestion(col_name)
             
             div(
+              id = paste0("mapping_column_", i),
+              class = "mapping-column-cell",
               style = "display: table-cell; padding: 8px; border-right: 1px solid #ddd; vertical-align: top; min-width: 180px; max-width: 250px; width: 180px; box-sizing: border-box;",
               div(
+                class = "mapping-column-name",
                 style = "font-weight: bold; margin-bottom: 5px; font-size: 12px; text-align: center; word-wrap: break-word;",
                 col_name
               ),
               div(
+                class = "mapping-select-wrapper",
                 style = "margin-bottom: 0px;",
                 selectInput(
                   inputId = paste0("mapping_col_", i),
@@ -987,6 +1036,8 @@ create_column_mapping_ui <- function(mapping_result, df) {
               })
               
               div(
+                id = paste0("mapping_preview_cell_", row_i, "_", col_i),
+                class = paste("mapping-preview-cell", paste0("mapping-preview-col-", col_i)),
                 style = "display: table-cell; padding: 8px; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; vertical-align: top; min-width: 180px; max-width: 250px; width: 180px; text-align: center; word-wrap: break-word; box-sizing: border-box;",
                 display_value
               )
@@ -1005,6 +1056,7 @@ validate_column_mappings <- function(input, column_count) {
   # Collect all selected mappings
   selected_mappings <- list()
   duplicate_fields <- character(0)
+  missing_required_fields <- REQUIRED_IMPORT_MAPPING_FIELDS
   
   for (i in seq_len(column_count)) {
     input_id <- paste0("mapping_col_", i)
@@ -1016,24 +1068,27 @@ validate_column_mappings <- function(input, column_count) {
         duplicate_fields <- c(duplicate_fields, selected_value)
       } else {
         selected_mappings[[selected_value]] <- i
+        missing_required_fields <- setdiff(missing_required_fields, selected_value)
       }
     }
   }
   
   return(list(
-    is_valid = length(duplicate_fields) == 0,
+    is_valid = length(duplicate_fields) == 0 && length(missing_required_fields) == 0,
     duplicate_fields = unique(duplicate_fields),
+    missing_required_fields = missing_required_fields,
     selected_mappings = selected_mappings
   ))
 }
 
-# Function to generate warning CSS for duplicate mappings
+# Function to generate warning CSS for invalid mappings
 generate_mapping_warnings <- function(validation_result, column_count, input = NULL) {
   warning_css <- ""
   
-  if (!validation_result$is_valid && !is.null(input)) {
+  if (!is.null(input)) {
     # Find which input elements have duplicate field selections
-    duplicate_input_ids <- character(0)
+    duplicate_column_ids <- integer(0)
+    required_field_labels <- get_import_mapping_field_labels()
     
     # For each duplicate field, find all columns that selected it
     for (field in validation_result$duplicate_fields) {
@@ -1042,18 +1097,39 @@ generate_mapping_warnings <- function(validation_result, column_count, input = N
         selected_value <- input[[input_id]]
         
         if (!is.null(selected_value) && selected_value == field) {
-          duplicate_input_ids <- c(duplicate_input_ids, input_id)
+          duplicate_column_ids <- c(duplicate_column_ids, i)
         }
       }
     }
     
-    if (length(duplicate_input_ids) > 0) {
+    if (length(duplicate_column_ids) > 0) {
       warning_css <- paste0(
         "<style>",
-        paste(sapply(unique(duplicate_input_ids), function(col_id) {
-          paste0("#", col_id, " { border: 2px solid #ff6b6b !important; background-color: #ffe6e6 !important; }")
+        paste(sapply(unique(duplicate_column_ids), function(column_index) {
+          paste0(
+            "#mapping_column_", column_index, " { background-color: #fef3f2 !important; } ",
+            "#mapping_column_", column_index, " .mapping-column-name { color: #b42318 !important; } ",
+            ".mapping-preview-col-", column_index, " { background-color: #fef3f2 !important; } ",
+            "#mapping_column_", column_index, " .mapping-select-wrapper .selectize-input, ",
+            "#mapping_column_", column_index, " .mapping-select-wrapper select { border: 2px solid #f04438 !important; background-color: #fef3f2 !important; box-shadow: 0 0 0 1px rgba(240, 68, 56, 0.15) !important; }"
+          )
         }), collapse = " "),
         "</style>"
+      )
+    }
+
+    if (length(validation_result$missing_required_fields) > 0) {
+      missing_required_text <- paste(
+        unname(required_field_labels[validation_result$missing_required_fields]),
+        collapse = ", "
+      )
+      warning_css <- paste0(
+        warning_css,
+        if (nchar(warning_css) > 0) "\n" else "",
+        "<style>#mapping_warnings_container .missing-required-note { color: #b42318; font-weight: 600; }</style>",
+        "<div class='missing-required-note' style='margin-top: 8px;'>Missing required mappings: ",
+        missing_required_text,
+        ".</div>"
       )
     }
   }
@@ -1061,33 +1137,23 @@ generate_mapping_warnings <- function(validation_result, column_count, input = N
   return(warning_css)
 }
 
-# Function to create warning message for duplicate mappings
-create_duplicate_mapping_warning <- function(duplicate_fields) {
-  if (length(duplicate_fields) == 0) {
+# Function to create warning message for invalid mappings
+create_duplicate_mapping_warning <- function(duplicate_fields, missing_required_fields = character(0)) {
+  if (length(duplicate_fields) == 0 && length(missing_required_fields) == 0) {
     return(NULL)
   }
   
-  # Get human-readable field names
-  field_name_map <- list(
-    "animal_id" = "Animal ID",
-    "ear_mark" = "Ear Mark", 
-    "gender" = "Gender",
-    "dob" = "Date of Birth",
-    "genotype" = "Genotype",
-    "strain" = "Strain",
-    "breeding_line" = "Breeding Line",
-    "dam" = "Dam",
-    "sire" = "Sire", 
-    "cage_id" = "Cage ID",
-    "room" = "Room",
-    "project_code" = "Project Code",
-    "responsible_person" = "Responsible Person",
-    "protocol" = "Protocol",
-    "study_plan" = "Study Plan",
-    "notes" = "Notes"
-  )
+  field_name_map <- as.list(get_import_mapping_field_labels())
   
   readable_fields <- sapply(duplicate_fields, function(field) {
+    if (field %in% names(field_name_map)) {
+      field_name_map[[field]]
+    } else {
+      field
+    }
+  })
+
+  readable_missing_fields <- sapply(missing_required_fields, function(field) {
     if (field %in% names(field_name_map)) {
       field_name_map[[field]]
     } else {
@@ -1097,12 +1163,23 @@ create_duplicate_mapping_warning <- function(duplicate_fields) {
   
   div(
     style = "margin: 10px 0; padding: 10px; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; color: #856404;",
-    tags$strong("⚠️ Warning: Duplicate Column Mappings Detected"),
+    tags$strong("⚠️ Warning: Invalid Column Mappings"),
     tags$br(),
-    paste("The following database fields are mapped to multiple columns:", 
-          paste(readable_fields, collapse = ", ")),
-    tags$br(),
-    "Please ensure each database field is mapped to only one Excel column."
+    if (length(readable_fields) > 0) {
+      tagList(
+        paste("The following database fields are mapped to multiple columns:", 
+              paste(readable_fields, collapse = ", ")),
+        tags$br()
+      )
+    } else NULL,
+    if (length(readable_missing_fields) > 0) {
+      tagList(
+        paste("The following required fields must be mapped:", 
+              paste(readable_missing_fields, collapse = ", ")),
+        tags$br()
+      )
+    } else NULL,
+    "Please fix the highlighted mapping issues before continuing."
   )
 }
 

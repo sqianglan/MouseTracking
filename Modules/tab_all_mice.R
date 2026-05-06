@@ -102,11 +102,160 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
 
   # Create reactive value to store filtered data
   filtered_data <- reactiveVal(NULL)
+  current_edit_context <- reactiveVal(list(
+    selected_asu_ids = character(0),
+    is_single_edit = FALSE,
+    reopen_history = FALSE,
+    history_asu_id = NULL
+  ))
+
+  get_selected_asu_ids_from_table <- function() {
+    data <- filtered_data()
+    selected_visible_rows <- input$all_mice_table_rows_selected
+
+    if (is.null(data) || is.null(selected_visible_rows) || length(selected_visible_rows) == 0) {
+      return(character(0))
+    }
+
+    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "notes")]
+    display_data[selected_visible_rows, "asu_id"]
+  }
+
+  show_edit_animals_modal <- function(selected_asu_ids, reopen_history = FALSE, history_asu_id = NULL) {
+    if (length(selected_asu_ids) == 0) {
+      showNotification("Please select at least one animal to edit.", type = "warning", duration = 3)
+      return()
+    }
+
+    current_edit_context(list(
+      selected_asu_ids = selected_asu_ids,
+      is_single_edit = length(selected_asu_ids) == 1,
+      reopen_history = reopen_history,
+      history_asu_id = history_asu_id
+    ))
+
+    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
+    selected_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " WHERE asu_id IN (",
+                                                 paste(paste0("'", selected_asu_ids, "'"), collapse = ","),
+                                                 ") ORDER BY asu_id"))
+    breeding_lines <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT breeding_line FROM ", TABLE_NAME, " WHERE breeding_line IS NOT NULL"))$breeding_line)
+    genotypes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT genotype FROM ", TABLE_NAME, " WHERE genotype IS NOT NULL"))$genotype)
+    responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
+    project_codes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT project_code FROM ", TABLE_NAME, " WHERE project_code IS NOT NULL"))$project_code)
+    DBI::dbDisconnect(con)
+
+    get_common_value <- function(x) {
+      x <- as.character(x)
+      x[is.na(x)] <- ""
+      x <- trimws(x)
+      ux <- unique(x)
+      ux <- ux[ux != "NA"]
+      if (length(ux) == 1) ux else ""
+    }
+
+    common_gender <- get_common_value(selected_data$gender)
+    common_status <- get_common_value(selected_data$status)
+    common_breeding_line <- get_common_value(selected_data$breeding_line)
+    common_genotype <- get_common_value(selected_data$genotype)
+    common_responsible_person <- get_common_value(selected_data$responsible_person)
+    common_protocol <- get_common_value(selected_data$protocol)
+    common_study_plan <- get_common_value(selected_data$study_plan)
+    common_project_code <- get_common_value(selected_data$project_code)
+    common_stock_category <- get_common_value(selected_data$stock_category)
+
+    breeding_line_choices <- unique(c("", na.omit(as.character(breeding_lines)), common_breeding_line))
+    genotype_choices <- unique(c("", na.omit(as.character(genotypes)), common_genotype))
+    responsible_person_choices <- unique(c("", na.omit(as.character(responsible_persons)), common_responsible_person))
+    protocol_choices <- unique(c("",
+      "1 (Breeding and maintenance of genetically altered animals)",
+      "2 (Epithelial stem cell fate and dynamics during tissue development and regeneration)",
+      "3 (Mouse tumor model)",
+      common_protocol))
+    study_plan_choices <- c("", "SP2500090", "SP2500083", "SP2500082", "SP2500081")
+    project_code_choices <- unique(c("", na.omit(as.character(project_codes)), common_project_code))
+    stock_category_choices <- unique(c("", "Experiment", "Breeding", "Charles River", common_stock_category))
+
+    showModal(modalDialog(
+      title = if (length(selected_asu_ids) == 1) {
+        paste("Edit Animal", selected_asu_ids[[1]])
+      } else {
+        paste("Bulk Edit", length(selected_asu_ids), "Selected Animals")
+      },
+      size = "l",
+      div(
+        style = "margin-bottom: 15px;",
+        if (length(selected_asu_ids) == 1) {
+          "You are editing this animal. Clearing a field will save it as empty."
+        } else {
+          paste("You are editing", length(selected_asu_ids), "animals. Leave fields empty to keep current values.")
+        },
+        br(),
+        tags$div(
+          style = "font-size: 16px; color: #333; margin-top: 8px; font-weight: bold;",
+          HTML(paste0("ASU IDs: <span style='font-weight:bold;'>", paste(selected_asu_ids, collapse = ", "), "</span>"))
+        )
+      ),
+      fluidRow(
+        column(6, selectInput("bulk_edit_gender", "Gender", choices = c("", "Male", "Female"), selected = common_gender)),
+        column(6, selectInput("bulk_edit_status", "Status", choices = c("", "Alive", "Deceased"), selected = common_status))
+      ),
+      fluidRow(
+        column(6, selectizeInput("bulk_edit_breeding_line", "Breeding Line",
+                                choices = breeding_line_choices,
+                                selected = common_breeding_line,
+                                options = list(create = TRUE, placeholder = "Select or type new"))),
+        column(6, selectizeInput("bulk_edit_genotype", "Genotype",
+                                choices = genotype_choices,
+                                selected = common_genotype,
+                                options = list(create = TRUE, placeholder = "Select or type new")))
+      ),
+      fluidRow(
+        column(6, selectizeInput("bulk_edit_responsible_person", "Responsible Person",
+                                choices = responsible_person_choices,
+                                selected = common_responsible_person,
+                                options = list(create = TRUE, placeholder = "Select or type new")))
+      ),
+      fluidRow(
+        column(6, selectInput("bulk_edit_protocol", "Protocol",
+                              choices = protocol_choices,
+                              selected = common_protocol)),
+        column(6, selectizeInput("bulk_edit_project_code", "Project Code",
+                                choices = project_code_choices,
+                                selected = common_project_code,
+                                options = list(create = TRUE, placeholder = "Select or type new")))
+      ),
+      fluidRow(
+        column(6, selectInput("bulk_edit_study_plan", "Study Plan",
+                              choices = study_plan_choices,
+                              selected = common_study_plan)),
+        column(6, selectInput("bulk_edit_stock_category", "Stock Category",
+                              choices = stock_category_choices,
+                              selected = common_stock_category))
+      ),
+      fluidRow(
+        column(12, textAreaInput("bulk_edit_notes", "Notes", value = get_common_value(selected_data$notes), rows = 3, placeholder = if (length(selected_asu_ids) == 1) "Enter notes or clear to remove" else "Enter notes (leave blank to keep current notes)", width = "100%"))
+      ),
+      div(
+        style = "margin-top: 15px; font-size: 12px; color: #666;",
+        if (length(selected_asu_ids) == 1) {
+          "Blank values will be saved for this animal."
+        } else {
+          "Empty fields will not change the current values"
+        }
+      ),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("submit_bulk_edit_btn", "Update Animals", style = "background-color: #1976d2; color: white; border: none;")
+      )
+    ))
+  }
   
   # Function to refresh table data while preserving view state (sorting, pagination, etc.)
-  refresh_table_data_preserving_state <- function() {
-    # Save scroll positions for all DataTables
-    session$sendCustomMessage("eval", "saveScrollForAllTables();")
+  refresh_table_data_preserving_state <- function(trigger_global = TRUE, preserve_state = TRUE) {
+    if (preserve_state) {
+      session$sendCustomMessage("eval", "if(typeof saveDataTableState === 'function') saveDataTableState('all_mice_table');")
+      session$sendCustomMessage("eval", "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
+    }
     
     # Get current data query based on current filters - same logic as search
     where_conditions <- c()
@@ -157,15 +306,14 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       filtered_data(refreshed_data)
       all_mice_table(refreshed_data)
       
-      # Trigger global refresh to update any other components that depend on this data
-      global_refresh_trigger(Sys.time())
-      
-      # Restore scroll positions after refresh
-      session$sendCustomMessage("eval", "
-        setTimeout(function() {
-          restoreScrollForAllTables();
-        }, 200);
-      ")
+      if (trigger_global) {
+        global_refresh_trigger(Sys.time())
+      }
+
+      if (preserve_state) {
+        session$sendCustomMessage("eval", "setTimeout(function() { if(typeof restoreDataTableState === 'function') restoreDataTableState('all_mice_table'); }, 100);")
+        session$sendCustomMessage("eval", "setTimeout(function() { if(typeof restoreScrollForAllTables === 'function') restoreScrollForAllTables(); }, 200);")
+      }
       
     }, finally = {
       DBI::dbDisconnect(con)
@@ -258,61 +406,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
   # React to global refresh trigger for automatic updates
   observe({
     global_refresh_trigger()
-    
-    # Get current search status to maintain filter
-    current_status_filter <- input$all_mice_search_status
-    if (is.null(current_status_filter)) current_status_filter <- "Live"
-    
-    # Rebuild query based on current filters
-    where_conditions <- c()
-    
-    # Add status filter
-    if (current_status_filter != "Both") {
-      if (current_status_filter == "Live") {
-        where_conditions <- c(where_conditions, "status == 'Alive'")
-      } else if (current_status_filter == "Deceased") {
-        where_conditions <- c(where_conditions, "status == 'Deceased'")
-      }
-    }
-    
-    # Add other current filters if they exist
-    if (!is.null(input$all_mice_search_asu_id) && input$all_mice_search_asu_id != "") {
-      asu_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_asu_id))
-      where_conditions <- c(where_conditions, paste0("asu_id LIKE '", asu_pattern, "'"))
-    }
-    if (!is.null(input$all_mice_search_animal_id) && input$all_mice_search_animal_id != "") {
-      animal_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_animal_id))
-      where_conditions <- c(where_conditions, paste0("animal_id LIKE '", animal_pattern, "'"))
-    }
-    if (!is.null(input$all_mice_search_gender) && input$all_mice_search_gender != "") {
-      where_conditions <- c(where_conditions, paste0("gender = '", input$all_mice_search_gender, "'"))
-    }
-    if (!is.null(input$all_mice_search_breeding_line) && input$all_mice_search_breeding_line != "") {
-      breeding_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_breeding_line))
-      where_conditions <- c(where_conditions, paste0("breeding_line LIKE '", breeding_pattern, "'"))
-    }
-    if (!is.null(input$all_mice_search_responsible_person) && input$all_mice_search_responsible_person != "") {
-      where_conditions <- c(where_conditions, paste0("responsible_person = '", input$all_mice_search_responsible_person, "'"))
-    }
-    if (!is.null(input$all_mice_search_stock_category) && input$all_mice_search_stock_category != "") {
-      where_conditions <- c(where_conditions, paste0("stock_category = '", input$all_mice_search_stock_category, "'"))
-    }
-    
-    # Build and execute query
-    if (length(where_conditions) == 0) {
-      query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
-    } else {
-      query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
-    }
-    
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    tryCatch({
-      refreshed_data <- DBI::dbGetQuery(con, query)
-      filtered_data(refreshed_data)
-      all_mice_table(refreshed_data)
-    }, finally = {
-      DBI::dbDisconnect(con)
-    })
+
+    refresh_table_data_preserving_state(trigger_global = FALSE, preserve_state = TRUE)
   })
 
   # Render all mice table
@@ -506,136 +601,37 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
   
   # Handle Bulk Edit button
   observeEvent(input$bulk_edit_btn, {
-    # Use filtered_data for both display and selection mapping
-    data <- filtered_data()
-    selected_visible_rows <- input$all_mice_table_rows_selected
-    if (is.null(selected_visible_rows) || length(selected_visible_rows) == 0) {
-      showNotification("Please select at least one animal to edit.", type = "warning", duration = 3)
-      return()
-    }
-    # Get the displayed table as shown to the user (with only columns that exist in data)
-    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "notes")]
-    selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
-    
-    # Get complete data for selected animals from database to ensure all columns are available
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    selected_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", TABLE_NAME, " WHERE asu_id IN (", 
-                                                 paste(paste0("'", selected_asu_ids, "'"), collapse = ","), 
-                                                 ") ORDER BY asu_id"))
-    # Get existing values from database for dropdowns (keep connection open)
-    breeding_lines <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT breeding_line FROM ", TABLE_NAME, " WHERE breeding_line IS NOT NULL"))$breeding_line)
-    genotypes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT genotype FROM ", TABLE_NAME, " WHERE genotype IS NOT NULL"))$genotype)
-    responsible_persons <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT responsible_person FROM ", TABLE_NAME, " WHERE responsible_person IS NOT NULL"))$responsible_person)
-    project_codes <- unique(DBI::dbGetQuery(con, paste0("SELECT DISTINCT project_code FROM ", TABLE_NAME, " WHERE project_code IS NOT NULL"))$project_code)
-    DBI::dbDisconnect(con)
-    
-    # Helper to get common value, treating NA as "", trimming whitespace, and coercing to character
-    get_common_value <- function(x) {
-      x <- as.character(x)
-      x[is.na(x)] <- ""
-      x <- trimws(x)
-      ux <- unique(x)
-      ux <- ux[ux != "NA"] # Remove literal "NA" string if present
-      if (length(ux) == 1) ux else ""
-    }
-    common_gender <- get_common_value(selected_data$gender)
-    common_status <- get_common_value(selected_data$status)
-    common_breeding_line <- get_common_value(selected_data$breeding_line)
-    common_genotype <- get_common_value(selected_data$genotype)
-    common_responsible_person <- get_common_value(selected_data$responsible_person)
-    common_protocol <- get_common_value(selected_data$protocol)
-    common_study_plan <- get_common_value(selected_data$study_plan)
-    common_project_code <- get_common_value(selected_data$project_code)
-    common_stock_category <- get_common_value(selected_data$stock_category)
+    show_edit_animals_modal(get_selected_asu_ids_from_table())
+  })
 
-    # Ensure common values are included in choices for each field, and remove NA
-    breeding_line_choices <- unique(c("", na.omit(as.character(breeding_lines)), common_breeding_line))
-    genotype_choices <- unique(c("", na.omit(as.character(genotypes)), common_genotype))
-    responsible_person_choices <- unique(c("", na.omit(as.character(responsible_persons)), common_responsible_person))
-    protocol_choices <- unique(c("", 
-      "1 (Breeding and maintenance of genetically altered animals)",
-      "2 (Epithelial stem cell fate and dynamics during tissue development and regeneration)",
-      "3 (Mouse tumor model)",
-      common_protocol))
-    study_plan_choices <- c("", "SP2500090", "SP2500083", "SP2500082", "SP2500081")
-    project_code_choices <- unique(c("", na.omit(as.character(project_codes)), common_project_code))
-    stock_category_choices <- unique(c("", "Experiment", "Breeding", "Charles River", common_stock_category))
-
-    showModal(modalDialog(
-      title = paste("Bulk Edit", length(selected_asu_ids), "Selected Animals"),
-      size = "l",
-      div(
-        style = "margin-bottom: 15px;",
-        paste("You are editing", length(selected_asu_ids), "animals. Leave fields empty to keep current values."),
-        br(),
-        tags$div(
-          style = "font-size: 16px; color: #333; margin-top: 8px; font-weight: bold;",
-          HTML(paste0("ASU IDs: <span style='font-weight:bold;'>", paste(selected_asu_ids, collapse = ", "), "</span>"))
-        )
-      ),
-      fluidRow(
-        column(6, selectInput("bulk_edit_gender", "Gender", choices = c("", "Male", "Female"), selected = common_gender)),
-        column(6, selectInput("bulk_edit_status", "Status", choices = c("", "Alive", "Deceased"), selected = common_status))
-      ),
-      fluidRow(
-        column(6, selectizeInput("bulk_edit_breeding_line", "Breeding Line", 
-                                choices = breeding_line_choices, 
-                                selected = common_breeding_line,
-                                options = list(create = TRUE, placeholder = "Select or type new"))),
-        column(6, selectizeInput("bulk_edit_genotype", "Genotype", 
-                                choices = genotype_choices, 
-                                selected = common_genotype,
-                                options = list(create = TRUE, placeholder = "Select or type new")))
-      ),
-      fluidRow(
-        column(6, selectizeInput("bulk_edit_responsible_person", "Responsible Person", 
-                                choices = responsible_person_choices, 
-                                selected = common_responsible_person,
-                                options = list(create = TRUE, placeholder = "Select or type new")))
-      ),
-      fluidRow(
-        column(6, selectInput("bulk_edit_protocol", "Protocol", 
-                              choices = protocol_choices, 
-                              selected = common_protocol)),
-        column(6, selectizeInput("bulk_edit_project_code", "Project Code", 
-                                choices = project_code_choices, 
-                                selected = common_project_code,
-                                options = list(create = TRUE, placeholder = "Select or type new")))
-      ),
-      fluidRow(
-        column(6, selectInput("bulk_edit_study_plan", "Study Plan", 
-                              choices = study_plan_choices, 
-                              selected = common_study_plan)),
-        column(6, selectInput("bulk_edit_stock_category", "Stock Category", 
-                              choices = stock_category_choices, 
-                              selected = common_stock_category))
-      ),
-      fluidRow(
-        column(12, textAreaInput("bulk_edit_notes", "Notes", value = get_common_value(selected_data$notes), rows = 3, placeholder = "Enter notes (leave blank to keep current notes)", width = "100%"))
-      ),
-      div(
-        style = "margin-top: 15px; font-size: 12px; color: #666;",
-        "Empty fields will not change the current values"
-      ),
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("submit_bulk_edit_btn", "Update Animals", style = "background-color: #1976d2; color: white; border: none;")
-      )
-    ))
+  observeEvent(input$mouse_history_edit_clicked, {
+    req(input$mouse_history_edit_clicked)
+    removeModal()
+    show_edit_animals_modal(
+      selected_asu_ids = input$mouse_history_edit_clicked,
+      reopen_history = TRUE,
+      history_asu_id = input$mouse_history_edit_clicked
+    )
   })
   
   # Handle Bulk Edit submission
   observeEvent(input$submit_bulk_edit_btn, {
-    # Use filtered_data for both display and selection mapping
-    data <- filtered_data()
-    selected_visible_rows <- input$all_mice_table_rows_selected
-    if (is.null(selected_visible_rows) || length(selected_visible_rows) == 0) {
+    edit_context <- current_edit_context()
+    selected_asu_ids <- edit_context$selected_asu_ids
+    is_single_edit <- isTRUE(edit_context$is_single_edit)
+
+    if (length(selected_asu_ids) == 0) {
       showNotification("Please select at least one animal to edit.", type = "warning", duration = 3)
       return()
     }
-    # Get the displayed table as shown to the user (with only columns that exist in data)
-    display_data <- data[, c("asu_id", "animal_id", "gender", "breeding_line", "genotype", "responsible_person", "stock_category", "status", "notes")]
-    selected_asu_ids <- display_data[selected_visible_rows, "asu_id"]
+
+    should_apply_field <- function(form_value, current_value) {
+      if (is_single_edit) {
+        !identical(form_value, current_value)
+      } else {
+        form_value != "" && !identical(form_value, current_value)
+      }
+    }
     
     # Get complete data for selected animals from database to ensure all columns are available
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
@@ -660,70 +656,70 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Gender
       current_gender <- ifelse(is.na(first_record$gender), "", first_record$gender)
       form_gender <- ifelse(is.null(input$bulk_edit_gender), "", input$bulk_edit_gender)
-      if (form_gender != "" && form_gender != current_gender) {
+      if (should_apply_field(form_gender, current_gender)) {
         validation_data$gender <- form_gender
       }
       
       # Status
       current_status <- ifelse(is.na(first_record$status), "", first_record$status)
       form_status <- ifelse(is.null(input$bulk_edit_status), "", input$bulk_edit_status)
-      if (form_status != "" && form_status != current_status) {
+      if (should_apply_field(form_status, current_status)) {
         validation_data$status <- form_status
       }
       
       # Breeding Line
       current_breeding_line <- ifelse(is.na(first_record$breeding_line), "", first_record$breeding_line)
       form_breeding_line <- ifelse(is.null(input$bulk_edit_breeding_line), "", input$bulk_edit_breeding_line)
-      if (form_breeding_line != "" && form_breeding_line != current_breeding_line) {
+      if (should_apply_field(form_breeding_line, current_breeding_line)) {
         validation_data$breeding_line <- form_breeding_line
       }
       
       # Genotype
       current_genotype <- ifelse(is.na(first_record$genotype), "", first_record$genotype)
       form_genotype <- ifelse(is.null(input$bulk_edit_genotype), "", input$bulk_edit_genotype)
-      if (form_genotype != "" && form_genotype != current_genotype) {
+      if (should_apply_field(form_genotype, current_genotype)) {
         validation_data$genotype <- form_genotype
       }
       
       # Responsible Person
       current_responsible_person <- ifelse(is.na(first_record$responsible_person), "", first_record$responsible_person)
       form_responsible_person <- ifelse(is.null(input$bulk_edit_responsible_person), "", input$bulk_edit_responsible_person)
-      if (form_responsible_person != "" && form_responsible_person != current_responsible_person) {
+      if (should_apply_field(form_responsible_person, current_responsible_person)) {
         validation_data$responsible_person <- form_responsible_person
       }
       
       # Protocol
       current_protocol <- ifelse(is.na(first_record$protocol), "", first_record$protocol)
       form_protocol <- ifelse(is.null(input$bulk_edit_protocol), "", input$bulk_edit_protocol)
-      if (form_protocol != "" && form_protocol != current_protocol) {
+      if (should_apply_field(form_protocol, current_protocol)) {
         validation_data$protocol <- form_protocol
       }
       
       # Study Plan
       current_study_plan <- ifelse(is.na(first_record$study_plan), "", first_record$study_plan)
       form_study_plan <- ifelse(is.null(input$bulk_edit_study_plan), "", input$bulk_edit_study_plan)
-      if (form_study_plan != "" && form_study_plan != current_study_plan) {
+      if (should_apply_field(form_study_plan, current_study_plan)) {
         validation_data$study_plan <- form_study_plan
       }
       
       # Project Code
       current_project_code <- ifelse(is.na(first_record$project_code), "", first_record$project_code)
       form_project_code <- ifelse(is.null(input$bulk_edit_project_code), "", input$bulk_edit_project_code)
-      if (form_project_code != "" && form_project_code != current_project_code) {
+      if (should_apply_field(form_project_code, current_project_code)) {
         validation_data$project_code <- form_project_code
       }
       
       # Stock Category
       current_stock_category <- ifelse(is.na(first_record$stock_category), "", first_record$stock_category)
       form_stock_category <- ifelse(is.null(input$bulk_edit_stock_category), "", input$bulk_edit_stock_category)
-      if (form_stock_category != "" && form_stock_category != current_stock_category) {
+      if (should_apply_field(form_stock_category, current_stock_category)) {
         validation_data$stock_category <- form_stock_category
       }
       
       # Notes
       current_notes <- ifelse(is.na(first_record$notes), "", first_record$notes)
       form_notes <- ifelse(is.null(input$bulk_edit_notes), "", input$bulk_edit_notes)
-      if (form_notes != "" && form_notes != current_notes) {
+      if (should_apply_field(form_notes, current_notes)) {
         validation_data$notes <- form_notes
       }
     }
@@ -761,7 +757,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Gender
       current_gender <- ifelse(is.na(selected_data$gender[i]), "", selected_data$gender[i])
       form_gender <- ifelse(is.null(input$bulk_edit_gender), "", input$bulk_edit_gender)
-      if (form_gender != "" && form_gender != current_gender) {
+      if (should_apply_field(form_gender, current_gender)) {
         update_fields <- c(update_fields, paste0("gender = '", form_gender, "'"))
         record_old_values$gender <- current_gender
         record_new_values$gender <- form_gender
@@ -770,7 +766,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Status
       current_status <- ifelse(is.na(selected_data$status[i]), "", selected_data$status[i])
       form_status <- ifelse(is.null(input$bulk_edit_status), "", input$bulk_edit_status)
-      if (form_status != "" && form_status != current_status) {
+      if (should_apply_field(form_status, current_status)) {
         update_fields <- c(update_fields, paste0("status = '", form_status, "'"))
         record_old_values$status <- current_status
         record_new_values$status <- form_status
@@ -779,7 +775,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Breeding Line
       current_breeding_line <- ifelse(is.na(selected_data$breeding_line[i]), "", selected_data$breeding_line[i])
       form_breeding_line <- ifelse(is.null(input$bulk_edit_breeding_line), "", input$bulk_edit_breeding_line)
-      if (form_breeding_line != "" && form_breeding_line != current_breeding_line) {
+      if (should_apply_field(form_breeding_line, current_breeding_line)) {
         update_fields <- c(update_fields, paste0("breeding_line = '", form_breeding_line, "'"))
         record_old_values$breeding_line <- current_breeding_line
         record_new_values$breeding_line <- form_breeding_line
@@ -788,7 +784,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Genotype
       current_genotype <- ifelse(is.na(selected_data$genotype[i]), "", selected_data$genotype[i])
       form_genotype <- ifelse(is.null(input$bulk_edit_genotype), "", input$bulk_edit_genotype)
-      if (form_genotype != "" && form_genotype != current_genotype) {
+      if (should_apply_field(form_genotype, current_genotype)) {
         update_fields <- c(update_fields, paste0("genotype = '", form_genotype, "'"))
         record_old_values$genotype <- current_genotype
         record_new_values$genotype <- form_genotype
@@ -797,7 +793,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Responsible Person
       current_responsible_person <- ifelse(is.na(selected_data$responsible_person[i]), "", selected_data$responsible_person[i])
       form_responsible_person <- ifelse(is.null(input$bulk_edit_responsible_person), "", input$bulk_edit_responsible_person)
-      if (form_responsible_person != "" && form_responsible_person != current_responsible_person) {
+      if (should_apply_field(form_responsible_person, current_responsible_person)) {
         update_fields <- c(update_fields, paste0("responsible_person = '", form_responsible_person, "'"))
         record_old_values$responsible_person <- current_responsible_person
         record_new_values$responsible_person <- form_responsible_person
@@ -806,7 +802,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Protocol
       current_protocol <- ifelse(is.na(selected_data$protocol[i]), "", selected_data$protocol[i])
       form_protocol <- ifelse(is.null(input$bulk_edit_protocol), "", input$bulk_edit_protocol)
-      if (form_protocol != "" && form_protocol != current_protocol) {
+      if (should_apply_field(form_protocol, current_protocol)) {
         update_fields <- c(update_fields, paste0("protocol = '", form_protocol, "'"))
         record_old_values$protocol <- current_protocol
         record_new_values$protocol <- form_protocol
@@ -815,7 +811,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Study Plan
       current_study_plan <- ifelse(is.na(selected_data$study_plan[i]), "", selected_data$study_plan[i])
       form_study_plan <- ifelse(is.null(input$bulk_edit_study_plan), "", input$bulk_edit_study_plan)
-      if (form_study_plan != "" && form_study_plan != current_study_plan) {
+      if (should_apply_field(form_study_plan, current_study_plan)) {
         update_fields <- c(update_fields, paste0("study_plan = '", form_study_plan, "'"))
         record_old_values$study_plan <- current_study_plan
         record_new_values$study_plan <- form_study_plan
@@ -824,7 +820,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Project Code
       current_project_code <- ifelse(is.na(selected_data$project_code[i]), "", selected_data$project_code[i])
       form_project_code <- ifelse(is.null(input$bulk_edit_project_code), "", input$bulk_edit_project_code)
-      if (form_project_code != "" && form_project_code != current_project_code) {
+      if (should_apply_field(form_project_code, current_project_code)) {
         update_fields <- c(update_fields, paste0("project_code = '", form_project_code, "'"))
         record_old_values$project_code <- current_project_code
         record_new_values$project_code <- form_project_code
@@ -833,7 +829,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Stock Category
       current_stock_category <- ifelse(is.na(selected_data$stock_category[i]), "", selected_data$stock_category[i])
       form_stock_category <- ifelse(is.null(input$bulk_edit_stock_category), "", input$bulk_edit_stock_category)
-      if (form_stock_category != "" && form_stock_category != current_stock_category) {
+      if (should_apply_field(form_stock_category, current_stock_category)) {
         update_fields <- c(update_fields, paste0("stock_category = '", form_stock_category, "'"))
         record_old_values$stock_category <- current_stock_category
         record_new_values$stock_category <- form_stock_category
@@ -842,7 +838,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       # Notes
       current_notes <- ifelse(is.na(selected_data$notes[i]), "", selected_data$notes[i])
       form_notes <- ifelse(is.null(input$bulk_edit_notes), "", input$bulk_edit_notes)
-      if (form_notes != "" && form_notes != current_notes) {
+      if (should_apply_field(form_notes, current_notes)) {
         update_fields <- c(update_fields, paste0("notes = '", gsub("'", "''", form_notes), "'"))
         record_old_values$notes <- current_notes
         record_new_values$notes <- form_notes
@@ -963,30 +959,19 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     
     DBI::dbDisconnect(con)
     
-    # Refresh the table data using the current status filter
-    current_status_filter <- input$all_mice_search_status
-    if (is.null(current_status_filter)) current_status_filter <- "Live"
-    where_conditions <- c()
-    if (current_status_filter != "Both") {
-      if (current_status_filter == "Live") {
-        where_conditions <- c(where_conditions, "status == 'Alive'")
-      } else if (current_status_filter == "Deceased") {
-        where_conditions <- c(where_conditions, "status == 'Deceased'")
-      }
-    }
-    # Add other filters here if you want to persist more search fields after edit (optional)
-    if (length(where_conditions) == 0) {
-      query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
-    } else {
-      query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
-    }
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    refreshed_data <- DBI::dbGetQuery(con, query)
-    DBI::dbDisconnect(con)
-    filtered_data(refreshed_data)
-    all_mice_table(refreshed_data)
+    refresh_table_data_preserving_state(trigger_global = TRUE, preserve_state = TRUE)
     
     removeModal()
+    current_edit_context(list(
+      selected_asu_ids = character(0),
+      is_single_edit = FALSE,
+      reopen_history = FALSE,
+      history_asu_id = NULL
+    ))
+    
+    if (isTRUE(edit_context$reopen_history) && !is.null(edit_context$history_asu_id)) {
+      show_mouse_history_tracing(input, output, session, edit_context$history_asu_id, all_mice_table, allow_edit = TRUE)
+    }
     
     if (update_count > 0) {
       showNotification(paste("Successfully updated", update_count, "animals."), type = "message", duration = 3)
@@ -1098,28 +1083,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     
     DBI::dbDisconnect(con)
     
-    # Refresh the table data using the current status filter
-    current_status_filter <- input$all_mice_search_status
-    if (is.null(current_status_filter)) current_status_filter <- "Live"
-    where_conditions <- c()
-    if (current_status_filter != "Both") {
-      if (current_status_filter == "Live") {
-        where_conditions <- c(where_conditions, "status == 'Alive'")
-      } else if (current_status_filter == "Deceased") {
-        where_conditions <- c(where_conditions, "status == 'Deceased'")
-      }
-    }
-    # Add other filters here if you want to persist more search fields after edit (optional)
-    if (length(where_conditions) == 0) {
-      query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
-    } else {
-      query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
-    }
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    refreshed_data <- DBI::dbGetQuery(con, query)
-    DBI::dbDisconnect(con)
-    filtered_data(refreshed_data)
-    all_mice_table(refreshed_data)
+    refresh_table_data_preserving_state(trigger_global = TRUE, preserve_state = TRUE)
     
     removeModal()
     
@@ -1174,28 +1138,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     
     DBI::dbDisconnect(con)
     
-    # Refresh the table data using the current status filter
-    current_status_filter <- input$all_mice_search_status
-    if (is.null(current_status_filter)) current_status_filter <- "Live"
-    where_conditions <- c()
-    if (current_status_filter != "Both") {
-      if (current_status_filter == "Live") {
-        where_conditions <- c(where_conditions, "status == 'Alive'")
-      } else if (current_status_filter == "Deceased") {
-        where_conditions <- c(where_conditions, "status == 'Deceased'")
-      }
-    }
-    # Add other filters here if you want to persist more search fields after edit (optional)
-    if (length(where_conditions) == 0) {
-      query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
-    } else {
-      query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
-    }
-    con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-    refreshed_data <- DBI::dbGetQuery(con, query)
-    DBI::dbDisconnect(con)
-    filtered_data(refreshed_data)
-    all_mice_table(refreshed_data)
+    refresh_table_data_preserving_state(trigger_global = TRUE, preserve_state = TRUE)
     
     removeModal()
     
@@ -1226,7 +1169,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     
     # Call the mouse history tracing function from the separate modal file
     if (!is.null(asu_id) && asu_id != "" && asu_id != "NA") {
-      show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
+      show_mouse_history_tracing(input, output, session, asu_id, all_mice_table, allow_edit = TRUE)
     } else {
       showNotification("Could not retrieve mouse information. Please try again.", type = "error", duration = 3)
     }
@@ -1365,7 +1308,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     removeModal()
     
     # Reopen the main mouse history modal
-    show_mouse_history_tracing(input, output, session, asu_id, all_mice_table)
+    show_mouse_history_tracing(input, output, session, asu_id, all_mice_table, allow_edit = TRUE)
   }, ignoreInit = TRUE)
 
   # Body weight modal Close button functionality
@@ -1436,11 +1379,11 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       return(FALSE)
     }
     
-    # Check maximum 3 mice condition
-    if (length(selected_rows) > 3) {
+    # Check maximum 4 mice condition
+    if (length(selected_rows) > 4) {
       showModal(modalDialog(
         title = "Too Many Mice Selected",
-        paste("You have selected", length(selected_rows), "mice. Maximum allowed is 3 mice for plugging."),
+        paste("You have selected", length(selected_rows), "mice. Maximum allowed is 4 mice for plugging."),
         footer = modalButton("OK"),
         size = "s"
       ))
@@ -1510,7 +1453,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       if (mouse_info$gender == "Male") {
         male_count <- male_count + 1
         
-        if (active_plugging_count >= 2) {
+        if (active_plugging_count > 3) {
           warning_messages[[paste0("male_plugging_", asu_id)]] <- paste("Male", asu_id, "has", active_plugging_count, "active plugging records")
         }
         
@@ -1578,7 +1521,31 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
             tags$br(),
             "• Select only one male mouse",
             tags$br(),
-            "• You can select 1-2 female mice to pair with the male"
+            "• You can select 1-3 female mice to pair with the male"
+          )
+        ),
+        footer = modalButton("OK"),
+        size = "m"
+      ))
+      return(FALSE)
+    }
+
+    if (female_count > 3) {
+      showModal(modalDialog(
+        title = "⚠️ Too Many Females Selected",
+        div(
+          style = "color: #d32f2f;",
+          tags$strong("Cannot add plugging event:"),
+          tags$br(), tags$br(),
+          paste("You have selected", female_count, "females. Maximum allowed is 3 females for plugging."),
+          tags$br(), tags$br(),
+          tags$div(
+            style = "background-color: #fff3e0; padding: 10px; border-radius: 4px; border-left: 4px solid #ff9800;",
+            tags$strong("How to fix:"),
+            tags$br(),
+            "• Keep exactly one male selected",
+            tags$br(),
+            "• Select up to three female mice"
           )
         ),
         footer = modalButton("OK"),
@@ -1600,7 +1567,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
             style = "background-color: #fff3e0; padding: 10px; border-radius: 4px; border-left: 4px solid #ff9800;",
             tags$strong("How to fix:"),
             tags$br(),
-            "• Select one or two female mice from the table",
+            "• Select one, two, or three female mice from the table",
             tags$br(),
             "• Ensure the females are alive and at least 7 weeks old"
           )
@@ -1631,9 +1598,9 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
             tags$br(),
             "• Ensure mice are alive and at least 7 weeks old",
             tags$br(),
-            "• Check that mice don't have too many active plugging records",
+            "• Females must have no active plugging records, and males must have at most 3 active plugging records",
             tags$br(),
-            "• Select exactly 1 male and 1-2 females"
+            "• Select exactly 1 male and 1-3 females"
           )
         ),
         footer = modalButton("OK"),
@@ -1743,61 +1710,7 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
     is_system_locked = is_system_locked,
     global_refresh_trigger = global_refresh_trigger,
     force_refresh_all_mice_table = function() {
-      # Force refresh the all_mice table by updating filtered_data and all_mice_table
-      # Get current search status to maintain filter
-      current_status_filter <- input$all_mice_search_status
-      if (is.null(current_status_filter)) current_status_filter <- "Live"
-      
-      # Rebuild query based on current filters
-      where_conditions <- c()
-      
-      # Add status filter
-      if (current_status_filter != "Both") {
-        if (current_status_filter == "Live") {
-          where_conditions <- c(where_conditions, "status == 'Alive'")
-        } else if (current_status_filter == "Deceased") {
-          where_conditions <- c(where_conditions, "status == 'Deceased'")
-        }
-      }
-      
-      # Add other current filters if they exist
-      if (!is.null(input$all_mice_search_asu_id) && input$all_mice_search_asu_id != "") {
-        asu_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_asu_id))
-        where_conditions <- c(where_conditions, paste0("asu_id LIKE '", asu_pattern, "'"))
-      }
-      if (!is.null(input$all_mice_search_animal_id) && input$all_mice_search_animal_id != "") {
-        animal_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_animal_id))
-        where_conditions <- c(where_conditions, paste0("animal_id LIKE '", animal_pattern, "'"))
-      }
-      if (!is.null(input$all_mice_search_gender) && input$all_mice_search_gender != "") {
-        where_conditions <- c(where_conditions, paste0("gender = '", input$all_mice_search_gender, "'"))
-      }
-      if (!is.null(input$all_mice_search_breeding_line) && input$all_mice_search_breeding_line != "") {
-        breeding_pattern <- gsub("\\*", "%", gsub("\\?", "_", input$all_mice_search_breeding_line))
-        where_conditions <- c(where_conditions, paste0("breeding_line LIKE '", breeding_pattern, "'"))
-      }
-      if (!is.null(input$all_mice_search_responsible_person) && input$all_mice_search_responsible_person != "") {
-        where_conditions <- c(where_conditions, paste0("responsible_person = '", input$all_mice_search_responsible_person, "'"))
-      }
-      if (!is.null(input$all_mice_search_stock_category) && input$all_mice_search_stock_category != "") {
-        where_conditions <- c(where_conditions, paste0("stock_category = '", input$all_mice_search_stock_category, "'"))
-      }
-      
-      # Build and execute query
-      if (length(where_conditions) == 0) {
-        query <- paste0("SELECT * FROM ", TABLE_NAME, " ORDER BY asu_id")
-      } else {
-        query <- paste0("SELECT * FROM ", TABLE_NAME, " WHERE ", paste(where_conditions, collapse = " AND "), " ORDER BY asu_id")
-      }
-      
-      con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
-      tryCatch({
-        refreshed_data <- DBI::dbGetQuery(con, query)
-        filtered_data(refreshed_data)
-        all_mice_table(refreshed_data)
-      }, finally = {
-        DBI::dbDisconnect(con)
-      })
+      refresh_table_data_preserving_state(trigger_global = FALSE, preserve_state = TRUE)
     }
   )
 } 

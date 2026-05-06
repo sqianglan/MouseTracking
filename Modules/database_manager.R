@@ -7,6 +7,46 @@ suppressPackageStartupMessages({
   library(RSQLite)
 })
 
+# Resolve the main database path for the current app location.
+get_main_db_path <- function() {
+  normalizePath(DEFAULT_DB_NAME, mustWork = FALSE)
+}
+
+# Check whether the current app state is viewing the main database.
+is_viewing_main_database <- function() {
+  normalizePath(get_current_db_path(), mustWork = FALSE) == get_main_db_path()
+}
+
+# Resolve the backup directory for the main database location.
+get_backup_dir_for_db <- function(db_path = get_main_db_path()) {
+  if (is.null(db_path) || identical(db_path, "")) {
+    return(BACKUPS_DIR)
+  }
+
+  db_dir <- dirname(db_path)
+
+  if (basename(db_dir) == ".mousemanagement_DontRemove") {
+    return(file.path(db_dir, "backups"))
+  }
+
+  file.path(db_dir, ".mousemanagement_DontRemove", "backups")
+}
+
+# List all backup database files for the active database location.
+list_backup_database_files <- function(db_path = get_current_db_path(), backup_dir = get_backup_dir_for_db(get_main_db_path())) {
+  if (!dir.exists(backup_dir)) {
+    return(character(0))
+  }
+
+  backup_files <- list.files(backup_dir, pattern = "\\.db$", full.names = TRUE)
+
+  if (length(backup_files) == 0) {
+    return(character(0))
+  }
+
+  backup_files
+}
+
 # Initialize all required directories
 initialize_hidden_directories <- function() {
   tryCatch({
@@ -44,76 +84,101 @@ initialize_hidden_directories <- function() {
   })
 }
 
-# Get current database path (checks config file for temporary switches)
+# Get current database path for the active session.
 get_current_db_path <- function() {
-  # Check if there's a temporary database set in config file
-  config_file <- file.path(CONFIG_DIR, "current_db.conf")
-  
-  if (file.exists(config_file)) {
-    tryCatch({
-      temp_db_path <- readLines(config_file, n = 1, warn = FALSE)
-      if (length(temp_db_path) > 0 && file.exists(temp_db_path)) {
-        # Validate the temporary database
-        validation <- validate_database_file(temp_db_path)
-        if (validation$valid) {
-          return(temp_db_path)
-        }
-      }
-    }, error = function(e) {
-      # If config file is corrupted, ignore and use default
-    })
-  }
-  
-  # Fall back to main database
   return(DB_PATH)
+}
+
+# Clear any temporary backup view and return to the main database.
+return_to_main_database <- function() {
+  tryCatch({
+    DB_PATH <<- get_main_db_path()
+
+    list(success = TRUE, message = "Returned to main database", path = DB_PATH)
+  }, error = function(e) {
+    list(success = FALSE, message = paste("Error returning to main database:", e$message))
+  })
 }
 
 # List main database and all backup databases
 list_hidden_databases <- function() {
-  all_db_paths <- c()
-  all_db_labels <- c()
+  current_db_path <- get_current_db_path()
+  main_db_path <- get_main_db_path()
+  backup_dir <- get_backup_dir_for_db(main_db_path)
+  current_choices <- list()
+  main_choices <- list()
+  backup_choices <- list()
   
   # Add main database
-  main_db_path <- file.path(HIDDEN_DIR, "mice_colony.db")
   if (file.exists(main_db_path)) {
     size <- file.info(main_db_path)$size
     if (is.na(size)) size <- 0
-    all_db_paths <- c(all_db_paths, main_db_path)
-    all_db_labels <- c(all_db_labels, paste0("mice_colony.db (CURRENT - ", size, " bytes)"))
+    main_label <- if (normalizePath(main_db_path, mustWork = FALSE) == normalizePath(current_db_path, mustWork = FALSE)) {
+      paste0(basename(main_db_path), " (Main database, ", size, " bytes)")
+    } else {
+      paste0(basename(main_db_path), " (Main database, ", size, " bytes)")
+    }
+
+    if (normalizePath(main_db_path, mustWork = FALSE) == normalizePath(current_db_path, mustWork = FALSE)) {
+      current_choices[[main_label]] <- main_db_path
+    } else {
+      main_choices[[main_label]] <- main_db_path
+    }
   }
   
   # Add backup databases
-  if (!dir.exists(BACKUPS_DIR)) {
-    dir.create(BACKUPS_DIR, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(backup_dir)) {
+    dir.create(backup_dir, recursive = TRUE, showWarnings = FALSE)
   }
   
-  backup_files <- list.files(BACKUPS_DIR, pattern = "\\.db$", full.names = FALSE)
+  backup_paths <- list_backup_database_files(current_db_path, backup_dir)
+  backup_files <- basename(backup_paths)
   
   if (length(backup_files) > 0) {
-    backup_paths <- file.path(BACKUPS_DIR, backup_files)
-    
     # Get backup labels with sizes
     backup_labels <- sapply(1:length(backup_files), function(i) {
       tryCatch({
         size <- file.info(backup_paths[i])$size
         if (is.na(size)) size <- 0
-        paste0(backup_files[i], " (", size, " bytes)")
+        if (normalizePath(backup_paths[i], mustWork = FALSE) == normalizePath(current_db_path, mustWork = FALSE)) {
+          paste0(backup_files[i], " (Current view, ", size, " bytes)")
+        } else {
+          paste0(backup_files[i], " (Backup, ", size, " bytes)")
+        }
       }, error = function(e) {
         paste0(backup_files[i], " (unknown size)")
       })
     })
-    
-    all_db_paths <- c(all_db_paths, backup_paths)
-    all_db_labels <- c(all_db_labels, backup_labels)
+
+    for (i in seq_along(backup_paths)) {
+      normalized_backup <- normalizePath(backup_paths[i], mustWork = FALSE)
+      if (normalized_backup == normalizePath(current_db_path, mustWork = FALSE)) {
+        current_choices[[backup_labels[i]]] <- backup_paths[i]
+      } else {
+        backup_choices[[backup_labels[i]]] <- backup_paths[i]
+      }
+    }
   }
-  
-  # Return combined list
-  if (length(all_db_paths) > 0) {
-    names(all_db_paths) <- all_db_labels
-    return(all_db_paths)
-  } else {
-    return(list("No databases found" = ""))
+
+  grouped_choices <- list()
+
+  if (length(current_choices) > 0) {
+    grouped_choices[["Current"]] <- current_choices
   }
+
+  if (length(main_choices) > 0) {
+    grouped_choices[["Main"]] <- main_choices
+  }
+
+  if (length(backup_choices) > 0) {
+    grouped_choices[["Backups"]] <- backup_choices
+  }
+
+  if (length(grouped_choices) > 0) {
+    return(grouped_choices)
+  }
+
+  list("No databases found" = list("No databases found" = ""))
 }
 
 # Validate database file
@@ -147,7 +212,7 @@ validate_database_file <- function(db_path) {
   })
 }
 
-# Switch to database temporarily (session only)
+# Switch to database temporarily for viewing
 switch_database <- function(new_db_path) {
   validation <- validate_database_file(new_db_path)
   
@@ -156,21 +221,14 @@ switch_database <- function(new_db_path) {
   }
   
   tryCatch({
-    # Ensure config directory exists
-    if (!dir.exists(CONFIG_DIR)) {
-      dir.create(CONFIG_DIR, recursive = TRUE, showWarnings = FALSE)
-    }
-    
-    # Update config file for current session only
-    config_file <- file.path(CONFIG_DIR, "current_db.conf")
-    writeLines(new_db_path, config_file)
+    normalized_path <- normalizePath(new_db_path, mustWork = FALSE)
+    main_db_path <- get_main_db_path()
     
     # Update global DB_PATH for current session
-    DB_PATH <<- normalizePath(new_db_path)
+    DB_PATH <<- normalized_path
     
     # Check if switching to main database or backup
-    main_db_path <- file.path(HIDDEN_DIR, "mice_colony.db")
-    is_main_db <- normalizePath(new_db_path) == normalizePath(main_db_path)
+    is_main_db <- normalized_path == main_db_path
     
     if (is_main_db) {
       message_text <- "Switched to main database (mice_colony.db)"
@@ -186,6 +244,45 @@ switch_database <- function(new_db_path) {
     
   }, error = function(e) {
     return(list(success = FALSE, message = paste("Error switching database:", e$message)))
+  })
+}
+
+# Restore a backup as the main database while keeping both the chosen backup and a safety copy of the current main DB.
+restore_backup_as_main <- function(backup_path) {
+  validation <- validate_database_file(backup_path)
+
+  if (!validation$valid) {
+    return(list(success = FALSE, message = validation$message))
+  }
+
+  main_db_path <- get_main_db_path()
+  normalized_backup <- normalizePath(backup_path, mustWork = FALSE)
+
+  if (normalized_backup == main_db_path) {
+    return(list(success = FALSE, message = "Selected database is already the main database"))
+  }
+
+  tryCatch({
+    if (file.exists(main_db_path)) {
+      safety_backup <- create_backup(main_db_path, backup_type = "preimport")
+      if (!safety_backup$success) {
+        return(list(success = FALSE, message = paste("Failed to back up current main database:", safety_backup$message)))
+      }
+    }
+
+    if (!file.copy(normalized_backup, main_db_path, overwrite = TRUE)) {
+      return(list(success = FALSE, message = "Failed to restore backup as main database"))
+    }
+
+    return_to_main_database()
+
+    list(
+      success = TRUE,
+      message = paste("Restored", basename(normalized_backup), "as the main database. Previous main database was backed up."),
+      path = main_db_path
+    )
+  }, error = function(e) {
+    list(success = FALSE, message = paste("Error restoring backup:", e$message))
   })
 }
 
@@ -353,7 +450,8 @@ get_database_info <- function(db_path = DB_PATH) {
       name = basename(db_path),
       size = file.info(db_path)$size,
       modified = file.info(db_path)$mtime,
-      tables = tables
+      tables = tables,
+      is_main = normalizePath(db_path, mustWork = FALSE) == get_main_db_path()
     )
     
     # Get record counts
@@ -377,7 +475,7 @@ get_database_info <- function(db_path = DB_PATH) {
 }
 
 # Create automatic backup
-create_backup <- function(db_path = DB_PATH, backup_dir = BACKUPS_DIR, backup_type = "manual") {
+create_backup <- function(db_path = get_main_db_path(), backup_dir = get_backup_dir_for_db(get_main_db_path()), backup_type = "manual") {
   if (!file.exists(db_path)) {
     return(list(success = FALSE, message = "Source database not found"))
   }
@@ -390,12 +488,12 @@ create_backup <- function(db_path = DB_PATH, backup_dir = BACKUPS_DIR, backup_ty
   tryCatch({
     timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
     
-    # Always use mice_colony as base name for backups
-    if (backup_type == "preimport") {
-      backup_name <- paste0("mice_colony_", timestamp, "_preimport.db")
-    } else {
-      backup_name <- paste0("mice_colony_", timestamp, ".db")
-    }
+    backup_name <- switch(
+      backup_type,
+      auto = paste0("mice_colony_auto_", timestamp, ".db"),
+      preimport = paste0("mice_colony_preimport_", timestamp, ".db"),
+      paste0("mice_colony_backup_", timestamp, ".db")
+    )
     backup_path <- file.path(backup_dir, backup_name)
     
     file.copy(db_path, backup_path)
@@ -412,7 +510,7 @@ create_backup <- function(db_path = DB_PATH, backup_dir = BACKUPS_DIR, backup_ty
 }
 
 # Check if automatic backup is needed
-should_create_auto_backup <- function(db_path = DB_PATH, backup_dir = BACKUPS_DIR, 
+should_create_auto_backup <- function(db_path = get_main_db_path(), backup_dir = get_backup_dir_for_db(get_main_db_path()), 
                                      backup_interval_hours = 6) {
   if (!file.exists(db_path)) {
     return(FALSE)
@@ -445,23 +543,12 @@ should_create_auto_backup <- function(db_path = DB_PATH, backup_dir = BACKUPS_DI
 }
 
 # Create automatic startup backup
-create_startup_backup <- function(db_path = DB_PATH, backup_dir = BACKUPS_DIR) {
-  if (!should_create_auto_backup(db_path, backup_dir)) {
-    return(list(success = TRUE, message = "Recent backup exists, skipping"))
-  }
-  
-  result <- create_backup(db_path, backup_dir, backup_type = "auto")
-  
-  if (result$success) {
-    # Clean old auto backups (keep last 10)
-    clean_old_auto_backups(backup_dir)
-  }
-  
-  return(result)
+create_startup_backup <- function(db_path = get_main_db_path(), backup_dir = get_backup_dir_for_db(get_main_db_path())) {
+  create_backup(db_path, backup_dir, backup_type = "auto")
 }
 
 # Clean old automatic backups (keep recent ones)
-clean_old_auto_backups <- function(backup_dir = BACKUPS_DIR, keep_count = 10) {
+clean_old_auto_backups <- function(backup_dir = get_backup_dir_for_db(), keep_count = 10) {
   if (!dir.exists(backup_dir)) {
     return(list(success = TRUE, message = "Backup directory doesn't exist"))
   }
@@ -494,33 +581,45 @@ clean_old_auto_backups <- function(backup_dir = BACKUPS_DIR, keep_count = 10) {
   })
 }
 
-# Clean old backups (keep last N days)
-clean_old_backups <- function(backup_dir = BACKUPS_DIR, keep_days = 30) {
+# Clean old backups (keep at least the most recent backups and anything from the last N days)
+clean_old_backups <- function(backup_dir = get_backup_dir_for_db(), keep_days = 7, keep_count = 3) {
   if (!dir.exists(backup_dir)) {
     return(list(success = TRUE, message = "Backup directory doesn't exist"))
   }
   
   tryCatch({
-    backup_files <- list.files(backup_dir, pattern = "_backup_.*\\.db$", full.names = TRUE)
+    backup_files <- list_backup_database_files(backup_dir = backup_dir)
     
     if (length(backup_files) == 0) {
       return(list(success = TRUE, message = "No backup files found"))
     }
     
     # Get file modification times
-    file_times <- file.info(backup_files)$mtime
+    backup_info <- file.info(backup_files)
+    file_times <- backup_info$mtime
     cutoff_time <- Sys.time() - (keep_days * 24 * 3600)
     
-    old_files <- backup_files[file_times < cutoff_time]
+    # Sort by modification time (newest first)
+    backup_files <- backup_files[order(file_times, decreasing = TRUE)]
+    file_times <- file_times[order(file_times, decreasing = TRUE)]
+    
+    recent_indices <- which(file_times >= cutoff_time)
+    newest_indices <- seq_len(min(keep_count, length(backup_files)))
+    keep_indices <- sort(unique(c(recent_indices, newest_indices)))
+    
+    old_files <- backup_files[-keep_indices]
     
     if (length(old_files) > 0) {
       file.remove(old_files)
       return(list(
         success = TRUE, 
-        message = paste("Removed", length(old_files), "old backup files")
+        message = paste(
+          "Removed", length(old_files), "old backup files and kept",
+          length(keep_indices), "recent backup(s)"
+        )
       ))
     } else {
-      return(list(success = TRUE, message = "No old backup files to remove"))
+      return(list(success = TRUE, message = "No old backup files to remove under the current retention rule"))
     }
     
   }, error = function(e) {

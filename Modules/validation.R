@@ -592,31 +592,56 @@ validate_mice_active_status <- function(mice_id, table_name, status_column, mous
 
 # Global function to get live mice by gender (reactive version)
 get_live_mice_by_gender <- function(gender = NULL, global_refresh_trigger = NULL) {
+  active_female_statuses <- c("Ongoing", "Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
+  active_male_statuses <- c("Ongoing")
+
+  fetch_available_mice <- function(con, gender = NULL) {
+    status_placeholders <- paste(rep("?", length(active_female_statuses)), collapse = ",")
+    male_status_placeholders <- paste(rep("?", length(active_male_statuses)), collapse = ",")
+
+    query <- paste0(
+      "SELECT ms.asu_id, ms.animal_id, ms.gender, ms.breeding_line, ms.genotype, ",
+      "CASE ",
+      "  WHEN ms.gender = 'Male' THEN COALESCE(male_counts.active_plugging_count, 0) ",
+      "  ELSE COALESCE(female_counts.active_plugging_count, 0) ",
+      "END AS active_plugging_count ",
+      "FROM mice_stock ms ",
+      "LEFT JOIN (",
+      "  SELECT male_id AS asu_id, COUNT(*) AS active_plugging_count ",
+      "  FROM plugging_history ",
+      "  WHERE plugging_status IN (", male_status_placeholders, ") ",
+      "  GROUP BY male_id",
+      ") male_counts ON ms.asu_id = male_counts.asu_id ",
+      "LEFT JOIN (",
+      "  SELECT female_id AS asu_id, COUNT(*) AS active_plugging_count ",
+      "  FROM plugging_history ",
+      "  WHERE plugging_status IN (", status_placeholders, ") ",
+      "  GROUP BY female_id",
+      ") female_counts ON ms.asu_id = female_counts.asu_id ",
+      "WHERE ms.status = 'Alive'",
+      if (!is.null(gender)) " AND ms.gender = ?" else "",
+      " ORDER BY ms.asu_id"
+    )
+
+    params <- c(active_male_statuses, active_female_statuses)
+    if (!is.null(gender)) {
+      params <- c(params, gender)
+    }
+
+    mice <- DBI::dbGetQuery(con, query, params = as.list(params))
+
+    mice <- mice[!(mice$gender == "Female" & mice$active_plugging_count >= 1), , drop = FALSE]
+    mice <- mice[!(mice$gender == "Male" & mice$active_plugging_count > 3), , drop = FALSE]
+
+    mice
+  }
+
   if (is.null(global_refresh_trigger)) {
     # Non-reactive version - direct database call
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
     
     tryCatch({
-      if (is.null(gender)) {
-        # Return all live mice (both genders)
-        mice <- DBI::dbGetQuery(con, 
-          "SELECT asu_id, animal_id, gender, breeding_line, genotype 
-           FROM mice_stock 
-           WHERE status = 'Alive' 
-           ORDER BY asu_id")
-        
-        mice
-      } else {
-        # Filter by specific gender
-        mice <- DBI::dbGetQuery(con, 
-          "SELECT asu_id, animal_id, gender, breeding_line, genotype 
-           FROM mice_stock 
-           WHERE status = 'Alive' AND gender = ?
-           ORDER BY asu_id",
-          params = list(gender))
-        
-        mice
-      }
+      fetch_available_mice(con, gender)
     }, finally = {
       DBI::dbDisconnect(con)
     })
@@ -628,26 +653,7 @@ get_live_mice_by_gender <- function(gender = NULL, global_refresh_trigger = NULL
       
       con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
       tryCatch({
-        if (is.null(gender)) {
-          # Return all live mice (both genders)
-          mice <- DBI::dbGetQuery(con, 
-            "SELECT asu_id, animal_id, gender, breeding_line, genotype 
-             FROM mice_stock 
-             WHERE status = 'Alive' 
-             ORDER BY asu_id")
-          
-          mice
-        } else {
-          # Filter by specific gender
-          mice <- DBI::dbGetQuery(con, 
-            "SELECT asu_id, animal_id, gender, breeding_line, genotype 
-             FROM mice_stock 
-             WHERE status = 'Alive' AND gender = ?
-             ORDER BY asu_id",
-            params = list(gender))
-          
-          mice
-        }
+        fetch_available_mice(con, gender)
       }, finally = {
         DBI::dbDisconnect(con)
       })
