@@ -589,7 +589,8 @@ create_duplicate_conflicts_html_table <- function(import_data, previous_selectio
 }
 
 # Function to check if an ASU ID already exists
-check_asu_id_availability <- function(asu_id, import_data = NULL, db_path, table_name) {
+check_asu_id_availability <- function(asu_id, import_data = NULL, db_path, table_name,
+                                      source_row = NULL, custom_asu_map = list()) {
   # Check database
   con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
   existing_count <- DBI::dbGetQuery(con, 
@@ -600,7 +601,22 @@ check_asu_id_availability <- function(asu_id, import_data = NULL, db_path, table
   # Check current import data if provided
   import_conflict <- FALSE
   if (!is.null(import_data) && !is.null(import_data$parsed_df)) {
-    import_conflict <- asu_id %in% import_data$parsed_df$asu_id
+    projected_ids <- as.character(import_data$parsed_df$asu_id)
+
+    if (!is.null(import_data$duplicate_actions) && !is.null(import_data$comparison_data)) {
+      projected_ids <- build_projected_import_asu_ids(
+        import_data$parsed_df,
+        import_data$comparison_data,
+        import_data$duplicate_actions$user_actions,
+        custom_asu_map
+      )
+    }
+
+    if (!is.null(source_row) && !is.na(source_row) && source_row >= 1 && source_row <= length(projected_ids)) {
+      projected_ids[source_row] <- NA_character_
+    }
+
+    import_conflict <- asu_id %in% projected_ids[!is.na(projected_ids)]
   }
   
   return(list(
@@ -608,6 +624,32 @@ check_asu_id_availability <- function(asu_id, import_data = NULL, db_path, table
     in_database = existing_count > 0,
     in_import = import_conflict
   ))
+}
+
+build_projected_import_asu_ids <- function(parsed_df, comparison_data, user_actions, custom_asu_map = list()) {
+  projected_ids <- as.character(parsed_df$asu_id)
+
+  if (is.null(comparison_data) || nrow(comparison_data) == 0) {
+    return(projected_ids)
+  }
+
+  for (i in seq_len(nrow(comparison_data))) {
+    action <- user_actions[[paste0("action_", i)]]
+    if (is.null(action)) action <- "Skip"
+
+    source_row <- comparison_data$Source_Row[i]
+
+    if (action == "Skip") {
+      projected_ids[source_row] <- NA_character_
+    } else if (action == "Keep Both") {
+      replacement_id <- custom_asu_map[[as.character(source_row)]]
+      if (!is.null(replacement_id) && nzchar(replacement_id)) {
+        projected_ids[source_row] <- replacement_id
+      }
+    }
+  }
+
+  projected_ids
 }
 
 
@@ -638,7 +680,7 @@ show_custom_asu_modal <- function(keep_both_records) {
             ),
             column(6,
               textInput(
-                paste0("custom_asu_keep_both_", record$index),
+                paste0("custom_asu_keep_both_", record$source_row),
                 "New ASU ID for import:",
                 value = record$default_new_asu_id,
                 placeholder = "Enter new ASU ID for imported record"
@@ -647,13 +689,13 @@ show_custom_asu_modal <- function(keep_both_records) {
             column(2,
               div(style = "margin-top: 25px;",
                 actionButton(
-                  paste0("check_asu_keep_both_", record$index),
+                  paste0("check_asu_keep_both_", record$source_row),
                   "Check",
                   style = "background-color: #17a2b8; color: white; border: none; width: 100%; font-size: 0.9em;",
-                  onclick = paste0("checkAsuAvailability('custom_asu_keep_both_", record$index, "', 'keep_both_", record$index, "')")
+                  onclick = paste0("checkAsuAvailability('custom_asu_keep_both_", record$source_row, "', 'keep_both_", record$source_row, "', ", record$source_row, ")")
                 ),
                 div(
-                  id = paste0("asu_status_keep_both_", record$index),
+                  id = paste0("asu_status_keep_both_", record$source_row),
                   style = "margin-top: 5px; font-size: 0.8em; text-align: center;",
                   ""
                 )
@@ -670,12 +712,18 @@ show_custom_asu_modal <- function(keep_both_records) {
     size = "l",
     tags$head(tags$script(HTML("
       // Function to check ASU availability via AJAX
-      function checkAsuAvailability(inputId, statusId) {
+      function checkAsuAvailability(inputId, statusId, sourceRow) {
         var asuId = $('#' + inputId).val();
         if (!asuId || asuId.trim() === '') {
           $('#asu_status_' + statusId).html('<span style=\"color: #dc3545;\">❌ Please enter an ASU ID</span>');
           return;
         }
+
+        var customAsuMap = {};
+        $('input[id^=\"custom_asu_keep_both_\"]').each(function() {
+          var rowSource = $(this).attr('id').replace('custom_asu_keep_both_', '');
+          customAsuMap[rowSource] = $(this).val();
+        });
         
         // Show loading state
         $('#asu_status_' + statusId).html('<span style=\"color: #6c757d;\">⏳ Checking...</span>');
@@ -685,6 +733,8 @@ show_custom_asu_modal <- function(keep_both_records) {
         Shiny.setInputValue(uniqueInputId, {
           asu_id: asuId,
           status_element: 'asu_status_' + statusId,
+          source_row: sourceRow,
+          custom_asu_map: customAsuMap,
           timestamp: new Date().getTime()
         });
       }
@@ -704,7 +754,7 @@ show_custom_asu_modal <- function(keep_both_records) {
           }
           
           if (statusId) {
-            checkAsuAvailability(inputId, statusId);
+            checkAsuAvailability(inputId, statusId, inputId.replace('custom_asu_keep_both_', ''));
           }
         });
       }
@@ -765,6 +815,7 @@ handle_process_duplicates <- function(input, import_data) {
     row_data <- import_data$comparison_data[i, ]
     record_info <- list(
       index = i,
+      source_row = row_data$Source_Row,
       asu_id = row_data$ASU_ID,
       action = action,
       import_data = row_data,
@@ -797,10 +848,10 @@ collect_custom_asu_ids <- function(input, keep_both_records) {
   
   # Collect custom ASU IDs for Keep Both records
   for (record in keep_both_records) {
-    input_id <- paste0("custom_asu_keep_both_", record$index)
+    input_id <- paste0("custom_asu_keep_both_", record$source_row)
     custom_asu <- input[[input_id]]
     if (!is.null(custom_asu) && custom_asu != "") {
-      custom_asu_map[[record$asu_id]] <- custom_asu
+      custom_asu_map[[as.character(record$source_row)]] <- custom_asu
     }
   }
   
@@ -935,10 +986,14 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
       if (!is.null(check_data) && !is.null(check_data$asu_id)) {
         asu_id <- check_data$asu_id
         status_element <- check_data$status_element
+        source_row <- if (!is.null(check_data$source_row)) as.integer(check_data$source_row) else NA_integer_
+        custom_asu_map <- if (!is.null(check_data$custom_asu_map)) as.list(check_data$custom_asu_map) else list()
 
         # Check availability using the function from modal_add_animal.R
         availability <- check_asu_id_availability(asu_id, import_data, 
-                                                 db_path, table_name)
+                                                 db_path, table_name,
+                                                 source_row = source_row,
+                                                 custom_asu_map = custom_asu_map)
 
         # Create status message
         if (availability$available) {
@@ -975,38 +1030,31 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     # Validate custom ASU IDs (check for duplicates with existing database and import)
     validation_errors <- c()
     con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+    existing_ids <- DBI::dbGetQuery(con, paste0("SELECT asu_id FROM ", table_name))$asu_id
+    projected_ids <- build_projected_import_asu_ids(
+      import_data$parsed_df,
+      import_data$comparison_data,
+      import_data$duplicate_actions$user_actions,
+      custom_asu_map
+    )
+    final_import_ids <- projected_ids[!is.na(projected_ids)]
     
     # Check each custom ASU ID
-    for (asu_id in names(custom_asu_map)) {
-      new_asu_id <- custom_asu_map[[asu_id]]
+    for (record in import_data$duplicate_actions$keep_both_records) {
+      source_key <- as.character(record$source_row)
+      new_asu_id <- custom_asu_map[[source_key]]
+      original_asu_id <- record$asu_id
       
       # Skip empty or null values
       if (is.null(new_asu_id) || new_asu_id == "") {
         validation_errors <- c(validation_errors, 
-                              paste0("ASU ID for '", asu_id, "' cannot be empty"))
+                              paste0("ASU ID for '", original_asu_id, "' cannot be empty"))
         next
       }
       
-      # Check if new ASU ID already exists in database
-      existing_count <- DBI::dbGetQuery(con, 
-        paste0("SELECT COUNT(*) as count FROM ", table_name, " WHERE asu_id = ?"), 
-        params = list(new_asu_id))$count
-      
-      if (existing_count > 0) {
+      if (new_asu_id %in% existing_ids) {
         validation_errors <- c(validation_errors, 
                               paste0("ASU ID '", new_asu_id, "' already exists in database"))
-      }
-      
-      # Check if new ASU ID conflicts with current import data
-      if (!is.null(import_data$parsed_df) && new_asu_id %in% import_data$parsed_df$asu_id) {
-        validation_errors <- c(validation_errors, 
-                              paste0("ASU ID '", new_asu_id, "' conflicts with current import data"))
-      }
-      
-      # Check for duplicates within the custom ASU IDs
-      if (sum(unlist(custom_asu_map) == new_asu_id) > 1) {
-        validation_errors <- c(validation_errors, 
-                              paste0("Duplicate custom ASU ID '", new_asu_id, "' found"))
       }
       
       # Basic format validation (optional - only if you have specific format requirements)
@@ -1014,6 +1062,14 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
         validation_errors <- c(validation_errors, 
                               paste0("ASU ID '", new_asu_id, "' contains invalid characters (only letters, numbers, underscore, and hyphen allowed)"))
       }
+    }
+
+    duplicate_final_ids <- unique(final_import_ids[duplicated(final_import_ids)])
+    if (length(duplicate_final_ids) > 0) {
+      validation_errors <- c(
+        validation_errors,
+        paste0("Final import still contains duplicate ASU ID(s): ", paste(duplicate_final_ids, collapse = ", "))
+      )
     }
     
     DBI::dbDisconnect(con)

@@ -16,10 +16,11 @@ all_mice_tab_ui <- function() {
       )
     ),
     fluidRow(
-      column(2,
+      tagAppendAttributes(
+        column(2,
         div(
           class = "search-panel",
-          style = "padding: 8px 4px 8px 4px; min-width: 150px; max-width: 220px;",
+          style = "padding: 8px 4px 8px 4px; min-width: 150px; max-width: 220px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);",
           h4("🔍 Search & Filter", style = "margin-top: 0; margin-bottom: 10px; font-size: 1.05em; color: #2c3e50;"),
           textInput("all_mice_search_asu_id", "ASU ID", placeholder = "Enter ASU ID", width = "100%"),
           textInput("all_mice_search_animal_id", "Animal ID", placeholder = "Enter Animal ID", width = "100%"),
@@ -42,14 +43,16 @@ all_mice_tab_ui <- function() {
           ),
           actionButton("all_mice_execute_search_btn", "🔍 Search", 
                       style = "background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%); color: white; border: none; width: 100%; margin-top: 6px; font-size: 12px; padding: 6px 8px; border-radius: 6px; font-weight: 500;")
-        )
+        ),
+        style = "position: sticky; top: 8px; z-index: 90; align-self: flex-start;"
+      )
       ),
       column(10,
         div(
           style = "background: white; border-radius: 8px; padding: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);",
           div(
             class = "action-buttons",
-            style = "margin-bottom: 10px; display: flex; align-items: center;",
+            style = "margin-bottom: 10px; display: flex; align-items: center; position: sticky; top: 8px; z-index: 100; background: rgba(255,255,255,0.97); padding: 8px 10px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); backdrop-filter: blur(4px);",
             actionButton("clear_search_btn", "🗑️ Clear Search", 
                         style = "background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%); color: white; border: none; padding: 5px 10px; font-size: 11px; border-radius: 6px;"),
             actionButton("clear_selection_btn", "🔲 Clear Selection", 

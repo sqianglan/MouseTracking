@@ -563,6 +563,7 @@ process_duplicates_with_custom <- function(parsed_df, comparison_data, import_du
     if (is.null(action)) action <- "Skip"
     
     asu_id <- comparison_data$ASU_ID[i]
+    source_row <- comparison_data$Source_Row[i]
     
     
     if (action == "Skip") {
@@ -570,10 +571,11 @@ process_duplicates_with_custom <- function(parsed_df, comparison_data, import_du
       next  # Skip this record
     } else if (action == "Keep Both") {
       # Generate new ASU ID and keep both (use custom if provided)
-      row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
+      row_data <- parsed_df[source_row, , drop = FALSE]
       if (nrow(row_data) > 0) {
-        new_asu_id <- if (!is.null(custom_asu_map[[asu_id]])) {
-          custom_asu_map[[asu_id]]
+        map_key <- as.character(source_row)
+        new_asu_id <- if (!is.null(custom_asu_map[[map_key]])) {
+          custom_asu_map[[map_key]]
         } else {
           paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
         }
@@ -585,7 +587,8 @@ process_duplicates_with_custom <- function(parsed_df, comparison_data, import_du
   }
   
   # Add non-duplicate records
-  non_duplicates <- parsed_df[!parsed_df$asu_id %in% c(import_duplicates, db_conflicts), ]
+  processed_rows <- unique(comparison_data$Source_Row)
+  non_duplicates <- parsed_df[setdiff(seq_len(nrow(parsed_df)), processed_rows), , drop = FALSE]
   final_df <- bind_rows_safely(final_df, non_duplicates)
   
   return(list(
@@ -610,13 +613,14 @@ process_duplicates <- function(parsed_df, comparison_data, import_duplicates, db
     if (is.null(action)) action <- "Skip"
     
     asu_id <- comparison_data$ASU_ID[i]
+    source_row <- comparison_data$Source_Row[i]
     
     if (action == "Skip") {
       skipped_count <- skipped_count + 1
       next  # Skip this record
     } else if (action == "Keep Both") {
       # Generate new ASU ID and keep both
-      row_data <- parsed_df[parsed_df$asu_id == asu_id, ]
+      row_data <- parsed_df[source_row, , drop = FALSE]
       if (nrow(row_data) > 0) {
         new_asu_id <- paste0(asu_id, "_", format(Sys.time(), "%Y%m%d_%H%M%S"))
         row_data$asu_id <- new_asu_id
@@ -627,7 +631,8 @@ process_duplicates <- function(parsed_df, comparison_data, import_duplicates, db
   }
   
   # Add non-duplicate records
-  non_duplicates <- parsed_df[!parsed_df$asu_id %in% c(import_duplicates, db_conflicts), ]
+  processed_rows <- unique(comparison_data$Source_Row)
+  non_duplicates <- parsed_df[setdiff(seq_len(nrow(parsed_df)), processed_rows), , drop = FALSE]
   final_df <- bind_rows_safely(final_df, non_duplicates)
   
   return(list(
@@ -655,17 +660,23 @@ check_duplicates_and_conflicts <- function(parsed_df) {
   
   # Handle import file duplicates
   if (length(import_duplicates) > 0) {
-    dup_rows <- parsed_df[parsed_df$asu_id %in% import_duplicates, ]
-    for (i in 1:nrow(dup_rows)) {
+    dup_row_indices <- which(parsed_df$asu_id %in% import_duplicates)
+    for (source_row in dup_row_indices) {
       comparison_data <- bind_rows_safely(comparison_data, data.frame(
         Type = "Import Duplicate",
-        ASU_ID = dup_rows$asu_id[i],
-        Animal_ID = dup_rows$animal_id[i],
-        Gender = dup_rows$gender[i],
-        Breeding_Line = dup_rows$breeding_line[i],
-        Genotype = dup_rows$genotype[i],
-        DoB = dup_rows$dob[i],
-        Age = as.numeric(Sys.Date() - as.Date(dup_rows$dob[i])) / 7, # Age in weeks
+        Source_Row = source_row,
+        ASU_ID = parsed_df$asu_id[source_row],
+        Import_Animal_ID = as.character(parsed_df$animal_id[source_row]),
+        DB_Animal_ID = NA_character_,
+        Import_Gender = as.character(parsed_df$gender[source_row]),
+        DB_Gender = NA_character_,
+        Import_Breeding_Line = as.character(parsed_df$breeding_line[source_row]),
+        DB_Breeding_Line = NA_character_,
+        Import_Genotype = as.character(parsed_df$genotype[source_row]),
+        DB_Genotype = NA_character_,
+        Import_DoB = as.character(parsed_df$dob[source_row]),
+        DB_DoB = NA_character_,
+        Age = as.numeric(Sys.Date() - as.Date(parsed_df$dob[source_row])) / 7, # Age in weeks
         Action = "Skip",
         stringsAsFactors = FALSE
       ))
@@ -683,9 +694,11 @@ check_duplicates_and_conflicts <- function(parsed_df) {
     DBI::dbDisconnect(con)
     
     # Get import data for conflicts
-    conflict_import <- parsed_df[parsed_df$asu_id %in% db_conflicts, ]
+    conflict_rows <- which(parsed_df$asu_id %in% db_conflicts)
+    conflict_import <- parsed_df[conflict_rows, , drop = FALSE]
     
     for (i in 1:nrow(conflict_import)) {
+      source_row <- conflict_rows[i]
       asu_id <- conflict_import$asu_id[i]
       existing_row <- existing_data[existing_data$asu_id == asu_id, ]
       
@@ -720,6 +733,7 @@ check_duplicates_and_conflicts <- function(parsed_df) {
         # Records have differences - add to comparison for user decision
         comparison_data <- bind_rows_safely(comparison_data, data.frame(
           Type = "Database Conflict",
+          Source_Row = source_row,
           ASU_ID = asu_id,
           Import_Animal_ID = as.character(conflict_import$animal_id[i]),
           DB_Animal_ID = as.character(existing_row$animal_id),

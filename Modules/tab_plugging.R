@@ -31,7 +31,7 @@ plugging_tab_ui <- function() {
       )
     ),
     div(
-      style = "background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 16px;",
+      style = "background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 16px; position: sticky; top: 8px; z-index: 95;",
       div(
         class = "action-buttons",
         style = "margin-bottom: 16px;",
