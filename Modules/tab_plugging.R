@@ -814,81 +814,93 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               }
             }, 0);"
           )),
-          fluidRow(
-            column(info_column_width,
-              fluidRow(
-                column(6,
-                  wellPanel(
-                    tags$h4("Female Information"),
-                    tags$b("ASU ID:"), row$female_id, br(),
-                    tags$b("Age (weeks):"), female_age, br(),
-                    tags$b("Breeding Line:"), row$female_breeding_line, br(),
-                    tags$b("Genotype:"), row$female_genotype, br(),
-                    tags$b("Status:"), row$female_status
+          div(
+            style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;",
+            h4(paste("🐭 Plugging Details:", row$female_id), 
+               style = "text-align: center; color: #1e3a5f; margin-bottom: 20px;"),
+            div(
+              style = "display: grid; grid-template-columns: 1fr 1fr; gap: 20px;",
+              div(
+                div(
+                  style = "background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 8px; padding: 12px; border-left: 4px solid #28a745; margin-bottom: 12px;",
+                  h5("👫 Breeding Pair", style = "margin: 0 0 10px 0; color: #2c3e50;"),
+                  div(
+                    div(
+                      strong("Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
+                      br(),
+                      "Line: ", ifelse(is.na(row$male_breeding_line), "Unknown", row$male_breeding_line),
+                      br(),
+                      "Genotype: ", ifelse(is.na(row$male_genotype), "Unknown", row$male_genotype)
+                    ),
+                    br(),
+                    div(
+                      strong("Female: "), paste0(row$female_id, " (", ifelse(is.na(female_age), "Unknown age", paste0(female_age, " wks")), ")"),
+                      br(),
+                      "Line: ", ifelse(is.na(row$female_breeding_line), "Unknown", row$female_breeding_line),
+                      br(),
+                      "Genotype: ", ifelse(is.na(row$female_genotype), "Unknown", row$female_genotype)
+                    )
                   )
                 ),
-                column(6,
-                  wellPanel(
-                    tags$h4("Male Information"),
-                    tags$b("ASU ID:"), row$male_id, br(),
-                    tags$b("Age (weeks):"), male_age, br(),
-                    tags$b("Breeding Line:"), row$male_breeding_line, br(),
-                    tags$b("Genotype:"), row$male_genotype, br(),
-                    tags$b("Status:"), row$male_status
+                div(
+                  style = "background: rgba(135, 206, 235, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #87CEEB; margin-bottom: 12px;",
+                  h5("⏰ Timeline", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                  div(
+                    "Pairing Start: ", strong(ifelse(is.na(row$pairing_start_date) || row$pairing_start_date == "", "Unknown", row$pairing_start_date)),
+                    br(),
+                    "Pairing End: ", strong(ifelse(is.na(row$pairing_end_date) || row$pairing_end_date == "", "Unknown", row$pairing_end_date)),
+                    br(),
+                    "Plug Observed: ", strong(ifelse(!is_valid_plug_date(row$plug_observed_date), "Unknown", row$plug_observed_date))
+                  )
+                ),
+                div(
+                  style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #ffc107;",
+                  h5("📊 Status", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                  div(
+                    "Current Status: ", strong(row$plugging_status),
+                    br(),
+                    "Expected Harvest Age: ", strong(ifelse(is.na(row$expected_age_for_harvesting) || row$expected_age_for_harvesting == "", "Not specified", row$expected_age_for_harvesting)),
+                    if (!is.na(row$notes) && row$notes != "") {
+                      tagList(br(), "Notes: ", span(style = "font-style: italic;", row$notes))
+                    }
                   )
                 )
               ),
-              wellPanel(
-                tags$h4("Plugging Details"),
-                fluidRow(
-                  column(6, tags$b("Pairing Start Date:"), br(),
-                         if(!is.na(row$pairing_start_date) && row$pairing_start_date != "") row$pairing_start_date else "Unknown"),
-                  column(6, tags$b("Pairing End Date:"), br(),
-                         if(!is.na(row$pairing_end_date) && row$pairing_end_date != "") row$pairing_end_date else "Unknown")
-                ),
-                fluidRow(
-                  column(6, tags$b("Plug Observed Date:"), br(),
-                         if(is_valid_plug_date(row$plug_observed_date)) row$plug_observed_date else "Unknown"),
-                  column(6, tags$b("Status:"), br(), row$plugging_status)
-                ),
-                fluidRow(
-                  column(6, tags$b("Expected Age for Harvesting:"), br(),
-                         if(!is.null(row$expected_age_for_harvesting) && !is.na(row$expected_age_for_harvesting) && row$expected_age_for_harvesting != "") row$expected_age_for_harvesting else "Not decided")
-                ),
-                fluidRow(
-                  column(12, tags$b("Notes:"), br(), ifelse(is.na(row$notes) || row$notes == "", "No notes", row$notes))
-                )
-              )
-            ),
-            column(body_weight_column_width,
-              wellPanel(
+              if (has_body_weight_records) {
                 div(
-                  style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
-                  tags$h4("Female Body Weight Trend", style = "color: #4caf50; border-bottom: 2px solid #4caf50; padding-bottom: 5px; margin: 0;"),
-                  actionButton(
-                    inputId = "add_body_weight_from_plugging_btn",
-                    label = "Add Body Weight",
-                    class = "btn-success btn-sm",
-                    onclick = paste0("Shiny.setInputValue('add_body_weight_from_plugging_clicked', '", row$female_id, "', {priority: 'event'});")
-                  )
-                ),
-                if (has_body_weight_records) {
+                  style = "border-radius: 8px; padding: 12px;",
+                  div(
+                    style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
+                    h5("📈 Female Body Weight Trend", style = "margin: 0; color: #2c3e50;"),
+                    actionButton(
+                      inputId = "add_body_weight_from_plugging_btn",
+                      label = "Add Body Weight",
+                      class = "btn-success btn-sm",
+                      onclick = paste0("Shiny.setInputValue('add_body_weight_from_plugging_clicked', '", row$female_id, "', {priority: 'event'});")
+                    )
+                  ),
                   div(
                     id = "plugging_body_weight_preview_plot_container",
-                    style = "margin-bottom: 0;",
-                    plotlyOutput(paste0("plugging_body_weight_preview_plot_", row$female_id), height = "360px")
+                    style = "height: 400px;",
+                    plotlyOutput(paste0("plugging_body_weight_preview_plot_", row$female_id), height = "400px")
                   )
-                } else {
+                )
+              } else {
+                div(
+                  style = "border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: center; height: 400px;",
                   div(
-                    style = "height: 360px; display: flex; align-items: center; justify-content: center; text-align: center; color: #6c757d; background: #f8f9fa; border: 1px dashed #ced4da; border-radius: 6px; padding: 16px;",
-                    div(
-                      tags$strong("No body weight records"),
-                      br(),
-                      "Add a body weight entry to show the trend here."
+                    style = "text-align: center; color: #6c757d;",
+                    h5("📈 No Body Weight Data", style = "margin-bottom: 10px;"),
+                    p("No body weight records found for this mouse."),
+                    actionButton(
+                      inputId = "add_body_weight_from_plugging_btn",
+                      label = "Add First Record",
+                      class = "btn-success btn-sm",
+                      onclick = paste0("Shiny.setInputValue('add_body_weight_from_plugging_clicked', '", row$female_id, "', {priority: 'event'});")
                     )
                   )
-                }
-              )
+                )
+              }
             )
           ),
           wellPanel(

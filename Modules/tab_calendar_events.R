@@ -590,6 +590,43 @@ plugging_calendar_modal_ui <- function(id) {
 # Server logic for the plugging calendar modal
 plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_plugging_state = NULL) {
   moduleServer(id, function(input, output, session) {
+    reset_calendar_modal_state <- function() {
+      view_mode("calendar")
+      selected_mouse_data(NULL)
+    }
+
+    reopen_calendar_modal <- function() {
+      showModal(modalDialog(
+        title = div(
+          style = "text-align: center; font-size: 20px; font-weight: 700; color: #1e3a5f; margin-bottom: 1px;",
+          "📅 Mouse Harvest Calendar"
+        ),
+        size = "l",
+        plugging_calendar_modal_ui(id),
+        easyClose = TRUE,
+        footer = tagList(
+          div(style = "text-align: center; width: 100%;",
+            actionButton(ns("close_or_back_btn"), "Close", class = "btn btn-default")
+          ),
+          tags$script(HTML("
+            $(document).ready(function() {
+              setTimeout(function() {
+                var $modal = $('.modal').last();
+                $modal.off('hidden.bs.modal.calendarReset');
+                $modal.on('hidden.bs.modal.calendarReset', function() {
+                  Shiny.setInputValue('", ns("calendar_modal_closed"), "', Date.now(), {priority: 'event'});
+                });
+                $modal.find('.modal-dialog').css({
+                  'max-width': '80%',
+                  'width': '80%'
+                });
+              }, 50);
+            });
+          "))
+        )
+      ))
+    }
+
     ns <- session$ns
 
     # Reactive values for current month/year
@@ -677,44 +714,63 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       }
     })
 
-    # Use ggsci NPG color palette for clear distinction
-    get_category_colors <- function() {
-      # NPG color palette from ggsci - highly distinguishable colors
-      npg_colors <- c("#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F", 
-                      "#8491B4", "#91D1C2", "#DC0000", "#7E6148", "#B09C85")
-      
-      list(
-        # Confirmed: NPG colors (high confidence with clear dates)
-        confirmed = npg_colors,
-        # Observed: NPG colors (medium confidence with observed dates)
-        observed = npg_colors,
-        # Estimated: Orange (low confidence, estimated dates)
-        estimated = "#ff9800",
-        # Waiting: Gray (pending confirmation)
-        waiting = "#9e9e9e"
-      )
+    get_breeding_line_palette <- function() {
+      c("#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e",
+        "#e6ab02", "#a6761d", "#1f78b4", "#b2df8a", "#fb9a99")
     }
-    
-    # Function to assign colors based on category and ASU ID
-    get_color_for_event <- function(status_category, asu_id) {
-      colors <- get_category_colors()
-      
-      if (status_category == "confirmed") {
-        # Use hash for variety within green palette
-        hash_val <- sum(utf8ToInt(asu_id)) %% length(colors$confirmed)
-        return(colors$confirmed[hash_val + 1])
-      } else if (status_category == "observed") {
-        # Use hash for variety within blue palette
-        hash_val <- sum(utf8ToInt(asu_id)) %% length(colors$observed)
-        return(colors$observed[hash_val + 1])
-      } else if (status_category == "estimated") {
-        return(colors$estimated)
-      } else if (status_category == "waiting") {
-        return(colors$waiting)
+
+    blend_hex_color <- function(color, target = "#FFFFFF", amount = 0.2) {
+      amount <- max(0, min(1, amount))
+      color_rgb <- grDevices::col2rgb(color)
+      target_rgb <- grDevices::col2rgb(target)
+      blended_rgb <- round(color_rgb * (1 - amount) + target_rgb * amount)
+      grDevices::rgb(blended_rgb[1], blended_rgb[2], blended_rgb[3], maxColorValue = 255)
+    }
+
+    get_color_for_event <- function(status_category, breeding_line, asu_id) {
+      if (identical(status_category, "waiting")) {
+        return("#9e9e9e")
       }
-      
-      # Fallback
-      return("#9e9e9e")
+
+      palette <- get_breeding_line_palette()
+      color_key <- if (!is.null(breeding_line) && !is.na(breeding_line) && trimws(breeding_line) != "") {
+        trimws(breeding_line)
+      } else {
+        asu_id
+      }
+
+      hash_val <- sum(utf8ToInt(color_key)) %% length(palette)
+      base_color <- palette[hash_val + 1]
+
+      if (identical(status_category, "confirmed")) {
+        return(base_color)
+      }
+
+      if (identical(status_category, "observed")) {
+        return(blend_hex_color(base_color, "#FFFFFF", amount = 0.18))
+      }
+
+      if (identical(status_category, "estimated")) {
+        return(blend_hex_color(base_color, "#FFFFFF", amount = 0.32))
+      }
+
+      "#9e9e9e"
+    }
+
+    get_event_priority <- function(status_category, status) {
+      if (identical(status, "Plugged")) {
+        return(1L)
+      }
+
+      if (identical(status_category, "confirmed")) {
+        return(2L)
+      }
+
+      if (identical(status_category, "estimated")) {
+        return(3L)
+      }
+
+      4L
     }
 
     # Helper function to parse expected ages
@@ -834,6 +890,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       if (is.null(pluggings) || nrow(pluggings) == 0) {
         return(data.frame(
           asu_id = character(0),
+          breeding_line = character(0),
           label = character(0),
           day = integer(0),
           date = as.Date(character(0)),
@@ -842,6 +899,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           color = character(0),
           status = character(0),
           status_category = character(0),
+          event_priority = integer(0),
           is_estimated = logical(0),
           expected_age = numeric(0),
           is_surprising_plug = logical(0),
@@ -892,13 +950,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           status_category <- "observed"   # Default fallback
         }
         
-        # Get color based on category, with special handling for surprising plug
-        if (is_surprising_plug) {
-          # Use NPG color for border but gray background will be handled in plotting
-          color <- get_color_for_event("confirmed", row$asu_id)
-        } else {
-          color <- get_color_for_event(status_category, row$asu_id)
-        }
+        color <- get_color_for_event(status_category, row$breeding_line, row$asu_id)
+        event_priority <- get_event_priority(status_category, row$plugging_status)
         
         # Parse expected ages
         expected_ages <- parse_expected_ages(row$expected_age_for_harvesting)
@@ -917,6 +970,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             
             event <- data.frame(
               asu_id = as.character(row$asu_id),
+              breeding_line = as.character(row$breeding_line),
               label = label_text,
               day = as.integer(format(harvest_date, "%d")),
               date = harvest_date,
@@ -925,6 +979,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               color = color,
               status = as.character(row$plugging_status),
               status_category = status_category,
+              event_priority = event_priority,
               is_estimated = is_estimated,
               expected_age = age,
               is_surprising_plug = is_surprising_plug,
@@ -938,6 +993,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       if (length(events_list) == 0) {
         return(data.frame(
           asu_id = character(0),
+          breeding_line = character(0),
           label = character(0),
           day = integer(0),
           date = as.Date(character(0)),
@@ -959,6 +1015,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       # Ensure all required columns exist and have proper types
       if (nrow(result) > 0) {
         result$asu_id <- as.character(result$asu_id)
+        result$breeding_line <- as.character(result$breeding_line)
         result$label <- as.character(result$label)
         result$day <- as.integer(result$day)
         result$target_month <- as.integer(result$target_month)
@@ -986,6 +1043,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             ph.plugging_status, 
             ph.pairing_start_date, 
             ph.pairing_end_date,
+            ms.breeding_line,
             ms.asu_id 
           FROM plugging_history ph 
           LEFT JOIN mice_stock ms ON ph.female_id = ms.asu_id 
@@ -1023,6 +1081,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           plugging_status = character(0),
           pairing_start_date = as.Date(character(0)),
           pairing_end_date = as.Date(character(0)),
+          breeding_line = character(0),
           asu_id = character(0),
           is_surprising_plug = logical(0),
           stringsAsFactors = FALSE
@@ -1031,6 +1090,111 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         if (!is.null(con)) dbDisconnect(con)
       })
     })
+
+    open_calendar_details_for_mouse <- function(asu_id) {
+      if (is.null(asu_id) || asu_id == "") {
+        return()
+      }
+
+      con <- NULL
+      tryCatch({
+        con <- dbConnect(SQLite(), db_path)
+
+        plugging <- dbGetQuery(con,
+          "SELECT ph.*, 
+                  m.dob as male_dob, m.breeding_line as male_breeding_line, 
+                  m.genotype as male_genotype, m.status as male_status,
+                  f.dob as female_dob, f.breeding_line as female_breeding_line, 
+                  f.genotype as female_genotype, f.status as female_status
+           FROM plugging_history ph
+           LEFT JOIN mice_stock m ON ph.male_id = m.asu_id
+           LEFT JOIN mice_stock f ON ph.female_id = f.asu_id
+           WHERE ph.female_id = ?
+           ORDER BY ph.pairing_start_date DESC
+           LIMIT 1",
+          params = list(asu_id))
+
+        female_body_weight_history <- tryCatch({
+          dbGetQuery(con, paste0("SELECT * FROM body_weight_history WHERE asu_id = '", asu_id, "' ORDER BY measurement_date DESC"))
+        }, error = function(e) {
+          data.frame()
+        })
+
+        female_plugging_history <- tryCatch({
+          dbGetQuery(con, paste0("SELECT * FROM plugging_history WHERE female_id = '", asu_id, "' AND plugging_status != 'Deleted'"))
+        }, error = function(e) {
+          data.frame()
+        })
+
+        if (nrow(plugging) == 0) {
+          showNotification(paste("No plugging details found for", asu_id), type = "warning")
+          return()
+        }
+
+        selected_mouse_data(list(
+          plugging = plugging[1, ],
+          body_weight_history = female_body_weight_history,
+          plugging_history = female_plugging_history
+        ))
+        view_mode("details")
+      }, error = function(e) {
+        showNotification(paste("Error fetching details:", e$message), type = "error")
+      }, finally = {
+        if (!is.null(con)) dbDisconnect(con)
+      })
+    }
+
+    compute_event_strip_positions <- function(month_num, year_num, events) {
+      if (is.null(events) || nrow(events) == 0) {
+        return(data.frame())
+      }
+
+      first_day <- as.Date(paste(year_num, month_num, "01", sep = "-"))
+      if (month_num == 12) {
+        last_day <- as.Date(paste(year_num + 1, "01", "01", sep = "-")) - 1
+      } else {
+        last_day <- as.Date(paste(year_num, month_num + 1, "01", sep = "-")) - 1
+      }
+
+      num_days <- as.numeric(format(last_day, "%d"))
+      first_day_of_week <- as.numeric(format(first_day, "%u"))
+      start_pos <- first_day_of_week - 1
+
+      calendar_data <- data.frame()
+      for (day in 1:num_days) {
+        grid_pos <- start_pos + day - 1
+        week <- floor(grid_pos / 7) + 1
+        day_of_week <- (grid_pos %% 7) + 1
+
+        calendar_data <- rbind(calendar_data, data.frame(
+          day = day,
+          x = day_of_week,
+          y = 7 - week,
+          stringsAsFactors = FALSE
+        ))
+      }
+
+      events_by_day <- events %>%
+        dplyr::arrange(day, event_priority, status_category, breeding_line, asu_id, expected_age) %>%
+        dplyr::group_by(day) %>%
+        dplyr::mutate(
+          event_count = dplyr::n(),
+          strip_position = dplyr::row_number(),
+          strip_height = 0.15,
+          strip_spacing = 0.05,
+          total_height = event_count * strip_height + (event_count - 1) * strip_spacing,
+          y_offset = (total_height - strip_height) / 2 - (strip_position - 1) * (strip_height + strip_spacing)
+        ) %>%
+        dplyr::ungroup()
+
+      events_by_day %>%
+        dplyr::left_join(calendar_data, by = "day") %>%
+        dplyr::mutate(
+          strip_y = y + y_offset,
+          strip_width = 0.9,
+          strip_height_actual = strip_height
+        )
+    }
 
     # Reactive: Calculate all calendar events (cached for performance)
     all_calendar_events <- reactive({
@@ -1243,6 +1407,11 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       return(filtered)
     })
 
+    current_month_event_strips <- reactive({
+      req(current_month(), current_year())
+      compute_event_strip_positions(current_month(), current_year(), current_month_events())
+    })
+
     # Statistics outputs
     output$total_events <- renderText({
       events <- current_month_events_unfiltered()
@@ -1339,6 +1508,31 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
              addClass = if(show_waiting()) "selected" else "deselected",
              removeClass = if(show_waiting()) "deselected" else "selected"))
     })
+
+    observeEvent(input$calendar_plot_dblclick, {
+      click_info <- input$calendar_plot_dblclick
+      req(click_info$x, click_info$y)
+
+      event_strips <- current_month_event_strips()
+      if (is.null(event_strips) || nrow(event_strips) == 0) {
+        return()
+      }
+
+      matching_strips <- event_strips[
+        abs(event_strips$x - click_info$x) <= (event_strips$strip_width / 2) &
+          abs(event_strips$strip_y - click_info$y) <= (event_strips$strip_height_actual / 2),
+        , drop = FALSE
+      ]
+
+      if (nrow(matching_strips) == 0) {
+        return()
+      }
+
+      matching_strips$distance <- abs(matching_strips$x - click_info$x) + abs(matching_strips$strip_y - click_info$y)
+      matching_strips <- matching_strips[order(matching_strips$distance, matching_strips$event_priority, matching_strips$asu_id), , drop = FALSE]
+
+      open_calendar_details_for_mouse(matching_strips$asu_id[1])
+    }, ignoreInit = TRUE)
 
     # Render the calendar plot
     output$calendar_plot <- renderPlot({
@@ -1455,31 +1649,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         ))
       }
       
-      # Process events for strips
-      event_strips <- data.frame()
-      if (nrow(events) > 0) {
-        # Group events by day
-        events_by_day <- events %>%
-          group_by(day) %>%
-          mutate(
-            event_count = n(),
-            strip_position = row_number(),
-            strip_height = 0.15,  # Height of each strip
-            strip_spacing = 0.05,  # Space between strips
-            total_height = event_count * strip_height + (event_count - 1) * strip_spacing,
-            y_offset = (total_height - strip_height) / 2 - (strip_position - 1) * (strip_height + strip_spacing)
-          ) %>%
-          ungroup()
-        
-        # Create strip data
-        event_strips <- events_by_day %>%
-          left_join(calendar_data, by = "day") %>%
-          mutate(
-            strip_y = y + y_offset,
-            strip_width = 0.9,
-            strip_height_actual = strip_height
-          )
-      }
+      event_strips <- compute_event_strip_positions(month_num, year_num, events)
       
       # Create the plot with Apple-style design
       p <- ggplot(calendar_data, aes(x = x, y = y)) +
@@ -1526,45 +1696,18 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       
       # Add event strips and labels only if there are events
       if (nrow(event_strips) > 0) {
-        # Separate surprising plugs from regular events
-        surprising_strips <- event_strips[event_strips$is_surprising_plug == TRUE, ]
-        regular_strips <- event_strips[event_strips$is_surprising_plug == FALSE, ]
-        
         p <- p +
-          # Regular event strips
-          geom_tile(data = regular_strips, 
+          geom_tile(data = event_strips, 
                     aes(x = x, y = strip_y, fill = color, width = strip_width, height = strip_height_actual), 
                     color = "#1E3A5F", 
                     linewidth = 0.5, 
                     alpha = 0.85) +
-          # Custom fill scale for events
           scale_fill_identity()
-        
-        # Add surprising plug strips with gray background, same border
-        if (nrow(surprising_strips) > 0) {
-          p <- p +
-            geom_tile(data = surprising_strips, 
-                      aes(x = x, y = strip_y, width = strip_width, height = strip_height_actual), 
-                      fill = "#9e9e9e",  # Gray background
-                      color = "#1E3A5F",  # Same border as regular events
-                      linewidth = 0.5,   # Same border thickness
-                      alpha = 0.85)
-        }
-        
-        # Add labels - white for regular events, colored for surprising plugs
-        if (nrow(regular_strips) > 0) {
-          p <- p +
-            geom_text(data = regular_strips, 
-                      aes(label = label, x = x, y = strip_y), 
-                      size = 4, color = "white", fontface = "bold")
-        }
-        
-        if (nrow(surprising_strips) > 0) {
-          p <- p +
-            geom_text(data = surprising_strips, 
-                      aes(label = label, x = x, y = strip_y), 
-                      size = 4, color = "white", fontface = "bold")
-        }
+
+        p <- p +
+          geom_text(data = event_strips, 
+                    aes(label = label, x = x, y = strip_y), 
+                    size = 4, color = "white", fontface = "bold")
       }
       
       return(p)
@@ -1797,70 +1940,67 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
     observeEvent(input$mouse_id_clicked, {
       asu_id <- input$mouse_id_clicked
       if (is.null(asu_id)) return()
-      
-      con <- NULL
-      tryCatch({
-        con <- dbConnect(SQLite(), db_path)
-        
-        # Get detailed plugging information
-        plugging <- dbGetQuery(con, 
-          "SELECT ph.*, 
-                  m.dob as male_dob, m.breeding_line as male_breeding_line, 
-                  m.genotype as male_genotype, m.status as male_status,
-                  f.dob as female_dob, f.breeding_line as female_breeding_line, 
-                  f.genotype as female_genotype, f.status as female_status
-           FROM plugging_history ph
-           LEFT JOIN mice_stock m ON ph.male_id = m.asu_id
-           LEFT JOIN mice_stock f ON ph.female_id = f.asu_id
-           WHERE ph.female_id = ?
-           ORDER BY ph.pairing_start_date DESC
-           LIMIT 1",
-          params = list(asu_id))
-        
-        # Get body weight data for the female mouse
-        female_body_weight_history <- tryCatch({
-          dbGetQuery(con, paste0("SELECT * FROM body_weight_history WHERE asu_id = '", asu_id, "' ORDER BY measurement_date DESC"))
-        }, error = function(e) {
-          data.frame()
-        })
-        
-        # Get plugging history for the female mouse (for chart overlay)
-        female_plugging_history <- tryCatch({
-          dbGetQuery(con, paste0("SELECT * FROM plugging_history WHERE female_id = '", asu_id, "' AND plugging_status != 'Deleted'"))
-        }, error = function(e) {
-          data.frame()
-        })
-        
-        if (nrow(plugging) == 0) {
-          showNotification(paste("No plugging details found for", asu_id), type = "warning")
-          return()
-        }
-        
-        # Store the data and switch to details view
-        # Create combined data object with body weight info
-        combined_data <- list(
-          plugging = plugging[1, ],
-          body_weight_history = female_body_weight_history,
-          plugging_history = female_plugging_history
-        )
-        selected_mouse_data(combined_data)
-        view_mode("details")
-        
-      }, error = function(e) {
-        showNotification(paste("Error fetching details:", e$message), type = "error")
-      }, finally = {
-        if (!is.null(con)) dbDisconnect(con)
-      })
+      open_calendar_details_for_mouse(asu_id)
       
       # Reset the input so the same mouse ID can be clicked again
       session$sendInputMessage("mouse_id_clicked", NULL)
     })
+
+    observeEvent(input$close_or_back_btn, {
+      if (identical(view_mode(), "details")) {
+        reset_calendar_modal_state()
+      } else {
+        removeModal()
+      }
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_modal_closed, {
+      reset_calendar_modal_state()
+    }, ignoreInit = TRUE)
     
     # Handle back to calendar button
     observeEvent(input$back_to_calendar, {
-      view_mode("calendar")
-      selected_mouse_data(NULL)
+      reset_calendar_modal_state()
     })
+
+    observeEvent(input$calendar_add_body_weight_clicked, {
+      asu_id <- input$calendar_add_body_weight_clicked
+
+      if (!is.null(asu_id) && asu_id != "") {
+        show_body_weight_input(
+          input,
+          output,
+          session,
+          asu_id,
+          back_input_id = session$ns("calendar_body_weight_back_clicked"),
+          close_input_id = session$ns("calendar_body_weight_close_clicked")
+        )
+      }
+    }, ignoreInit = TRUE)
+
+    reopen_calendar_details_modal <- function(asu_id) {
+      if (is.null(asu_id) || asu_id == "") {
+        return()
+      }
+
+      removeModal()
+      reopen_calendar_modal()
+      open_calendar_details_for_mouse(asu_id)
+    }
+
+    observeEvent(input$calendar_body_weight_back_clicked, {
+      asu_id <- input$calendar_body_weight_back_clicked
+      req(asu_id)
+
+      reopen_calendar_details_modal(asu_id)
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_body_weight_close_clicked, {
+      asu_id <- input$calendar_body_weight_close_clicked
+      req(asu_id)
+
+      reopen_calendar_details_modal(asu_id)
+    }, ignoreInit = TRUE)
     
     # Dynamic modal content based on view mode
     output$modal_content <- renderUI({
@@ -1923,7 +2063,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             div(class = "calendar-plot-container",
               div(class = "calendar-body",
                 div(class = "calendar-plot",
-                  plotOutput(ns("calendar_plot"), height = "600px")
+                  plotOutput(ns("calendar_plot"), height = "600px", dblclick = ns("calendar_plot_dblclick"))
                 )
               )
             ),
@@ -1950,7 +2090,6 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         # Calculate ages
         male_age <- if(!is.na(row$male_dob)) round(as.numeric(Sys.Date() - as.Date(row$male_dob)) / 7, 1) else NA
         female_age <- if(!is.na(row$female_dob)) round(as.numeric(Sys.Date() - as.Date(row$female_dob)) / 7, 1) else NA
-        
         tagList(
           # Back button
           div(
@@ -1966,14 +2105,9 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             
             h4(paste("🐭 Plugging Details:", row$female_id), 
                style = "text-align: center; color: #1e3a5f; margin-bottom: 20px;"),
-            
-            # Side-by-side layout: info panels on left, graph on right
             div(
               style = "display: grid; grid-template-columns: 1fr 1fr; gap: 20px;",
-              
-              # Left column - All information panels stacked
               div(
-                # Breeding Pair Information
                 div(
                   style = "background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 8px; padding: 12px; border-left: 4px solid #28a745; margin-bottom: 12px;",
                   h5("👫 Breeding Pair", style = "margin: 0 0 10px 0; color: #2c3e50;"),
@@ -1995,8 +2129,6 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                     )
                   )
                 ),
-                
-                # Timeline Information
                 div(
                   style = "background: rgba(135, 206, 235, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #87CEEB; margin-bottom: 12px;",
                   h5("⏰ Timeline", style = "margin: 0 0 8px 0; color: #2c3e50;"),
@@ -2008,8 +2140,6 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                     "Plug Observed: ", strong(ifelse(is.na(row$plug_observed_date) || row$plug_observed_date == "", "Unknown", row$plug_observed_date))
                   )
                 ),
-                
-                # Status Information
                 div(
                   style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #ffc107;",
                   h5("📊 Status", style = "margin: 0 0 8px 0; color: #2c3e50;"),
@@ -2017,15 +2147,12 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                     "Current Status: ", strong(row$plugging_status),
                     br(),
                     "Expected Harvest Age: ", strong(ifelse(is.na(row$expected_age_for_harvesting) || row$expected_age_for_harvesting == "", "Not specified", row$expected_age_for_harvesting)),
-                    # Add notes inline if they exist
                     if (!is.na(row$notes) && row$notes != "") {
                       tagList(br(), "Notes: ", span(style = "font-style: italic;", row$notes))
                     }
                   )
                 )
               ),
-              
-              # Right column - Body Weight Chart
               if (nrow(female_body_weight_history) > 0) {
                 div(
                   style = "border-radius: 8px; padding: 12px;",
@@ -2036,7 +2163,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                       paste0(ns("add_body_weight_from_calendar_btn")),
                       label = "Add Body Weight",
                       class = "btn-success btn-sm",
-                      onclick = paste0("Shiny.setInputValue('add_body_weight_clicked', '", row$female_id, "', {priority: 'event'});")
+                      onclick = paste0("Shiny.setInputValue('", ns("calendar_add_body_weight_clicked"), "', '", row$female_id, "', {priority: 'event'});")
                     )
                   ),
                   div(
@@ -2046,7 +2173,6 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                   )
                 )
               } else {
-                # Placeholder when no body weight data
                 div(
                   style = "border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: center; height: 400px;",
                   div(
@@ -2057,7 +2183,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                       paste0(ns("add_body_weight_from_calendar_btn")),
                       label = "Add First Record",
                       class = "btn-success btn-sm",
-                      onclick = paste0("Shiny.setInputValue('add_body_weight_clicked', '", row$female_id, "', {priority: 'event'});")
+                      onclick = paste0("Shiny.setInputValue('", ns("calendar_add_body_weight_clicked"), "', '", row$female_id, "', {priority: 'event'});")
                     )
                   )
                 )
@@ -2258,12 +2384,17 @@ show_plugging_calendar_modal <- function(id = "plugging_calendar_modal", db_path
     easyClose = TRUE,
     footer = tagList(
       div(style = "text-align: center; width: 100%;",
-        modalButton("Close")
+        actionButton(paste0(id, "-close_or_back_btn"), "Close", class = "btn btn-default")
       ),
       tags$script(HTML("
         $(document).ready(function() {
           setTimeout(function() {
-            $('.modal-dialog').css({
+            var $modal = $('.modal').last();
+            $modal.off('hidden.bs.modal.calendarReset');
+            $modal.on('hidden.bs.modal.calendarReset', function() {
+              Shiny.setInputValue('", paste0(id, "-calendar_modal_closed"), "', Date.now(), {priority: 'event'});
+            });
+            $modal.find('.modal-dialog').css({
               'max-width': '80%',
               'width': '80%'
             });
