@@ -50,6 +50,11 @@ prediction_tab_ui <- function() {
         9,
         div(
           style = "background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px;",
+          div(
+            style = "margin-bottom: 12px; padding: 12px 14px; background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(59, 130, 246, 0.06) 100%); border: 1px solid #e2e8f0; border-radius: 10px; color: #475569; line-height: 1.45;",
+            div(style = "font-weight: 700; color: #1e3a5f; margin-bottom: 4px;", "Prediction Overview"),
+            "The prediction function uses completed plugging outcomes and body weight trends to estimate pregnancy likelihood for current events. When enough collected data is available, it also supports embryo-count estimation. The Prediction Curve tab summarizes the historical training pattern behind the model, while Training Records lets you inspect the source cases used to build that pattern."
+          ),
           tabsetPanel(
             id = "prediction_main_view",
             tabPanel(
