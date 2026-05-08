@@ -94,7 +94,17 @@ return_to_main_database <- function() {
   tryCatch({
     DB_PATH <<- get_main_db_path()
 
-    list(success = TRUE, message = "Returned to main database", path = DB_PATH)
+    migration_result <- ensure_startup_database_schema(DB_PATH)
+    if (!isTRUE(migration_result$success)) {
+      return(list(success = FALSE, message = paste("Database migration failed:", migration_result$message)))
+    }
+
+    message_text <- "Returned to main database"
+    if (!identical(migration_result$message, "Database schema already up to date")) {
+      message_text <- paste(message_text, "-", migration_result$message)
+    }
+
+    list(success = TRUE, message = message_text, path = DB_PATH)
   }, error = function(e) {
     list(success = FALSE, message = paste("Error returning to main database:", e$message))
   })
@@ -223,9 +233,16 @@ switch_database <- function(new_db_path) {
   tryCatch({
     normalized_path <- normalizePath(new_db_path, mustWork = FALSE)
     main_db_path <- get_main_db_path()
+    previous_db_path <- DB_PATH
     
     # Update global DB_PATH for current session
     DB_PATH <<- normalized_path
+
+    migration_result <- ensure_startup_database_schema(DB_PATH)
+    if (!isTRUE(migration_result$success)) {
+      DB_PATH <<- previous_db_path
+      return(list(success = FALSE, message = paste("Database migration failed:", migration_result$message)))
+    }
     
     # Check if switching to main database or backup
     is_main_db <- normalized_path == main_db_path
@@ -234,6 +251,10 @@ switch_database <- function(new_db_path) {
       message_text <- "Switched to main database (mice_colony.db)"
     } else {
       message_text <- paste("Temporarily viewing backup:", basename(new_db_path))
+    }
+
+    if (!identical(migration_result$message, "Database schema already up to date")) {
+      message_text <- paste(message_text, "-", migration_result$message)
     }
     
     return(list(
@@ -276,9 +297,21 @@ restore_backup_as_main <- function(backup_path) {
 
     return_to_main_database()
 
+    migration_result <- ensure_startup_database_schema(main_db_path)
+    if (!isTRUE(migration_result$success)) {
+      return(list(success = FALSE, message = paste("Backup restored but migration failed:", migration_result$message)))
+    }
+
+    DB_PATH <<- main_db_path
+
+    message_text <- paste("Restored", basename(normalized_backup), "as the main database. Previous main database was backed up.")
+    if (!identical(migration_result$message, "Database schema already up to date")) {
+      message_text <- paste(message_text, migration_result$message)
+    }
+
     list(
       success = TRUE,
-      message = paste("Restored", basename(normalized_backup), "as the main database. Previous main database was backed up."),
+      message = message_text,
       path = main_db_path
     )
   }, error = function(e) {
@@ -361,7 +394,17 @@ create_new_database <- function(db_name) {
       "notes TEXT,",
       "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
       "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
-      "expected_age_for_harvesting TEXT",
+      "expected_age_for_harvesting TEXT,",
+      "final_report_date DATE,",
+      "final_report_primary_age TEXT,",
+      "final_report_primary_age_value REAL,",
+      "final_report_total_embryos INTEGER,",
+      "final_report_male_embryos INTEGER,",
+      "final_report_female_embryos INTEGER,",
+      "final_report_unknown_embryos INTEGER,",
+      "final_report_mixed_age INTEGER DEFAULT 0,",
+      "final_report_age_groups_json TEXT,",
+      "final_report_notes TEXT",
       ")"
     ))
     
@@ -420,11 +463,25 @@ import_database_to_main <- function(source_path) {
     }
     
     # Copy imported database to main location with mice_colony.db name
-    file.copy(source_path, main_db_path, overwrite = TRUE)
+    if (!file.copy(source_path, main_db_path, overwrite = TRUE)) {
+      return(list(success = FALSE, message = "Failed to copy imported database into the main database location"))
+    }
+
+    migration_result <- ensure_startup_database_schema(main_db_path)
+    if (!isTRUE(migration_result$success)) {
+      return(list(success = FALSE, message = paste("Database imported but migration failed:", migration_result$message)))
+    }
+
+    DB_PATH <<- normalizePath(main_db_path, mustWork = FALSE)
+
+    message_text <- "Database imported and replaced main database (mice_colony.db). Previous database backed up."
+    if (!identical(migration_result$message, "Database schema already up to date")) {
+      message_text <- paste(message_text, migration_result$message)
+    }
     
     return(list(
       success = TRUE,
-      message = "Database imported and replaced main database (mice_colony.db). Previous database backed up.",
+      message = message_text,
       path = main_db_path
     ))
     

@@ -3,6 +3,7 @@
 
 # Source the body weight module
 source("Modules/modal_body_weight.R")
+source("Modules/pregnancy_prediction_analysis.R")
 
 show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_table, allow_edit = FALSE) {
   # Get mouse details
@@ -71,6 +72,20 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
       plugging_history <- plugging_history[order(as.POSIXct(plugging_history$last_updated, tz = "UTC"), decreasing = TRUE), ]
     } else if ("created_at" %in% colnames(plugging_history)) {
       plugging_history <- plugging_history[order(as.POSIXct(plugging_history$created_at, tz = "UTC"), decreasing = TRUE), ]
+    }
+  }
+
+  latest_final_report_row <- NULL
+  latest_final_report_details <- NULL
+  if (nrow(plugging_history) > 0) {
+    finalized_rows <- plugging_history[
+      plugging_history$female_id == asu_id & plugging_history$plugging_status %in% c("Collected", "Empty", "Not Pregnant", "Not Observed (Confirmed)"),
+      ,
+      drop = FALSE
+    ]
+    if (nrow(finalized_rows) > 0) {
+      latest_final_report_row <- finalized_rows[1, , drop = FALSE]
+      latest_final_report_details <- extract_plugging_final_report(latest_final_report_row)
     }
   }
   
@@ -257,10 +272,69 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
           strong("Last Updated:"), ifelse(is.na(mouse_info$last_updated) || mouse_info$last_updated == "", "N/A", mouse_info$last_updated)
         )
       ),
+      if (!is.null(latest_final_report_row)) {
+        div(
+          style = "margin: 10px 0 20px 0; padding: 12px; background: #fff8e1; border-left: 4px solid #ff9800; border-radius: 6px; color: #333;",
+          h4("Latest Final Report", style = "font-size: 1.1em; color: #ef6c00; margin-bottom: 8px;"),
+          div(
+            style = "display: grid; grid-template-columns: 1fr 1fr; gap: 8px;",
+            div(
+              strong("Outcome:"), latest_final_report_row$plugging_status[1], br(),
+              strong("Collection Date:"), ifelse(
+                !is.null(latest_final_report_details$final_report_date) && !is.na(latest_final_report_details$final_report_date) && latest_final_report_details$final_report_date != "",
+                latest_final_report_details$final_report_date,
+                ifelse(!is.na(mouse_info$date_of_death) && mouse_info$date_of_death != "", mouse_info$date_of_death, "N/A")
+              ), br(),
+              strong("Embryo Age:"), ifelse(
+                !is.null(latest_final_report_details$final_report_primary_age) && !is.na(latest_final_report_details$final_report_primary_age) && latest_final_report_details$final_report_primary_age != "",
+                latest_final_report_details$final_report_primary_age,
+                "N/A"
+              )
+            ),
+            div(
+              strong("Total Embryos:"), ifelse(!is.na(latest_final_report_details$final_report_total_embryos), latest_final_report_details$final_report_total_embryos, "N/A"), br(),
+              strong("Male / Female / Unknown:"), paste(
+                ifelse(!is.na(latest_final_report_details$final_report_male_embryos), latest_final_report_details$final_report_male_embryos, "-"),
+                ifelse(!is.na(latest_final_report_details$final_report_female_embryos), latest_final_report_details$final_report_female_embryos, "-"),
+                ifelse(!is.na(latest_final_report_details$final_report_unknown_embryos), latest_final_report_details$final_report_unknown_embryos, "-"),
+                sep = " / "
+              ), br(),
+              strong("Mixed Ages:"), ifelse(isTRUE(latest_final_report_details$final_report_mixed_age), "Yes", "No")
+            )
+          ),
+          if (!is.null(latest_final_report_details$final_report_notes) && !is.na(latest_final_report_details$final_report_notes) && latest_final_report_details$final_report_notes != "") {
+            div(
+              style = "margin-top: 8px; white-space: pre-line;",
+              strong("Report Notes: "), latest_final_report_details$final_report_notes
+            )
+          },
+          if (!is.na(latest_final_report_details$final_report_age_groups_json)) {
+            div(
+              style = "margin-top: 6px; color: #555; font-size: 0.95em;",
+              strong("Age Groups: "),
+              paste(
+                vapply(
+                  seq_len(nrow(latest_final_report_details$age_groups)),
+                  function(idx) {
+                    age_group <- latest_final_report_details$age_groups[idx, , drop = FALSE]
+                    if (!is.na(age_group$count[1])) {
+                      paste0(age_group$age_label[1], " x", age_group$count[1])
+                    } else {
+                      age_group$age_label[1]
+                    }
+                  },
+                  character(1)
+                ),
+                collapse = "; "
+              )
+            )
+          }
+        )
+      },
       # Notes Section
       div(
         style = "margin: 10px 0 20px 0; padding: 10px; background: #f8f9fa; border-left: 4px solid #1976d2; border-radius: 6px; color: #333;",
-        h4("Notes", style = "font-size: 1.1em; color: #1976d2; margin-bottom: 6px;"),
+        h4("Mouse Notes", style = "font-size: 1.1em; color: #1976d2; margin-bottom: 6px;"),
         if (!is.null(mouse_info$notes) && !is.na(mouse_info$notes) && mouse_info$notes != "") {
           div(style = "white-space: pre-line; font-size: 1em;", mouse_info$notes)
         } else {

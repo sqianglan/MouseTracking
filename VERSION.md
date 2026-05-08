@@ -1,3 +1,26 @@
+# Version: beta 1.6 - Update Summary
+
+## 🎉 Latest Updates (beta 1.6)
+
+### 🤰 Pregnancy Prediction Workflow
+- **Prediction review tab**: Added a model-focused prediction workspace with filtered historical training records and a pregnancy gain curve
+- **Ground-truth training view**: Training Records now focus on observed collection outcomes instead of planned expected harvest age
+- **Event-scoped body weight analysis**: Prediction features are built from the active plugging event window rather than lifetime body weight history
+- **Biology-first prediction output**: Strong recent gain can override weak ML confidence for clearly positive cases, while low-gain cases are labeled as unclear vs unlikely more explicitly
+
+### 🧫 Sample Collected Report Improvements
+- **Structured collection report editor**: Collected plugging events now support embryo age, embryo counts, sex counts, mixed-age entries, and final report notes in a dedicated modal
+- **Mixed-age parsing support**: Free-text and structured mixed-age embryo groups are parsed into reusable prediction features
+- **Audit-friendly review flow**: Double-clicking collected training rows opens the Sample Collected Report editor directly for inspection and updates
+
+### 📌 Plugging & Calendar Detail Modal Improvements
+- **Pregnancy fit summary cards**: Plugging and Calendar details now show prediction label, estimated embryo age, estimated embryo number, and only show shifted pregnancy timing when it differs from the observed plug date
+- **Cleaner chart presentation**: Removed duplicate in-plot prediction text and auto-ranged event body weight charts for tighter review
+- **Faster modal return flows**: Saving or cancelling edit flows now returns to the same plugging event details card instead of dropping back to the parent tab
+- **Calendar workflow polish**: Calendar events now open on single click, the modal width is expanded to 70% of the screen, and expected harvest age can be edited from the calendar details card
+
+---
+
 # Version: beta 1.5 - Update Summary
 
 ## 🎉 Latest Updates (beta 1.5)

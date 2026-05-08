@@ -4,14 +4,14 @@ A comprehensive web-based application for tracking and managing mouse colony plu
 
 ## Current Version
 
-**Version beta 1.5**
+**Version beta 1.6**
 
 Recent highlights in this release:
-- Trio-style plugging entry with one male and up to three females
-- Copy-ready plugging summaries for ongoing records and individual plugging details
-- Wider Plugging Event Details modal with persistent body weight panel
-- Improved body weight modal return flow back to Plugging Details
-- Better import mapping validation and plugging warning behavior
+- Pregnancy prediction workspace with filtered historical training records and model curve review
+- Structured Sample Collected Report workflow with embryo age, embryo counts, mixed-age support, and audit logging
+- Plugging and Calendar detail cards with pregnancy fit summary, compact layouts, and event-scoped body weight plots
+- Calendar single-click event opening plus in-card expected harvest age editing
+- Improved return flows from body weight, edit, and collection-related modal actions back to the same event
 
 ## 📋 Table of Contents
 
@@ -64,11 +64,21 @@ The Mouse Management System addresses the critical gap in current webtools used 
   - Surprising Plug!!
 - **Status Workflow**: Visual progression through plugging stages
 - **Summary Export Tools**: Generate copy-ready summaries for ongoing plugging groups and individual plugging records
+- **Structured Collection Reports**: Record collected embryo age, total embryo count, sex counts, mixed-age groups, and report notes directly on the plugging event
+- **Event Detail Workflows**: Edit, body weight entry, and collection-report actions now return to the same plugging event card for faster review
 - **Intelligent Date Management**: Automatic date synchronization for consistent record keeping
   - Pairing end date automatically matches plug observed date for quick updates
   - Plug observed date automatically set to "Unknown" for non-observational statuses
   - Manual override available in Edit modal for complex scenarios
 - **Historical Records**: View archived and deleted plugging records
+
+### 🤰 Pregnancy Prediction
+- **Prediction Review Tab**: Inspect a filtered pregnancy model curve built from completed historical cases
+- **Training Record Inspection**: Double-click historical rows to open the source plugging record or Sample Collected Report editor
+- **Ground-Truth Focus**: Training Records emphasize collected outcome fields such as embryo age and embryo counts rather than planned harvest targets
+- **Event-Scoped Analysis**: Current event prediction uses event-specific body weight windows instead of full lifetime history
+- **Pregnancy Fit Cards**: Plugging and Calendar detail modals show prediction status, estimated embryo age, estimated embryo number, and shifted pregnancy timing when meaningful
+- **Mixed-Age Collection Support**: Mixed embryo age groups entered during collection are parsed and incorporated into downstream prediction features
 
 ### 📊 Body Weight Tracking
 - **Individual Weight Records**: Track body weight measurements over time
@@ -83,6 +93,8 @@ The Mouse Management System addresses the critical gap in current webtools used 
 - Event color coding for different plugging statuses
 - Navigation controls with modern design
 - Real-time statistics for current month/year
+- Single-click event opening for direct access to plugging details
+- In-card expected harvest age editing from the calendar details view
 - Export functionality for calendar data
 
 ### 🛡️ Security & Data Integrity

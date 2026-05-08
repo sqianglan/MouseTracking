@@ -42,6 +42,7 @@ source("Modules/audit_trail.R")
 source("Modules/db_check.R")
 source("Modules/database_manager.R")
 source("Modules/modal_add_animal.R")
+source("Modules/pregnancy_prediction_analysis.R")
 source("Modules/modal_mice_history.R")
 source("Modules/tab_all_mice.R")
 #source("Modules/tab_breeding.R")
@@ -49,6 +50,7 @@ source("Modules/tab_calendar_events.R")
 #source("Modules/tab_deceased.R")
 #source("Modules/tab_deleted.R")
 source("Modules/tab_plugging.R")
+source("Modules/tab_prediction.R")
 source("Modules/validation.R")
 source("Modules/analytics_tracker.R")
 
@@ -750,6 +752,7 @@ ui <- fluidPage(
       ),
       tabPanel("🐭 All Mice", all_mice_tab_ui()),
       tabPanel("🐭⚤🐭 Plugging", plugging_tab_ui()),
+      tabPanel("🔮 Prediction", value = "prediction_tab", prediction_tab_ui()),
     ),
     div(
       style = "display: grid; grid-template-columns: auto 1fr auto; align-items: center; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 12px 16px; margin-top: 32px; border-radius: 0 0 8px 8px; margin-left: 0px; margin-right: 50px;",
@@ -770,6 +773,21 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   # Check database setup on app startup
   db_setup_info <- check_and_setup_database()
+
+  if (!isTRUE(db_setup_info$setup_needed) && !is.null(db_setup_info$db_path) && db_setup_info$db_path != "") {
+    DB_PATH <<- normalizePath(db_setup_info$db_path, mustWork = FALSE)
+
+    migration_result <- tryCatch(
+      ensure_startup_database_schema(DB_PATH),
+      error = function(e) list(success = FALSE, message = e$message)
+    )
+
+    if (!isTRUE(migration_result$success)) {
+      message("Startup DB migration failed: ", migration_result$message)
+    } else if (!identical(migration_result$message, "Database schema already up to date")) {
+      message(migration_result$message)
+    }
+  }
   
   # Show database setup modal if needed
   if (db_setup_info$setup_needed) {
@@ -943,8 +961,21 @@ server <- function(input, output, session) {
     reload = NULL,
     viewing_id = NULL,
     editing_id = NULL,
-    confirming_id = NULL
+    confirming_id = NULL,
+    prediction_target_id = NULL,
+    open_details_id = NULL,
+    open_collection_id = NULL
   )
+
+  reset_database_dependent_state <- function() {
+    shared_plugging_state$reload <- NULL
+    shared_plugging_state$viewing_id <- NULL
+    shared_plugging_state$editing_id <- NULL
+    shared_plugging_state$confirming_id <- NULL
+    shared_plugging_state$prediction_target_id <- NULL
+    shared_plugging_state$open_details_id <- NULL
+    shared_plugging_state$open_collection_id <- NULL
+  }
   
   # Global lock system for deletion protection
   global_lock_state <- reactiveValues(
@@ -1040,6 +1071,7 @@ server <- function(input, output, session) {
   all_mice_tab_server(input, output, session, all_mice_table, is_system_locked, global_refresh_trigger, shared_plugging_state)
   #breeding_tab_server(input, output, session)
   plugging_tab_server(input, output, session, is_system_locked, global_refresh_trigger, all_mice_table, shared_plugging_state)
+  prediction_tab_server(input, output, session, shared_plugging_state, global_refresh_trigger)
   #deceased_tab_server(input, output, session)
   #deleted_tab_server(input, output, session)
 
@@ -1129,7 +1161,7 @@ server <- function(input, output, session) {
   
   
   # Initialize modal add animal server module
-  modal_add_animal_server(input, output, session, import_data, all_mice_table, global_refresh_trigger, DB_PATH, TABLE_NAME)
+  modal_add_animal_server(input, output, session, import_data, all_mice_table, global_refresh_trigger, function() DB_PATH, TABLE_NAME)
 
   # Handle Search Button
   observeEvent(input$welcome_search_btn, {
@@ -1454,6 +1486,7 @@ server <- function(input, output, session) {
     result <- switch_database(input$db_selector)
     
     if (result$success) {
+      reset_database_dependent_state()
       refresh_active_database()
       refresh_database_management_selector(result$message)
       showNotification(result$message, type = "message", duration = 5)
@@ -1467,6 +1500,7 @@ server <- function(input, output, session) {
     result <- return_to_main_database()
 
     if (result$success) {
+      reset_database_dependent_state()
       refresh_active_database()
       refresh_database_management_selector(result$message)
       showNotification(result$message, type = "message", duration = 5)
@@ -1481,6 +1515,7 @@ server <- function(input, output, session) {
     result <- restore_backup_as_main(input$db_selector)
 
     if (result$success) {
+      reset_database_dependent_state()
       refresh_active_database()
       refresh_database_management_selector(result$message)
       showNotification(result$message, type = "message", duration = 6)
@@ -1495,16 +1530,10 @@ server <- function(input, output, session) {
     result <- import_database_to_main(input$import_db_file$datapath)
     
     if (result$success) {
-      showNotification(result$message, type = "message", duration = 5)
-      # Refresh database list
-      updateSelectInput(session, "db_selector", choices = list_hidden_databases())
-      # Add delay before refresh to show success message
-      invalidateLater(2000, session)
-      observe({
-        # Trigger global refresh before reload
-        global_refresh_trigger(Sys.time())
-        session$reload()
-      })
+      reset_database_dependent_state()
+      refresh_database_management_selector(result$message)
+      global_refresh_trigger(Sys.time())
+      session$reload()
     } else {
       showNotification(result$message, type = "error", duration = 5)
     }
@@ -1602,6 +1631,7 @@ server <- function(input, output, session) {
       showNotification("Database imported successfully! The app will now load your data.", 
                       type = "message", duration = 5)
       
+      reset_database_dependent_state()
       # Trigger global refresh before reload
       global_refresh_trigger(Sys.time())
       

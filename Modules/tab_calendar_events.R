@@ -9,6 +9,7 @@ suppressPackageStartupMessages({
   library(ggsci)
   library(dplyr)
   library(lubridate)
+  library(plotly)
 })
 
 # Source body weight modal functions
@@ -558,8 +559,8 @@ plugging_calendar_modal_ui <- function(id) {
         .modal-dialog.modal-lg,
         .modal.show .modal-dialog,
         .modal-dialog {
-          max-width: 85% !important;
-          width: 85% !important;
+          max-width: 70% !important;
+          width: 70% !important;
         }
         
         /* Force modal container to use full width */
@@ -617,8 +618,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                   Shiny.setInputValue('", ns("calendar_modal_closed"), "', Date.now(), {priority: 'event'});
                 });
                 $modal.find('.modal-dialog').css({
-                  'max-width': '80%',
-                  'width': '80%'
+                  'max-width': '70%',
+                  'width': '70%'
                 });
               }, 50);
             });
@@ -1133,7 +1134,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
 
         selected_mouse_data(list(
           plugging = plugging[1, ],
-          body_weight_history = female_body_weight_history,
+          body_weight_history = build_event_weight_window(female_body_weight_history, plugging[1, , drop = FALSE], female_plugging_history),
           plugging_history = female_plugging_history
         ))
         view_mode("details")
@@ -1509,8 +1510,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
              removeClass = if(show_waiting()) "deselected" else "selected"))
     })
 
-    observeEvent(input$calendar_plot_dblclick, {
-      click_info <- input$calendar_plot_dblclick
+    observeEvent(input$calendar_plot_click, {
+      click_info <- input$calendar_plot_click
       req(click_info$x, click_info$y)
 
       event_strips <- current_month_event_strips()
@@ -1988,6 +1989,34 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       open_calendar_details_for_mouse(asu_id)
     }
 
+    build_calendar_current_prediction <- function(data) {
+      if (is.null(data) || is.null(data$plugging)) {
+        return(list(
+          likelihood = "Unavailable",
+          confidence = "Low",
+          estimated_age_range = "Unknown",
+          conclusion = "Prediction is unavailable for this event.",
+          anchor = list(date = as.Date(NA), type = "Unknown Anchor"),
+          fitted_anchor = list(offset_days = 0, fitted_curve = data.frame(), anchor_label = "Unknown"),
+          fitted_curve = data.frame()
+        ))
+      }
+
+      training_dataset <- tryCatch(build_plugging_prediction_dataset(db_path), error = function(e) data.frame())
+      tryCatch(
+        predict_plugging_event_outcome(data$plugging, data$body_weight_history, training_dataset),
+        error = function(e) list(
+          likelihood = "Unavailable",
+          confidence = "Low",
+          estimated_age_range = "Unknown",
+          conclusion = "Prediction is unavailable for this event.",
+          anchor = list(date = as.Date(NA), type = "Unknown Anchor"),
+          fitted_anchor = list(offset_days = 0, fitted_curve = data.frame(), anchor_label = "Unknown"),
+          fitted_curve = data.frame()
+        )
+      )
+    }
+
     observeEvent(input$calendar_body_weight_back_clicked, {
       asu_id <- input$calendar_body_weight_back_clicked
       req(asu_id)
@@ -2000,6 +2029,85 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       req(asu_id)
 
       reopen_calendar_details_modal(asu_id)
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_edit_expected_age_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      current_expected_age <- if (!is.null(row$expected_age_for_harvesting) && !is.na(row$expected_age_for_harvesting)) {
+        row$expected_age_for_harvesting
+      } else {
+        ""
+      }
+
+      showModal(modalDialog(
+        title = paste("Edit Expected Harvest Age (", row$female_id, ")"),
+        size = "s",
+        textInput(
+          ns("calendar_expected_age_edit_input"),
+          "Expected Age for Harvesting (Embryonic Days, e.g. 14)",
+          value = current_expected_age,
+          width = "100%"
+        ),
+        footer = tagList(
+          actionButton(ns("cancel_calendar_expected_age_btn"), "Cancel", class = "btn btn-default"),
+          actionButton(ns("save_calendar_expected_age_btn"), "Save", class = "btn-primary")
+        )
+      ))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$cancel_calendar_expected_age_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      reopen_calendar_details_modal(current_data$plugging$female_id[1])
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$save_calendar_expected_age_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      plugging_id <- row$id[1]
+      female_id <- row$female_id[1]
+      new_expected_age <- input$calendar_expected_age_edit_input
+
+      con <- NULL
+      tryCatch({
+        con <- dbConnect(SQLite(), db_path)
+        old_values <- dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+
+        if (nrow(old_values) == 0) {
+          showNotification("Plugging event not found", type = "error")
+          return()
+        }
+
+        result <- dbExecute(
+          con,
+          "UPDATE plugging_history SET expected_age_for_harvesting = ?, updated_at = DATETIME('now') WHERE id = ?",
+          params = list(new_expected_age, plugging_id)
+        )
+
+        if (result > 0) {
+          log_audit_trail(
+            "plugging_history",
+            plugging_id,
+            "UPDATE",
+            old_values[1, , drop = FALSE],
+            list(expected_age_for_harvesting = new_expected_age)
+          )
+          showNotification("Expected harvest age updated", type = "message")
+          reopen_calendar_details_modal(female_id)
+        } else {
+          showNotification("Failed to update expected harvest age", type = "error")
+        }
+      }, error = function(e) {
+        showNotification(paste("Error updating expected harvest age:", e$message), type = "error")
+      }, finally = {
+        if (!is.null(con)) dbDisconnect(con)
+      })
     }, ignoreInit = TRUE)
     
     # Dynamic modal content based on view mode
@@ -2063,7 +2171,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             div(class = "calendar-plot-container",
               div(class = "calendar-body",
                 div(class = "calendar-plot",
-                  plotOutput(ns("calendar_plot"), height = "600px", dblclick = ns("calendar_plot_dblclick"))
+                  plotOutput(ns("calendar_plot"), height = "600px", click = ns("calendar_plot_click"))
                 )
               )
             ),
@@ -2086,6 +2194,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         row <- data$plugging
         female_body_weight_history <- data$body_weight_history
         female_plugging_history <- data$plugging_history
+        current_prediction <- build_calendar_current_prediction(data)
         
         # Calculate ages
         male_age <- if(!is.na(row$male_dob)) round(as.numeric(Sys.Date() - as.Date(row$male_dob)) / 7, 1) else NA
@@ -2101,31 +2210,32 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           
           # Details content
           div(
-            style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;",
+            style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 860px; margin: 0 auto;",
             
             h4(paste("🐭 Plugging Details:", row$female_id), 
                style = "text-align: center; color: #1e3a5f; margin-bottom: 20px;"),
             div(
-              style = "display: grid; grid-template-columns: 1fr 1fr; gap: 20px;",
+              style = "display: grid; grid-template-columns: minmax(250px, 1.15fr) minmax(410px, 2.85fr); gap: 16px; align-items: stretch;",
               div(
+                style = "display: flex; flex-direction: column; height: 100%;",
                 div(
                   style = "background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 8px; padding: 12px; border-left: 4px solid #28a745; margin-bottom: 12px;",
                   h5("👫 Breeding Pair", style = "margin: 0 0 10px 0; color: #2c3e50;"),
                   div(
-                    div(
-                      strong("Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
-                      br(),
-                      "Line: ", ifelse(is.na(row$male_breeding_line), "Unknown", row$male_breeding_line),
-                      br(),
-                      "Genotype: ", ifelse(is.na(row$male_genotype), "Unknown", row$male_genotype)
-                    ),
-                    br(),
                     div(
                       strong("Female: "), paste0(row$female_id, " (", ifelse(is.na(female_age), "Unknown age", paste0(female_age, " wks")), ")"),
                       br(),
                       "Line: ", ifelse(is.na(row$female_breeding_line), "Unknown", row$female_breeding_line),
                       br(),
                       "Genotype: ", ifelse(is.na(row$female_genotype), "Unknown", row$female_genotype)
+                    ),
+                    br(),
+                    div(
+                      strong("Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
+                      br(),
+                      "Line: ", ifelse(is.na(row$male_breeding_line), "Unknown", row$male_breeding_line),
+                      br(),
+                      "Genotype: ", ifelse(is.na(row$male_genotype), "Unknown", row$male_genotype)
                     )
                   )
                 ),
@@ -2141,8 +2251,17 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                   )
                 ),
                 div(
-                  style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #ffc107;",
-                  h5("📊 Status", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                  style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #ffc107; flex: 1;",
+                  div(
+                    style = "display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px;",
+                    h5("📊 Status", style = "margin: 0; color: #2c3e50;"),
+                    actionButton(
+                      ns("calendar_edit_expected_age_btn"),
+                      "Edit Harvest",
+                      class = "btn btn-default btn-xs",
+                      style = "padding: 2px 8px; line-height: 1.2;"
+                    )
+                  ),
                   div(
                     "Current Status: ", strong(row$plugging_status),
                     br(),
@@ -2155,7 +2274,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               ),
               if (nrow(female_body_weight_history) > 0) {
                 div(
-                  style = "border-radius: 8px; padding: 12px;",
+                  style = "border-radius: 8px; padding: 12px; display: flex; flex-direction: column; height: 100%;",
                   div(
                     style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
                     h5("📈 Female Body Weight Trend", style = "margin: 0; color: #2c3e50;"),
@@ -2167,18 +2286,71 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                     )
                   ),
                   div(
+                    style = "background: #fff8e1; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; margin-bottom: 12px;",
+                    h5("Pregnancy Fit", style = "margin: 0 0 8px 0; color: #b45309;"),
+                    div(
+                      style = "color: #92400e; font-weight: 600;",
+                      build_prediction_plot_label(current_prediction)
+                    ),
+                    {
+                      detail_lines <- build_prediction_banner_lines(current_prediction)
+                      if (length(detail_lines) > 0) {
+                        div(
+                          style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                          tagList(lapply(detail_lines, function(line_text) {
+                            is_timing_line <- grepl("^Estimated pregnancy timing:", line_text)
+                            div(
+                              style = if (is_timing_line) {
+                                "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;"
+                              } else {
+                                NULL
+                              },
+                              line_text
+                            )
+                          }))
+                        )
+                      }
+                    }
+                  ),
+                  div(
                     id = paste0(ns("calendar_body_weight_preview_plot_container")),
-                    style = "height: 400px;",
+                    style = "height: 400px; flex: 1;",
                     plotlyOutput(paste0(ns("calendar_body_weight_preview_plot_"), row$female_id))
                   )
                 )
               } else {
                 div(
-                  style = "border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: center; height: 400px;",
+                  style = "border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: center; height: 100%; min-height: 400px;",
                   div(
                     style = "text-align: center; color: #6c757d;",
                     h5("📈 No Body Weight Data", style = "margin-bottom: 10px;"),
                     p("No body weight records found for this mouse."),
+                    div(
+                      style = "background: #fff8e1; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; margin: 12px 0; text-align: left;",
+                      div(
+                        style = "color: #92400e; font-weight: 600;",
+                        build_prediction_plot_label(current_prediction)
+                      ),
+                      {
+                        detail_lines <- build_prediction_banner_lines(current_prediction)
+                        if (length(detail_lines) > 0) {
+                          div(
+                            style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                            tagList(lapply(detail_lines, function(line_text) {
+                              is_timing_line <- grepl("^Estimated pregnancy timing:", line_text)
+                              div(
+                                style = if (is_timing_line) {
+                                  "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;"
+                                } else {
+                                  NULL
+                                },
+                                line_text
+                              )
+                            }))
+                          )
+                        }
+                      }
+                    ),
                     actionButton(
                       paste0(ns("add_body_weight_from_calendar_btn")),
                       label = "Add First Record",
@@ -2202,6 +2374,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         row <- data$plugging
         female_body_weight_history <- data$body_weight_history
         female_plugging_history <- data$plugging_history
+        current_prediction <- build_calendar_current_prediction(data)
         
         if (nrow(female_body_weight_history) > 0) {
           # Use existing render function logic but with calendar-specific output ID
@@ -2226,16 +2399,35 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               x = ~measurement_date,
               y = ~weight_grams,
               type = "scatter",
-              mode = "lines+markers",
-              marker = list(size = 6, color = "#2196f3"),
+              mode = "lines",
               line = list(color = "#2196f3", width = 2),
               name = "Body Weight",
-              showlegend = FALSE,
+              showlegend = TRUE,
               hovertemplate = paste(
                 "<b>Date:</b> %{x}<br>",
                 "<b>Weight:</b> %{y} grams<br>",
                 "<extra></extra>"
               )
+            )
+
+            if (!is.na(current_prediction$anchor$date) && nrow(current_prediction$fitted_curve) > 0) {
+              fitted_curve_data <- current_prediction$fitted_curve[current_prediction$fitted_curve$day_since_anchor >= 0, , drop = FALSE]
+              fitted_curve_data$measurement_date <- as.POSIXct(current_prediction$anchor$date) + fitted_curve_data$day_since_anchor * 86400
+
+              p <- add_lines(
+                p,
+                data = fitted_curve_data,
+                x = ~measurement_date,
+                y = ~predicted_weight,
+                name = "Pregnancy Date Curve",
+                line = list(color = "#f59e0b", width = 2, dash = "dash"),
+                hovertemplate = "<b>Date:</b> %{x}<br><b>Curve:</b> %{y:.2f} grams<br><extra></extra>"
+              )
+            }
+
+            y_range <- build_body_weight_plot_y_range(
+              actual_weights = weight_data$weight_grams,
+              fitted_weights = if (exists("fitted_curve_data")) fitted_curve_data$predicted_weight else numeric(0)
             )
             
             # Initialize shapes list for layout
@@ -2354,14 +2546,15 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                 title = "Weight (grams)",
                 showgrid = TRUE,
                 gridcolor = "#e0e0e0",
-                range = c(0, max(weight_data$weight_grams) * 1.1)
+                range = y_range
               ),
               shapes = shapes_list,
               hovermode = "closest",
               plot_bgcolor = "rgba(0,0,0,0)",
               paper_bgcolor = "rgba(0,0,0,0)",
               margin = list(t = 20, b = 30, l = 50, r = 20),
-              showlegend = FALSE
+              showlegend = TRUE,
+              legend = list(orientation = "h", y = -0.2)
             )
             
             return(p)
@@ -2395,8 +2588,8 @@ show_plugging_calendar_modal <- function(id = "plugging_calendar_modal", db_path
               Shiny.setInputValue('", paste0(id, "-calendar_modal_closed"), "', Date.now(), {priority: 'event'});
             });
             $modal.find('.modal-dialog').css({
-              'max-width': '80%',
-              'width': '80%'
+              'max-width': '70%',
+              'width': '70%'
             });
           }, 50);
         });

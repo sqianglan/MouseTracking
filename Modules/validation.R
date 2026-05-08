@@ -5,6 +5,293 @@ suppressPackageStartupMessages({
   library(lubridate)
 })
 
+ensure_startup_database_schema <- function(db_path = DB_PATH) {
+  if (is.null(db_path) || identical(db_path, "") || !file.exists(db_path)) {
+    return(list(success = FALSE, message = "Database file not found", path = db_path))
+  }
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+  on.exit(tryCatch(DBI::dbDisconnect(con), error = function(e) NULL), add = TRUE)
+
+  ensure_table <- function(create_sql) {
+    DBI::dbExecute(con, create_sql)
+  }
+
+  ensure_columns <- function(table_name, required_columns) {
+    existing_columns <- tryCatch(DBI::dbListFields(con, table_name), error = function(e) character(0))
+    added_columns <- character(0)
+
+    for (column_name in names(required_columns)) {
+      if (!(column_name %in% existing_columns)) {
+        DBI::dbExecute(
+          con,
+          paste("ALTER TABLE", table_name, "ADD COLUMN", column_name, required_columns[[column_name]])
+        )
+        added_columns <- c(added_columns, column_name)
+      }
+    }
+
+    added_columns
+  }
+
+  backfill_legacy_plugging_final_report <- function() {
+    required_columns <- c(
+      "id",
+      "notes",
+      "plugging_status",
+      "final_report_date",
+      "final_report_primary_age",
+      "final_report_primary_age_value",
+      "final_report_total_embryos",
+      "final_report_male_embryos",
+      "final_report_female_embryos",
+      "final_report_unknown_embryos",
+      "final_report_mixed_age",
+      "final_report_age_groups_json",
+      "final_report_notes"
+    )
+
+    existing_columns <- tryCatch(DBI::dbListFields(con, "plugging_history"), error = function(e) character(0))
+    if (!all(required_columns %in% existing_columns) || !exists("extract_plugging_final_report", mode = "function")) {
+      return(list(updated_rows = 0L, parsed_rows = 0L))
+    }
+
+    legacy_rows <- tryCatch(
+      DBI::dbGetQuery(
+        con,
+        paste(
+          "SELECT", paste(required_columns, collapse = ", "),
+          "FROM plugging_history",
+          "WHERE TRIM(COALESCE(notes, '')) != ''",
+          "AND COALESCE(TRIM(final_report_notes), '') = ''",
+          "AND final_report_date IS NULL",
+          "AND final_report_primary_age IS NULL",
+          "AND final_report_primary_age_value IS NULL",
+          "AND final_report_total_embryos IS NULL",
+          "AND final_report_male_embryos IS NULL",
+          "AND final_report_female_embryos IS NULL",
+          "AND final_report_unknown_embryos IS NULL",
+          "AND COALESCE(final_report_mixed_age, 0) = 0",
+          "AND final_report_age_groups_json IS NULL"
+        )
+      ),
+      error = function(e) data.frame()
+    )
+
+    if (nrow(legacy_rows) == 0) {
+      return(list(updated_rows = 0L, parsed_rows = 0L))
+    }
+
+    update_sql <- paste(
+      "UPDATE plugging_history SET",
+      "final_report_primary_age = ?,",
+      "final_report_primary_age_value = ?,",
+      "final_report_total_embryos = ?,",
+      "final_report_male_embryos = ?,",
+      "final_report_female_embryos = ?,",
+      "final_report_unknown_embryos = ?,",
+      "final_report_mixed_age = ?,",
+      "final_report_age_groups_json = ?,",
+      "final_report_notes = ?,",
+      "updated_at = CURRENT_TIMESTAMP",
+      "WHERE id = ?"
+    )
+
+    updated_rows <- 0L
+    parsed_rows <- 0L
+
+    for (row_index in seq_len(nrow(legacy_rows))) {
+      legacy_row <- legacy_rows[row_index, , drop = FALSE]
+      report_details <- tryCatch(
+        extract_plugging_final_report(legacy_row, legacy_backfill = TRUE),
+        error = function(e) NULL
+      )
+
+      if (is.null(report_details)) {
+        next
+      }
+
+      parsed_signal <- isTRUE(report_details$parsed_notes$parse_confidence %in% c("partial", "high")) ||
+        !is.na(report_details$final_report_primary_age_value) ||
+        !is.na(report_details$final_report_total_embryos) ||
+        !is.na(report_details$final_report_male_embryos) ||
+        !is.na(report_details$final_report_female_embryos) ||
+        !is.na(report_details$final_report_unknown_embryos) ||
+        isTRUE(report_details$final_report_mixed_age) ||
+        !is.na(report_details$final_report_age_groups_json)
+
+      if (!parsed_signal) {
+        next
+      }
+
+      parsed_rows <- parsed_rows + 1L
+
+      final_report_notes <- trimws(as.character(legacy_row$notes[1]))
+      if (identical(final_report_notes, "NA")) {
+        final_report_notes <- ""
+      }
+
+      DBI::dbExecute(
+        con,
+        update_sql,
+        params = list(
+          if (is.na(report_details$final_report_primary_age)) NA_character_ else report_details$final_report_primary_age,
+          if (is.na(report_details$final_report_primary_age_value)) NA_real_ else report_details$final_report_primary_age_value,
+          if (is.na(report_details$final_report_total_embryos)) NA_integer_ else as.integer(report_details$final_report_total_embryos),
+          if (is.na(report_details$final_report_male_embryos)) NA_integer_ else as.integer(report_details$final_report_male_embryos),
+          if (is.na(report_details$final_report_female_embryos)) NA_integer_ else as.integer(report_details$final_report_female_embryos),
+          if (is.na(report_details$final_report_unknown_embryos)) NA_integer_ else as.integer(report_details$final_report_unknown_embryos),
+          if (isTRUE(report_details$final_report_mixed_age)) 1L else 0L,
+          if (is.na(report_details$final_report_age_groups_json)) NA_character_ else report_details$final_report_age_groups_json,
+          final_report_notes,
+          as.integer(legacy_row$id[1])
+        )
+      )
+      updated_rows <- updated_rows + 1L
+    }
+
+    list(updated_rows = updated_rows, parsed_rows = parsed_rows)
+  }
+
+  changes <- character(0)
+
+  ensure_table(paste0(
+    "CREATE TABLE IF NOT EXISTS mice_stock (",
+    "asu_id TEXT PRIMARY KEY,",
+    "animal_id TEXT,",
+    "gender TEXT,",
+    "dob DATE,",
+    "ear_mark TEXT,",
+    "breeding_line TEXT,",
+    "genotype TEXT,",
+    "dam TEXT,",
+    "sire TEXT,",
+    "cage_id TEXT,",
+    "room TEXT,",
+    "project_code TEXT,",
+    "responsible_person TEXT,",
+    "protocol TEXT,",
+    "study_plan TEXT,",
+    "stock_category TEXT,",
+    "status TEXT DEFAULT 'Alive' CHECK (status IN ('Alive', 'Deceased', 'Deleted')),",
+    "date_of_death DATE,",
+    "age_at_death_weeks REAL,",
+    "max_severity TEXT,",
+    "procedure TEXT,",
+    "stage TEXT,",
+    "deceased_timestamp TIMESTAMP,",
+    "notes TEXT,",
+    "imported_from_excel BOOLEAN DEFAULT 0,",
+    "date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+    "last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    ")"
+  ))
+
+  ensure_table(paste0(
+    "CREATE TABLE IF NOT EXISTS plugging_history (",
+    "id INTEGER PRIMARY KEY AUTOINCREMENT,",
+    "male_id TEXT NOT NULL,",
+    "female_id TEXT NOT NULL,",
+    "cage_id TEXT,",
+    "pairing_start_date DATE,",
+    "pairing_end_date DATE,",
+    "plug_observed_date TEXT,",
+    "plugging_status TEXT DEFAULT 'Ongoing' CHECK (plugging_status IN ('Ongoing', 'Plugged', 'Plug Confirmed', 'Not Pregnant', 'Not Observed (Waiting for confirmation)', 'Empty', 'Deleted', 'Not Observed (Confirmed)', 'Surprising Plug!!', 'Collected')),",
+    "notes TEXT,",
+    "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+    "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+    "expected_age_for_harvesting TEXT,",
+    "final_report_date DATE,",
+    "final_report_primary_age TEXT,",
+    "final_report_primary_age_value REAL,",
+    "final_report_total_embryos INTEGER,",
+    "final_report_male_embryos INTEGER,",
+    "final_report_female_embryos INTEGER,",
+    "final_report_unknown_embryos INTEGER,",
+    "final_report_mixed_age INTEGER DEFAULT 0,",
+    "final_report_age_groups_json TEXT,",
+    "final_report_notes TEXT",
+    ")"
+  ))
+
+  ensure_table(paste0(
+    "CREATE TABLE IF NOT EXISTS body_weight_history (",
+    "id INTEGER PRIMARY KEY AUTOINCREMENT,",
+    "asu_id TEXT NOT NULL,",
+    "weight_grams REAL NOT NULL,",
+    "measurement_date DATE NOT NULL,",
+    "notes TEXT,",
+    "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+    "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
+    "FOREIGN KEY(asu_id) REFERENCES mice_stock(asu_id) ON DELETE CASCADE",
+    ")"
+  ))
+
+  plugging_added <- ensure_columns("plugging_history", list(
+    pairing_start_date = "DATE",
+    pairing_end_date = "DATE",
+    plug_observed_date = "TEXT",
+    expected_age_for_harvesting = "TEXT",
+    final_report_date = "DATE",
+    final_report_primary_age = "TEXT",
+    final_report_primary_age_value = "REAL",
+    final_report_total_embryos = "INTEGER",
+    final_report_male_embryos = "INTEGER",
+    final_report_female_embryos = "INTEGER",
+    final_report_unknown_embryos = "INTEGER",
+    final_report_mixed_age = "INTEGER DEFAULT 0",
+    final_report_age_groups_json = "TEXT",
+    final_report_notes = "TEXT"
+  ))
+  if (length(plugging_added) > 0) {
+    changes <- c(changes, paste("plugging_history:", paste(plugging_added, collapse = ", ")))
+  }
+
+  mice_added <- ensure_columns("mice_stock", list(
+    date_of_death = "DATE",
+    age_at_death_weeks = "REAL",
+    max_severity = "TEXT",
+    procedure = "TEXT",
+    stage = "TEXT",
+    deceased_timestamp = "TIMESTAMP",
+    notes = "TEXT",
+    imported_from_excel = "BOOLEAN DEFAULT 0",
+    date_created = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    last_updated = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  ))
+  if (length(mice_added) > 0) {
+    changes <- c(changes, paste("mice_stock:", paste(mice_added, collapse = ", ")))
+  }
+
+  body_weight_added <- ensure_columns("body_weight_history", list(
+    notes = "TEXT",
+    created_at = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    updated_at = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  ))
+  if (length(body_weight_added) > 0) {
+    changes <- c(changes, paste("body_weight_history:", paste(body_weight_added, collapse = ", ")))
+  }
+
+  legacy_backfill_result <- backfill_legacy_plugging_final_report()
+  if (legacy_backfill_result$updated_rows > 0) {
+    changes <- c(
+      changes,
+      paste0(
+        "plugging_history legacy final-report backfill: ",
+        legacy_backfill_result$updated_rows,
+        " rows"
+      )
+    )
+  }
+
+  list(
+    success = TRUE,
+    message = if (length(changes) > 0) paste("Applied startup DB migrations:", paste(changes, collapse = " | ")) else "Database schema already up to date",
+    path = db_path,
+    changes = changes
+  )
+}
+
 
 
 

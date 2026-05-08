@@ -12,6 +12,7 @@ suppressPackageStartupMessages({
 # Source the new modal module
 source("Modules/modal_add_plugging_event.R")
 source("Modules/modal_body_weight.R")
+source("Modules/pregnancy_prediction_analysis.R")
 
 # Constants
 PLUGGING_STATUSES <- c("Ongoing", "Plugged", "Plug Confirmed", "Not Pregnant", "Not Observed (Waiting for confirmation)", "Empty", "Not Observed (Confirmed)", "Surprising Plug!!", "Collected")
@@ -766,6 +767,20 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       if (nrow(plugging) == 0) return()
       
       row <- plugging[1, ]
+      event_body_weight_history <- build_event_weight_window(female_body_weight_history, plugging, female_plugging_history)
+      training_dataset <- tryCatch(build_plugging_prediction_dataset(DB_PATH), error = function(e) data.frame())
+      current_prediction <- tryCatch(
+        predict_plugging_event_outcome(plugging, event_body_weight_history, training_dataset),
+        error = function(e) list(
+          likelihood = "Unavailable",
+          confidence = "Low",
+          estimated_age_range = "Unknown",
+          conclusion = "Prediction is unavailable for this event.",
+          anchor = list(date = as.Date(NA), type = "Unknown Anchor"),
+          fitted_anchor = list(offset_days = 0, fitted_curve = data.frame(), anchor_label = "Unknown"),
+          fitted_curve = data.frame()
+        )
+      )
       summary_text <- build_plugging_details_clipboard_text(row)
       summary_text_area_id <- paste0("plugging_summary_text_", row$id)
       copy_summary_onclick <- paste0(
@@ -790,7 +805,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       # Calculate ages
       male_age <- if(!is.na(row$male_dob)) round(as.numeric(Sys.Date() - as.Date(row$male_dob)) / 7, 1) else NA
       female_age <- if(!is.na(row$female_dob)) round(as.numeric(Sys.Date() - as.Date(row$female_dob)) / 7, 1) else NA
-      has_body_weight_records <- nrow(female_body_weight_history) > 0
+      has_body_weight_records <- nrow(event_body_weight_history) > 0
       info_column_width <- 7
       body_weight_column_width <- 5
       
@@ -805,10 +820,11 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               if (!dialog) {
                 return;
               }
-              dialog.style.width = '92vw';
-              dialog.style.maxWidth = '1800px';
+              dialog.style.setProperty('width', '48vw', 'important');
+              dialog.style.setProperty('max-width', '820px', 'important');
               var body = dialog.querySelector('.modal-body');
               if (body) {
+                body.style.padding = '12px 14px';
                 body.style.maxHeight = '82vh';
                 body.style.overflowY = 'auto';
               }
@@ -817,33 +833,34 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           div(
             style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;",
             h4(paste("🐭 Plugging Details:", row$female_id), 
-               style = "text-align: center; color: #1e3a5f; margin-bottom: 20px;"),
+               style = "text-align: center; color: #1e3a5f; margin: 0 0 14px 0;"),
             div(
-              style = "display: grid; grid-template-columns: 1fr 1fr; gap: 20px;",
+              style = "display: grid; grid-template-columns: minmax(248px, 1.2fr) minmax(390px, 2.8fr); gap: 12px; align-items: stretch; max-width: 820px; margin: 0 auto;",
               div(
+                style = "display: flex; flex-direction: column; height: 100%;",
                 div(
-                  style = "background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 8px; padding: 12px; border-left: 4px solid #28a745; margin-bottom: 12px;",
+                  style = "background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 8px; padding: 10px 12px; border-left: 4px solid #28a745; margin-bottom: 10px;",
                   h5("👫 Breeding Pair", style = "margin: 0 0 10px 0; color: #2c3e50;"),
                   div(
-                    div(
-                      strong("Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
-                      br(),
-                      "Line: ", ifelse(is.na(row$male_breeding_line), "Unknown", row$male_breeding_line),
-                      br(),
-                      "Genotype: ", ifelse(is.na(row$male_genotype), "Unknown", row$male_genotype)
-                    ),
-                    br(),
                     div(
                       strong("Female: "), paste0(row$female_id, " (", ifelse(is.na(female_age), "Unknown age", paste0(female_age, " wks")), ")"),
                       br(),
                       "Line: ", ifelse(is.na(row$female_breeding_line), "Unknown", row$female_breeding_line),
                       br(),
                       "Genotype: ", ifelse(is.na(row$female_genotype), "Unknown", row$female_genotype)
+                    ),
+                    br(),
+                    div(
+                      strong("Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
+                      br(),
+                      "Line: ", ifelse(is.na(row$male_breeding_line), "Unknown", row$male_breeding_line),
+                      br(),
+                      "Genotype: ", ifelse(is.na(row$male_genotype), "Unknown", row$male_genotype)
                     )
                   )
                 ),
                 div(
-                  style = "background: rgba(135, 206, 235, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #87CEEB; margin-bottom: 12px;",
+                  style = "background: rgba(135, 206, 235, 0.1); border-radius: 8px; padding: 10px 12px; border-left: 4px solid #87CEEB; margin-bottom: 10px;",
                   h5("⏰ Timeline", style = "margin: 0 0 8px 0; color: #2c3e50;"),
                   div(
                     "Pairing Start: ", strong(ifelse(is.na(row$pairing_start_date) || row$pairing_start_date == "", "Unknown", row$pairing_start_date)),
@@ -854,7 +871,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                   )
                 ),
                 div(
-                  style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #ffc107;",
+                  style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 10px 12px; border-left: 4px solid #ffc107; flex: 1;",
                   h5("📊 Status", style = "margin: 0 0 8px 0; color: #2c3e50;"),
                   div(
                     "Current Status: ", strong(row$plugging_status),
@@ -868,9 +885,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               ),
               if (has_body_weight_records) {
                 div(
-                  style = "border-radius: 8px; padding: 12px;",
+                  style = "border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; height: 100%;",
                   div(
-                    style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
+                    style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
                     h5("📈 Female Body Weight Trend", style = "margin: 0; color: #2c3e50;"),
                     actionButton(
                       inputId = "add_body_weight_from_plugging_btn",
@@ -880,18 +897,71 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                     )
                   ),
                   div(
+                    style = "background: #fff8e1; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;",
+                    h5("Pregnancy Fit", style = "margin: 0 0 8px 0; color: #b45309;"),
+                    div(
+                      style = "color: #92400e; font-weight: 600;",
+                      build_prediction_plot_label(current_prediction)
+                    ),
+                    {
+                      detail_lines <- build_prediction_banner_lines(current_prediction)
+                      if (length(detail_lines) > 0) {
+                        div(
+                          style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                          tagList(lapply(detail_lines, function(line_text) {
+                            is_timing_line <- grepl("^Estimated pregnancy timing:", line_text)
+                            div(
+                              style = if (is_timing_line) {
+                                "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;"
+                              } else {
+                                NULL
+                              },
+                              line_text
+                            )
+                          }))
+                        )
+                      }
+                    }
+                  ),
+                  div(
                     id = "plugging_body_weight_preview_plot_container",
-                    style = "height: 400px;",
-                    plotlyOutput(paste0("plugging_body_weight_preview_plot_", row$female_id), height = "400px")
+                    style = "height: 360px; flex: 1;",
+                    plotlyOutput(paste0("plugging_body_weight_preview_plot_", row$female_id), height = "360px")
                   )
                 )
               } else {
                 div(
-                  style = "border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: center; height: 400px;",
+                  style = "border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; justify-content: center; height: 100%; min-height: 320px;",
                   div(
                     style = "text-align: center; color: #6c757d;",
                     h5("📈 No Body Weight Data", style = "margin-bottom: 10px;"),
                     p("No body weight records found for this mouse."),
+                    div(
+                      style = "background: #fff8e1; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 12px; margin: 10px 0; text-align: left;",
+                      div(
+                        style = "color: #92400e; font-weight: 600;",
+                        build_prediction_plot_label(current_prediction)
+                      ),
+                      {
+                        detail_lines <- build_prediction_banner_lines(current_prediction)
+                        if (length(detail_lines) > 0) {
+                          div(
+                            style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                            tagList(lapply(detail_lines, function(line_text) {
+                              is_timing_line <- grepl("^Estimated pregnancy timing:", line_text)
+                              div(
+                                style = if (is_timing_line) {
+                                  "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;"
+                                } else {
+                                  NULL
+                                },
+                                line_text
+                              )
+                            }))
+                          )
+                        }
+                      }
+                    ),
                     actionButton(
                       inputId = "add_body_weight_from_plugging_btn",
                       label = "Add First Record",
@@ -904,7 +974,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             )
           ),
           wellPanel(
-            tags$h4("Modification History"),
+            style = "margin: 12px auto 0 auto; padding: 10px 12px; max-width: 820px;",
+            tags$h4("Modification History", style = "margin: 0 0 8px 0;"),
             uiOutput("modification_history_ui")
           ),
           tags$textarea(
@@ -952,11 +1023,11 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       ))
       
       # Render body weight chart if data exists
-      if (nrow(female_body_weight_history) > 0) {
+      if (nrow(event_body_weight_history) > 0) {
         # Use custom output name for plugging modal to avoid conflicts
         output[[paste0("plugging_body_weight_preview_plot_", row$female_id)]] <- renderPlotly({
           # Create the base plotly chart
-          weight_data <- female_body_weight_history
+          weight_data <- event_body_weight_history
           
           # Robust date conversion - handle various date formats
           weight_data$measurement_date <- tryCatch({
@@ -975,16 +1046,35 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             x = ~measurement_date,
             y = ~weight_grams,
             type = "scatter",
-            mode = "lines+markers",
-            marker = list(size = 6, color = "#2196f3"),
+            mode = "lines",
             line = list(color = "#2196f3", width = 2),
             name = "Body Weight",
-            showlegend = FALSE,
+            showlegend = TRUE,
             hovertemplate = paste(
               "<b>Date:</b> %{x}<br>",
               "<b>Weight:</b> %{y} grams<br>",
               "<extra></extra>"
             )
+          )
+
+          if (!is.na(current_prediction$anchor$date) && nrow(current_prediction$fitted_curve) > 0) {
+            fitted_curve_data <- current_prediction$fitted_curve[current_prediction$fitted_curve$day_since_anchor >= 0, , drop = FALSE]
+            fitted_curve_data$measurement_date <- as.POSIXct(current_prediction$anchor$date) + fitted_curve_data$day_since_anchor * 86400
+
+            p <- add_lines(
+              p,
+              data = fitted_curve_data,
+              x = ~measurement_date,
+              y = ~predicted_weight,
+              name = "Pregnancy Date Curve",
+              line = list(color = "#f59e0b", width = 2, dash = "dash"),
+              hovertemplate = "<b>Date:</b> %{x}<br><b>Curve:</b> %{y:.2f} grams<br><extra></extra>"
+            )
+          }
+
+          y_range <- build_body_weight_plot_y_range(
+            actual_weights = weight_data$weight_grams,
+            fitted_weights = if (exists("fitted_curve_data")) fitted_curve_data$predicted_weight else numeric(0)
           )
           
           # Initialize shapes list for layout
@@ -1069,6 +1159,17 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                 }
               }
             }
+
+            if (!is.na(current_prediction$anchor$date) && !is.null(current_prediction$fitted_anchor$offset_days) &&
+                is.finite(current_prediction$fitted_anchor$offset_days) && abs(current_prediction$fitted_anchor$offset_days) >= 0.5) {
+              potential_date <- as.POSIXct(current_prediction$anchor$date) + current_prediction$fitted_anchor$offset_days * 86400
+              shapes_list[[length(shapes_list) + 1]] <- list(
+                type = "line",
+                x0 = potential_date, x1 = potential_date,
+                y0 = 0, y1 = 1, yref = "paper",
+                line = list(color = "#f59e0b", width = 2, dash = "dot")
+              )
+            }
           }
           
           # Calculate x-axis range
@@ -1103,14 +1204,15 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               title = "Weight (grams)",
               showgrid = TRUE,
               gridcolor = "#e0e0e0",
-              range = c(0, max(weight_data$weight_grams) * 1.1)
+              range = y_range
             ),
             shapes = shapes_list,
             hovermode = "closest",
             plot_bgcolor = "rgba(0,0,0,0)",
             paper_bgcolor = "rgba(0,0,0,0)",
             margin = list(t = 20, b = 30, l = 50, r = 20),
-            showlegend = FALSE
+            showlegend = TRUE,
+            legend = list(orientation = "h", y = -0.2)
           )
           
           return(p)
@@ -1172,7 +1274,23 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   observeEvent(input$plugging_summary_copied, {
     showNotification("Plugging summary copied to clipboard", type = "message")
   })
-  
+
+  observeEvent(plugging_state$open_details_id, {
+    req(plugging_state$open_details_id)
+
+    external_id <- plugging_state$open_details_id
+    plugging_state$open_details_id <- NULL
+    show_plugging_details_modal(external_id)
+  }, ignoreInit = TRUE)
+
+  observeEvent(plugging_state$open_collection_id, {
+    req(plugging_state$open_collection_id)
+
+    external_id <- plugging_state$open_collection_id
+    plugging_state$open_collection_id <- NULL
+    show_collection_report_modal(external_id)
+  }, ignoreInit = TRUE)
+
   # Edit button from details view
   observeEvent(input$edit_plugging_details_btn, {
     plugging_id <- plugging_state$viewing_id
@@ -1274,7 +1392,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           textAreaInput("edit_plugging_notes", "Notes", value = row$notes, rows = 3)
         ),
         footer = tagList(
-          modalButton("Cancel"),
+          actionButton("cancel_plugging_edit_btn", "Cancel", class = "btn btn-default"),
           actionButton("save_plugging_edit_btn", "Save Changes", class = "btn-primary")
         )
       ))
@@ -1318,10 +1436,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         Sys.sleep(1)
         auto_update_plugging_status_to_unknown()
         plugging_state$editing_id <- NULL
+        plugging_state$viewing_id <- plugging_id
         # Save state before reload
         session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('plugging_history_table');")
         session$sendCustomMessage(type = "eval", message = "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
         plugging_state$reload <- Sys.time()
+        plugging_state$open_details_id <- plugging_id
       } else {
         showNotification("Failed to update plugging event", type = "error")
       }
@@ -1404,6 +1524,18 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       perform_plugging_update(plugging_id, update_data)
     }
   })
+
+  observeEvent(input$cancel_plugging_edit_btn, {
+    removeModal()
+
+    plugging_id <- plugging_state$editing_id
+    plugging_state$editing_id <- NULL
+
+    if (!is.null(plugging_id)) {
+      plugging_state$viewing_id <- plugging_id
+      show_plugging_details_modal(plugging_id)
+    }
+  }, ignoreInit = TRUE)
 
   # Save plugging edit - Step 2: Final confirmation after ID change warning
   observeEvent(input$confirm_id_change_and_save_btn, {
@@ -2052,10 +2184,25 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         if (!is.null(plugging_row) && nrow(plugging_row) > 0) {
           current_notes <- ifelse(is.na(plugging_row$notes) || plugging_row$notes == "", "", plugging_row$notes)
         }
+        report_defaults <- extract_plugging_final_report(plugging_row)
+        mixed_age_text <- ""
+        if (!is.na(report_defaults$final_report_age_groups_json) && report_defaults$final_report_age_groups_json != "") {
+          mixed_age_groups <- tryCatch(jsonlite::fromJSON(report_defaults$final_report_age_groups_json), error = function(e) NULL)
+          if (!is.null(mixed_age_groups) && NROW(mixed_age_groups) > 0) {
+            mixed_age_df <- as.data.frame(mixed_age_groups, stringsAsFactors = FALSE)
+            mixed_age_text <- paste(apply(mixed_age_df, 1, function(group_row) {
+              if (!is.na(group_row[["count"]]) && group_row[["count"]] != "") {
+                paste0(group_row[["age_label"]], " x", group_row[["count"]])
+              } else {
+                group_row[["age_label"]]
+              }
+            }), collapse = "; ")
+          }
+        }
         
         showModal(modalDialog(
           title = ifelse(status == "Empty", "Confirm Set Status to Empty (Euthanized)", "Confirm Sample Collected (Euthanized)"),
-          size = "m",
+          size = ifelse(status == "Collected", "l", "m"),
           tagList(
             fluidRow(
               column(6, 
@@ -2069,9 +2216,83 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               ),
               column(6,
                 dateInput("quick_euthanasia_date_input", "Date of Death", value = Sys.Date()),
-                textAreaInput("quick_euthanasia_notes_input", "Notes", value = current_notes, rows = 2)
+                textAreaInput(
+                  "quick_euthanasia_notes_input",
+                  "Notes",
+                  value = if (!is.null(report_defaults$final_report_notes) && !is.na(report_defaults$final_report_notes) && report_defaults$final_report_notes != "") report_defaults$final_report_notes else current_notes,
+                  rows = 3
+                )
               )
             ),
+            if (status == "Collected") {
+              tagList(
+                hr(),
+                fluidRow(
+                  column(6,
+                    textInput(
+                      "quick_primary_embryo_age_input",
+                      "Primary Embryo Age",
+                      value = ifelse(is.na(report_defaults$final_report_primary_age), "", report_defaults$final_report_primary_age),
+                      placeholder = "E16 or E16.5"
+                    ),
+                    checkboxInput(
+                      "quick_mixed_embryo_ages_input",
+                      "Mixed embryo ages in this collection",
+                      value = isTRUE(report_defaults$final_report_mixed_age)
+                    ),
+                    textAreaInput(
+                      "quick_embryo_age_groups_input",
+                      "Age Group Details",
+                      value = mixed_age_text,
+                      rows = 2,
+                      placeholder = "E15 x 4; E16 x 6"
+                    )
+                  ),
+                  column(6,
+                    numericInput(
+                      "quick_total_embryos_input",
+                      "Total Embryos",
+                      value = ifelse(is.na(report_defaults$final_report_total_embryos), NA, report_defaults$final_report_total_embryos),
+                      min = 0,
+                      step = 1
+                    ),
+                    fluidRow(
+                      column(4,
+                        numericInput(
+                          "quick_male_embryos_input",
+                          "Male",
+                          value = ifelse(is.na(report_defaults$final_report_male_embryos), NA, report_defaults$final_report_male_embryos),
+                          min = 0,
+                          step = 1
+                        )
+                      ),
+                      column(4,
+                        numericInput(
+                          "quick_female_embryos_input",
+                          "Female",
+                          value = ifelse(is.na(report_defaults$final_report_female_embryos), NA, report_defaults$final_report_female_embryos),
+                          min = 0,
+                          step = 1
+                        )
+                      ),
+                      column(4,
+                        numericInput(
+                          "quick_unknown_embryos_input",
+                          "Unknown",
+                          value = ifelse(is.na(report_defaults$final_report_unknown_embryos), NA, report_defaults$final_report_unknown_embryos),
+                          min = 0,
+                          step = 1
+                        )
+                      )
+                    ),
+                    div(
+                      style = "color: #666; font-size: 0.95em; margin-top: 6px;",
+                      "Structured fields are preferred for new entries. Older plain-text notes will still be parsed automatically."
+                    )
+                  )
+                )
+              )
+            },
             div(
               style = "text-align: center; margin-top: 15px;",
               tags$p(tags$i("Are you sure you want to mark this female mouse as deceased? This action cannot be undone."))
@@ -2244,6 +2465,117 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       db_disconnect(con)
     })
   })
+
+  show_collection_report_modal <- function(plugging_id) {
+    if (is.null(plugging_id)) return()
+
+    con <- db_connect()
+    tryCatch({
+      plugging_row <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+      if (nrow(plugging_row) == 0) return()
+
+      female_info <- DBI::dbGetQuery(con, "SELECT * FROM mice_stock WHERE asu_id = ?", params = list(plugging_row$female_id[1]))
+      female_age <- NA
+      if (nrow(female_info) > 0 && !is.na(female_info$dob[1]) && female_info$dob[1] != "") {
+        female_age <- floor(as.numeric(Sys.Date() - as.Date(female_info$dob[1])) / 7)
+      }
+
+      current_notes <- ifelse(is.na(plugging_row$notes[1]) || plugging_row$notes[1] == "", "", plugging_row$notes[1])
+      report_defaults <- extract_plugging_final_report(plugging_row)
+      mixed_age_text <- ""
+      if (!is.na(report_defaults$final_report_age_groups_json) && report_defaults$final_report_age_groups_json != "") {
+        mixed_age_groups <- tryCatch(jsonlite::fromJSON(report_defaults$final_report_age_groups_json), error = function(e) NULL)
+        if (!is.null(mixed_age_groups) && NROW(mixed_age_groups) > 0) {
+          mixed_age_df <- as.data.frame(mixed_age_groups, stringsAsFactors = FALSE)
+          mixed_age_text <- paste(apply(mixed_age_df, 1, function(group_row) {
+            if (!is.na(group_row[["count"]]) && group_row[["count"]] != "") {
+              paste0(group_row[["age_label"]], " x", group_row[["count"]])
+            } else {
+              group_row[["age_label"]]
+            }
+          }), collapse = "; ")
+        }
+      }
+
+      plugging_state$confirming_id <- plugging_id
+      showModal(modalDialog(
+        title = "Review Sample Collected Report",
+        size = "l",
+        tagList(
+          tags$input(id = "confirm_status_choice", type = "hidden", value = "Collected"),
+          fluidRow(
+            column(6,
+              wellPanel(
+                tags$h4("Female Mouse Information"),
+                tags$b("ASU ID:"), if (nrow(female_info) > 0) female_info$asu_id[1] else "N/A", br(),
+                tags$b("Age (weeks):"), if (!is.na(female_age)) female_age else "N/A", br(),
+                tags$b("Breeding Line:"), if (nrow(female_info) > 0) female_info$breeding_line[1] else "N/A", br(),
+                tags$b("Genotype:"), if (nrow(female_info) > 0) female_info$genotype[1] else "N/A"
+              )
+            ),
+            column(6,
+              dateInput("quick_euthanasia_date_input", "Date of Death", value = ifelse(is.na(report_defaults$final_report_date), Sys.Date(), as.Date(report_defaults$final_report_date))),
+              textAreaInput(
+                "quick_euthanasia_notes_input",
+                "Notes",
+                value = if (!is.null(report_defaults$final_report_notes) && !is.na(report_defaults$final_report_notes) && report_defaults$final_report_notes != "") report_defaults$final_report_notes else current_notes,
+                rows = 3
+              )
+            )
+          ),
+          hr(),
+          fluidRow(
+            column(6,
+              textInput(
+                "quick_primary_embryo_age_input",
+                "Primary Embryo Age",
+                value = ifelse(is.na(report_defaults$final_report_primary_age), "", report_defaults$final_report_primary_age),
+                placeholder = "E16 or E16.5"
+              ),
+              checkboxInput(
+                "quick_mixed_embryo_ages_input",
+                "Mixed embryo ages in this collection",
+                value = isTRUE(report_defaults$final_report_mixed_age)
+              ),
+              textAreaInput(
+                "quick_embryo_age_groups_input",
+                "Age Group Details",
+                value = mixed_age_text,
+                rows = 2,
+                placeholder = "E15 x 4; E16 x 6"
+              )
+            ),
+            column(6,
+              numericInput(
+                "quick_total_embryos_input",
+                "Total Embryos",
+                value = ifelse(is.na(report_defaults$final_report_total_embryos), NA, report_defaults$final_report_total_embryos),
+                min = 0,
+                step = 1
+              ),
+              fluidRow(
+                column(4,
+                  numericInput("quick_male_embryos_input", "Male", value = ifelse(is.na(report_defaults$final_report_male_embryos), NA, report_defaults$final_report_male_embryos), min = 0, step = 1)
+                ),
+                column(4,
+                  numericInput("quick_female_embryos_input", "Female", value = ifelse(is.na(report_defaults$final_report_female_embryos), NA, report_defaults$final_report_female_embryos), min = 0, step = 1)
+                ),
+                column(4,
+                  numericInput("quick_unknown_embryos_input", "Unknown", value = ifelse(is.na(report_defaults$final_report_unknown_embryos), NA, report_defaults$final_report_unknown_embryos), min = 0, step = 1)
+                )
+              )
+            )
+          )
+        ),
+        footer = tagList(
+          modalButton("Cancel"),
+          actionButton("confirm_quick_euthanasia_btn", "Save Collection Report", class = "btn-danger")
+        )
+      ))
+    }, finally = {
+      db_disconnect(con)
+    })
+  }
   
   # Set plugging status to Empty (Alive) - using unified modal
   observeEvent(input$set_status_empty_btn, {
@@ -2819,24 +3151,47 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         return()
       }
       old_values <- current[1, ]
+      report_details <- merge_final_report_details(
+        existing_row = current,
+        status = selected_status,
+        final_report_date = date_of_death,
+        primary_age_input = input$quick_primary_embryo_age_input,
+        mixed_age_input = input$quick_embryo_age_groups_input,
+        total_embryos = input$quick_total_embryos_input,
+        male_embryos = input$quick_male_embryos_input,
+        female_embryos = input$quick_female_embryos_input,
+        unknown_embryos = input$quick_unknown_embryos_input,
+        final_report_notes = notes
+      )
+      report_details$final_report_mixed_age <- isTRUE(input$quick_mixed_embryo_ages_input) || isTRUE(report_details$final_report_mixed_age)
+      note_entry <- build_final_report_note_entry(selected_status, report_details)
+
       # Update plugging status
       DBI::dbExecute(con, 
-        "UPDATE plugging_history SET plugging_status = ?, updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?",
+        "UPDATE plugging_history SET plugging_status = ?, updated_at = DATETIME('now'), final_report_date = ?, final_report_primary_age = ?, final_report_primary_age_value = ?, final_report_total_embryos = ?, final_report_male_embryos = ?, final_report_female_embryos = ?, final_report_unknown_embryos = ?, final_report_mixed_age = ?, final_report_age_groups_json = ?, final_report_notes = ?, notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?",
         params = list(
           selected_status,
-          paste0("[Status updated to '", selected_status, "' on ", as.character(date_of_death), "]"),
-          paste0("[Status updated to '", selected_status, "' on ", as.character(date_of_death), "]"),
+          report_details$final_report_date,
+          report_details$final_report_primary_age,
+          report_details$final_report_primary_age_value,
+          report_details$final_report_total_embryos,
+          report_details$final_report_male_embryos,
+          report_details$final_report_female_embryos,
+          report_details$final_report_unknown_embryos,
+          ifelse(isTRUE(report_details$final_report_mixed_age), 1L, 0L),
+          report_details$final_report_age_groups_json,
+          report_details$final_report_notes,
+          note_entry,
+          note_entry,
           plugging_id
         )
       )
       # Update female mouse to Deceased
       female_id <- old_values$female_id
       DBI::dbExecute(con, 
-        "UPDATE mice_stock SET status = 'Deceased', date_of_death = ?, deceased_timestamp = DATETIME('now'), last_updated = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE asu_id = ? AND status != 'Deceased'",
+        "UPDATE mice_stock SET status = 'Deceased', date_of_death = ?, deceased_timestamp = DATETIME('now'), last_updated = DATETIME('now') WHERE asu_id = ? AND status != 'Deceased'",
         params = list(
           as.character(date_of_death),
-          notes,
-          notes,
           female_id
         )
       )
@@ -2862,7 +3217,13 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         list(
           plugging_status = selected_status,
           confirmation_date = as.character(date_of_death),
-          notes = notes
+          notes = notes,
+          final_report_primary_age = report_details$final_report_primary_age,
+          final_report_total_embryos = report_details$final_report_total_embryos,
+          final_report_male_embryos = report_details$final_report_male_embryos,
+          final_report_female_embryos = report_details$final_report_female_embryos,
+          final_report_unknown_embryos = report_details$final_report_unknown_embryos,
+          final_report_mixed_age = report_details$final_report_mixed_age
         )
       )
       showNotification(paste("Plugging status updated to '", selected_status, "' and mouse marked as deceased!", sep = ""), type = "message")
