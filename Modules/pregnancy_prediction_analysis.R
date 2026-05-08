@@ -710,8 +710,451 @@ compute_pregnancy_correlation_map <- function(prediction_dataset) {
   correlation_table
 }
 
+normalize_prediction_breeding_line_mode <- function(mode = NULL) {
+  normalized_mode <- if (is.null(mode) || length(mode) == 0 || is.na(mode) || trimws(as.character(mode)[1]) == "") {
+    "feature"
+  } else {
+    tolower(trimws(as.character(mode)[1]))
+  }
+
+  alias_map <- c(
+    mixed = "pooled",
+    ignore = "pooled",
+    ignored = "pooled",
+    none = "pooled",
+    default = "feature",
+    feature = "feature",
+    line = "line_specific",
+    line_specific = "line_specific",
+    `line-specific` = "line_specific",
+    germline = "line_specific",
+    germline_specific = "line_specific",
+    `germline-specific` = "line_specific"
+  )
+
+  if (normalized_mode %in% names(alias_map)) {
+    normalized_mode <- unname(alias_map[[normalized_mode]])
+  }
+
+  if (!normalized_mode %in% c("pooled", "feature", "line_specific")) {
+    normalized_mode <- "feature"
+  }
+
+  normalized_mode
+}
+
+filter_training_dataset_by_current_breeding_line <- function(prediction_dataset, breeding_line_mode = "feature",
+                                                             current_breeding_line = NA_character_) {
+  normalized_mode <- normalize_prediction_breeding_line_mode(breeding_line_mode)
+
+  if (!identical(normalized_mode, "line_specific") || is.null(prediction_dataset) || nrow(prediction_dataset) == 0) {
+    return(prediction_dataset)
+  }
+
+  if (!("female_breeding_line" %in% names(prediction_dataset))) {
+    return(prediction_dataset[0, , drop = FALSE])
+  }
+
+  if (is.null(current_breeding_line) || length(current_breeding_line) == 0 || is.na(current_breeding_line) || trimws(current_breeding_line) == "") {
+    return(prediction_dataset[0, , drop = FALSE])
+  }
+
+  prediction_dataset[prediction_dataset$female_breeding_line == current_breeding_line, , drop = FALSE]
+}
+
+describe_prediction_breeding_line_mode <- function(mode = "feature", current_breeding_line = NA_character_) {
+  normalized_mode <- normalize_prediction_breeding_line_mode(mode)
+
+  if (identical(normalized_mode, "pooled")) {
+    return("Pooled model across breeding lines")
+  }
+
+  if (identical(normalized_mode, "line_specific")) {
+    if (!is.null(current_breeding_line) && length(current_breeding_line) > 0 && !is.na(current_breeding_line) && trimws(current_breeding_line) != "") {
+      return(paste0("Germline-specific model for ", current_breeding_line))
+    }
+
+    return("Germline-specific model")
+  }
+
+  "Pooled model with breeding line as a feature"
+}
+
+get_prediction_models_dir <- function() {
+  file.path(dirname(HIDDEN_DIR), "prediction_models")
+}
+
+get_prediction_model_backups_dir <- function() {
+  file.path(get_prediction_models_dir(), "backups")
+}
+
+get_prediction_model_registry_path <- function() {
+  file.path(get_prediction_models_dir(), "pregnancy_prediction_models.rds")
+}
+
+list_prediction_model_registry_files <- function() {
+  ensure_prediction_model_directories()
+
+  active_path <- get_prediction_model_registry_path()
+  backup_dir <- get_prediction_model_backups_dir()
+  backup_paths <- list.files(backup_dir, pattern = "\\.rds$", full.names = TRUE)
+  candidate_paths <- unique(c(active_path, backup_paths))
+  candidate_paths[file.exists(candidate_paths)]
+}
+
+describe_prediction_model_registry_file <- function(registry_path) {
+  if (is.null(registry_path) || length(registry_path) == 0 || !file.exists(registry_path)) {
+    return(NULL)
+  }
+
+  registry <- load_prediction_model_registry(registry_path)
+  file_info <- file.info(registry_path)
+  active_path <- normalizePath(get_prediction_model_registry_path(), winslash = "/", mustWork = FALSE)
+  normalized_path <- normalizePath(registry_path, winslash = "/", mustWork = FALSE)
+  is_active <- identical(normalized_path, active_path)
+
+  saved_at <- if (!is.null(registry) && !is.null(registry$metadata$saved_at) && !is.na(registry$metadata$saved_at) && registry$metadata$saved_at != "") {
+    registry$metadata$saved_at
+  } else if (!is.null(file_info$mtime) && !is.na(file_info$mtime)) {
+    format(file_info$mtime, "%Y-%m-%d %H:%M:%S")
+  } else {
+    "Unknown"
+  }
+
+  description <- if (!is.null(registry) && !is.null(registry$metadata$breeding_line_description) && !is.na(registry$metadata$breeding_line_description) && registry$metadata$breeding_line_description != "") {
+    registry$metadata$breeding_line_description
+  } else {
+    "Unknown model mode"
+  }
+
+  training_summary <- if (!is.null(registry) && !is.null(registry$training_summary) && is.list(registry$training_summary)) {
+    registry$training_summary
+  } else {
+    list()
+  }
+
+  total_events <- if (!is.null(training_summary$total_events) && is.finite(suppressWarnings(as.numeric(training_summary$total_events)))) {
+    as.integer(training_summary$total_events)
+  } else {
+    NA_integer_
+  }
+
+  pregnant_events <- if (!is.null(training_summary$pregnant_events) && is.finite(suppressWarnings(as.numeric(training_summary$pregnant_events)))) {
+    as.integer(training_summary$pregnant_events)
+  } else {
+    NA_integer_
+  }
+
+  not_pregnant_events <- if (!is.null(training_summary$not_pregnant_events) && is.finite(suppressWarnings(as.numeric(training_summary$not_pregnant_events)))) {
+    as.integer(training_summary$not_pregnant_events)
+  } else {
+    NA_integer_
+  }
+
+  label_prefix <- if (is_active) "Active" else "Backup"
+  label <- paste0(label_prefix, ": ", description, " (", saved_at, ")")
+  if (!is_active) {
+    label <- paste0(label, " [", basename(registry_path), "]")
+  }
+
+  list(
+    path = registry_path,
+    normalized_path = normalized_path,
+    is_active = is_active,
+    saved_at = saved_at,
+    description = description,
+    label = label,
+    registry = registry,
+    total_events = total_events,
+    pregnant_events = pregnant_events,
+    not_pregnant_events = not_pregnant_events,
+    file_name = basename(registry_path),
+    modified_time = if (!is.null(file_info$mtime) && !is.na(file_info$mtime)) as.POSIXct(file_info$mtime) else as.POSIXct(NA)
+  )
+}
+
+list_prediction_model_registry_choices <- function() {
+  registry_descriptions <- lapply(list_prediction_model_registry_files(), describe_prediction_model_registry_file)
+  registry_descriptions <- Filter(Negate(is.null), registry_descriptions)
+
+  if (length(registry_descriptions) == 0) {
+    return(list())
+  }
+
+  active_entries <- Filter(function(entry) isTRUE(entry$is_active), registry_descriptions)
+  backup_entries <- Filter(function(entry) !isTRUE(entry$is_active), registry_descriptions)
+
+  if (length(backup_entries) > 1) {
+    backup_entries <- backup_entries[order(vapply(backup_entries, function(entry) entry$saved_at, character(1)), decreasing = TRUE)]
+  }
+
+  c(active_entries, backup_entries)
+}
+
+activate_prediction_model_registry <- function(source_registry_path,
+                                               registry_path = get_prediction_model_registry_path(),
+                                               backup_existing = TRUE) {
+  ensure_prediction_model_directories()
+
+  if (is.null(source_registry_path) || length(source_registry_path) == 0 || is.na(source_registry_path) || trimws(source_registry_path) == "") {
+    stop("No prediction model registry was selected.")
+  }
+
+  if (!file.exists(source_registry_path)) {
+    stop("The selected prediction model registry file does not exist.")
+  }
+
+  source_registry <- load_prediction_model_registry(source_registry_path)
+  if (is.null(source_registry) || is.null(source_registry$models) || is.null(source_registry$models$classifier)) {
+    stop("The selected prediction model registry is not valid.")
+  }
+
+  normalized_source <- normalizePath(source_registry_path, winslash = "/", mustWork = FALSE)
+  normalized_target <- normalizePath(registry_path, winslash = "/", mustWork = FALSE)
+
+  if (identical(normalized_source, normalized_target)) {
+    return(list(path = registry_path, backup_path = NULL, changed = FALSE))
+  }
+
+  backup_path <- NULL
+  if (isTRUE(backup_existing) && file.exists(registry_path)) {
+    backup_path <- backup_prediction_model_registry(registry_path)
+  }
+
+  copied <- file.copy(source_registry_path, registry_path, overwrite = TRUE)
+  if (!isTRUE(copied)) {
+    stop("Failed to activate the selected prediction model registry.")
+  }
+
+  list(path = registry_path, backup_path = backup_path, changed = TRUE)
+}
+
+delete_prediction_model_registry <- function(source_registry_path,
+                                             registry_path = get_prediction_model_registry_path()) {
+  ensure_prediction_model_directories()
+
+  if (is.null(source_registry_path) || length(source_registry_path) == 0 || is.na(source_registry_path) || trimws(source_registry_path) == "") {
+    stop("No prediction model registry was selected.")
+  }
+
+  if (!file.exists(source_registry_path)) {
+    stop("The selected prediction model registry file does not exist.")
+  }
+
+  normalized_source <- normalizePath(source_registry_path, winslash = "/", mustWork = FALSE)
+  normalized_target <- normalizePath(registry_path, winslash = "/", mustWork = FALSE)
+
+  if (identical(normalized_source, normalized_target)) {
+    stop("The active prediction model cannot be deleted. Load a different saved model first if you want to replace it.")
+  }
+
+  deleted <- file.remove(source_registry_path)
+  if (!isTRUE(deleted)) {
+    stop("Failed to delete the selected prediction model registry.")
+  }
+
+  invisible(TRUE)
+}
+
+ensure_prediction_model_directories <- function() {
+  dirs_to_create <- c(get_prediction_models_dir(), get_prediction_model_backups_dir())
+
+  for (dir_path in dirs_to_create) {
+    if (!dir.exists(dir_path)) {
+      dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+    }
+  }
+
+  invisible(TRUE)
+}
+
+backup_prediction_model_registry <- function(registry_path = get_prediction_model_registry_path()) {
+  ensure_prediction_model_directories()
+
+  if (!file.exists(registry_path)) {
+    return(NULL)
+  }
+
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  backup_path <- file.path(
+    get_prediction_model_backups_dir(),
+    paste0("pregnancy_prediction_models_", timestamp, ".rds")
+  )
+
+  copied <- file.copy(registry_path, backup_path, overwrite = TRUE)
+  if (!isTRUE(copied)) {
+    stop("Failed to back up the existing prediction model registry.")
+  }
+
+  backup_path
+}
+
+load_prediction_model_registry <- function(registry_path = get_prediction_model_registry_path()) {
+  if (!file.exists(registry_path)) {
+    return(NULL)
+  }
+
+  raw_registry <- tryCatch(readRDS(registry_path), error = function(e) NULL)
+  normalize_prediction_model_registry(raw_registry)
+}
+
+normalize_prediction_model_registry <- function(model_registry = NULL) {
+  if (is.null(model_registry)) {
+    return(NULL)
+  }
+
+  if (!is.list(model_registry) || is.null(model_registry$metadata)) {
+    inferred_mode <- if (!is.null(model_registry$breeding_line_mode)) {
+      model_registry$breeding_line_mode
+    } else if (isTRUE(model_registry$breeding_line_used)) {
+      "feature"
+    } else {
+      "pooled"
+    }
+
+    normalized_mode <- normalize_prediction_breeding_line_mode(inferred_mode)
+
+    return(list(
+      metadata = list(
+        registry_version = 1L,
+        saved_at = NA_character_,
+        breeding_line_mode = normalized_mode,
+        current_breeding_line = NA_character_,
+        breeding_line_description = describe_prediction_breeding_line_mode(normalized_mode)
+      ),
+      models = model_registry,
+      training_summary = NULL
+    ))
+  }
+
+  current_breeding_line <- if (!is.null(model_registry$metadata$current_breeding_line)) {
+    as.character(model_registry$metadata$current_breeding_line)[1]
+  } else {
+    NA_character_
+  }
+  normalized_mode <- normalize_prediction_breeding_line_mode(model_registry$metadata$breeding_line_mode)
+
+  model_registry$metadata$registry_version <- if (is.null(model_registry$metadata$registry_version)) 1L else as.integer(model_registry$metadata$registry_version)
+  model_registry$metadata$saved_at <- if (is.null(model_registry$metadata$saved_at)) NA_character_ else as.character(model_registry$metadata$saved_at)
+  model_registry$metadata$breeding_line_mode <- normalized_mode
+  model_registry$metadata$current_breeding_line <- current_breeding_line
+  model_registry$metadata$breeding_line_description <- describe_prediction_breeding_line_mode(normalized_mode, current_breeding_line)
+
+  if (is.null(model_registry$models) && !is.null(model_registry$model_bundle)) {
+    model_registry$models <- model_registry$model_bundle
+  }
+
+  if (is.null(model_registry$training_summary)) {
+    model_registry$training_summary <- NULL
+  }
+
+  model_registry
+}
+
+create_prediction_model_registry <- function(model_bundle, breeding_line_mode = "feature",
+                                             current_breeding_line = NA_character_, training_summary = NULL,
+                                             trained_at = Sys.time()) {
+  normalized_mode <- normalize_prediction_breeding_line_mode(breeding_line_mode)
+
+  normalize_prediction_model_registry(list(
+    metadata = list(
+      registry_version = 1L,
+      saved_at = format(trained_at, "%Y-%m-%d %H:%M:%S"),
+      breeding_line_mode = normalized_mode,
+      current_breeding_line = current_breeding_line,
+      breeding_line_description = describe_prediction_breeding_line_mode(normalized_mode, current_breeding_line)
+    ),
+    models = model_bundle,
+    training_summary = training_summary
+  ))
+}
+
+is_prediction_model_registry_compatible <- function(model_registry, breeding_line_mode = "feature",
+                                                    current_breeding_line = NA_character_) {
+  normalized_registry <- normalize_prediction_model_registry(model_registry)
+  if (is.null(normalized_registry) || is.null(normalized_registry$metadata) || is.null(normalized_registry$models)) {
+    return(FALSE)
+  }
+
+  normalized_mode <- normalize_prediction_breeding_line_mode(breeding_line_mode)
+  registry_mode <- normalize_prediction_breeding_line_mode(normalized_registry$metadata$breeding_line_mode)
+  if (!identical(normalized_mode, registry_mode)) {
+    return(FALSE)
+  }
+
+  if (!identical(normalized_mode, "line_specific")) {
+    return(TRUE)
+  }
+
+  if (is.null(current_breeding_line) || length(current_breeding_line) == 0 || is.na(current_breeding_line) || trimws(current_breeding_line) == "") {
+    return(FALSE)
+  }
+
+  identical(
+    trimws(as.character(normalized_registry$metadata$current_breeding_line)[1]),
+    trimws(as.character(current_breeding_line)[1])
+  )
+}
+
+resolve_prediction_model_bundle <- function(training_dataset, current_breeding_line = NA_character_,
+                                            breeding_line_mode = "feature",
+                                            registry_path = get_prediction_model_registry_path()) {
+  normalized_mode <- normalize_prediction_breeding_line_mode(breeding_line_mode)
+  saved_registry <- load_prediction_model_registry(registry_path)
+
+  if (is_prediction_model_registry_compatible(saved_registry, normalized_mode, current_breeding_line)) {
+    saved_model_bundle <- saved_registry$models
+    if (!is.null(saved_model_bundle) && !is.null(saved_model_bundle$classifier) && !is.null(saved_model_bundle$classifier_formula)) {
+      saved_at_label <- if (!is.null(saved_registry$metadata$saved_at) && !is.na(saved_registry$metadata$saved_at) && saved_registry$metadata$saved_at != "") {
+        saved_registry$metadata$saved_at
+      } else {
+        "unknown time"
+      }
+
+      return(list(
+        model_bundle = saved_model_bundle,
+        source = "saved_model",
+        source_label = paste0("Saved model loaded (", saved_at_label, ")"),
+        registry = saved_registry
+      ))
+    }
+  }
+
+  refit_bundle <- build_pregnancy_ml_models(
+    training_dataset,
+    current_breeding_line = current_breeding_line,
+    breeding_line_mode = normalized_mode
+  )
+
+  list(
+    model_bundle = refit_bundle,
+    source = "live_refit",
+    source_label = "Live refit from current training data",
+    registry = NULL
+  )
+}
+
+save_prediction_model_registry <- function(model_registry, registry_path = get_prediction_model_registry_path(), backup_existing = TRUE) {
+  ensure_prediction_model_directories()
+
+  normalized_registry <- normalize_prediction_model_registry(model_registry)
+  if (is.null(normalized_registry$metadata$saved_at) || is.na(normalized_registry$metadata$saved_at) || normalized_registry$metadata$saved_at == "") {
+    normalized_registry$metadata$saved_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+  }
+
+  backup_path <- NULL
+  if (isTRUE(backup_existing) && file.exists(registry_path)) {
+    backup_path <- backup_prediction_model_registry(registry_path)
+  }
+
+  saveRDS(normalized_registry, registry_path)
+
+  list(path = registry_path, backup_path = backup_path)
+}
+
 filter_prediction_training_dataset <- function(prediction_dataset, breeding_lines = NULL,
-                                               min_age_weeks = NA_real_, max_age_weeks = NA_real_) {
+                                               min_age_weeks = NA_real_, max_age_weeks = NA_real_,
+                                               breeding_line_mode = "feature", current_breeding_line = NA_character_) {
   if (is.null(prediction_dataset) || nrow(prediction_dataset) == 0) {
     return(data.frame())
   }
@@ -731,12 +1174,26 @@ filter_prediction_training_dataset <- function(prediction_dataset, breeding_line
     filtered <- filtered[is.na(numeric_age) | numeric_age <= max_age_weeks, , drop = FALSE]
   }
 
+  filtered <- filter_training_dataset_by_current_breeding_line(
+    filtered,
+    breeding_line_mode = breeding_line_mode,
+    current_breeding_line = current_breeding_line
+  )
+
   filtered
 }
 
 summarize_prediction_training_data <- function(prediction_dataset, breeding_lines = NULL,
-                                               min_age_weeks = NA_real_, max_age_weeks = NA_real_) {
-  filtered <- filter_prediction_training_dataset(prediction_dataset, breeding_lines, min_age_weeks, max_age_weeks)
+                                               min_age_weeks = NA_real_, max_age_weeks = NA_real_,
+                                               breeding_line_mode = "feature", current_breeding_line = NA_character_) {
+  filtered <- filter_prediction_training_dataset(
+    prediction_dataset,
+    breeding_lines,
+    min_age_weeks,
+    max_age_weeks,
+    breeding_line_mode = breeding_line_mode,
+    current_breeding_line = current_breeding_line
+  )
 
   outcome_counts <- table(factor(filtered$outcome_label, levels = c("pregnant", "not_pregnant")))
   status_counts <- table(filtered$plugging_status)
@@ -1154,6 +1611,14 @@ build_prediction_banner_lines <- function(prediction) {
     return(character(0))
   }
 
+  c(build_prediction_summary_lines(prediction), build_prediction_timing_lines(prediction))
+}
+
+build_prediction_summary_lines <- function(prediction) {
+  if (is.null(prediction)) {
+    return(character(0))
+  }
+
   lines <- character(0)
   likelihood <- if (!is.null(prediction$likelihood)) prediction$likelihood else NA_character_
 
@@ -1169,7 +1634,25 @@ build_prediction_banner_lines <- function(prediction) {
     }
   }
 
-  c(lines, build_prediction_timing_lines(prediction))
+  lines
+}
+
+build_prediction_metadata_lines <- function(prediction) {
+  if (is.null(prediction)) {
+    return(character(0))
+  }
+
+  lines <- character(0)
+
+  if (!is.null(prediction$model_mode_label) && !is.na(prediction$model_mode_label) && prediction$model_mode_label != "") {
+    lines <- c(lines, paste0("Model: ", prediction$model_mode_label))
+  }
+
+  if (!is.null(prediction$prediction_source_label) && !is.na(prediction$prediction_source_label) && prediction$prediction_source_label != "") {
+    lines <- c(lines, paste0("Source: ", prediction$prediction_source_label))
+  }
+
+  lines
 }
 
 build_body_weight_plot_y_range <- function(actual_weights, fitted_weights = numeric(0), padding_fraction = 0.12,
@@ -1318,7 +1801,7 @@ build_prediction_ml_formula <- function(response_name, dataset, numeric_candidat
   }
 }
 
-build_pregnancy_ml_models <- function(training_dataset, current_breeding_line = NA_character_) {
+build_pregnancy_ml_models <- function(training_dataset, current_breeding_line = NA_character_, breeding_line_mode = "feature") {
   result <- list(
     classifier = NULL,
     embryo_model = NULL,
@@ -1326,12 +1809,16 @@ build_pregnancy_ml_models <- function(training_dataset, current_breeding_line = 
     embryo_formula = NULL,
     training_rows = 0L,
     positive_rows = 0L,
-    breeding_line_used = FALSE
+    breeding_line_used = FALSE,
+    breeding_line_mode = "feature"
   )
 
   if (is.null(training_dataset) || nrow(training_dataset) == 0) {
     return(result)
   }
+
+  normalized_mode <- normalize_prediction_breeding_line_mode(breeding_line_mode)
+  result$breeding_line_mode <- normalized_mode
 
   candidate_numeric <- c(
     "female_age_weeks",
@@ -1354,7 +1841,7 @@ build_pregnancy_ml_models <- function(training_dataset, current_breeding_line = 
   classifier_data$pregnant_flag <- ifelse(classifier_data$outcome_label == "pregnant", 1, 0)
 
   breeding_line_candidates <- character(0)
-  if (!is.na(current_breeding_line) && current_breeding_line != "") {
+  if (identical(normalized_mode, "feature") && !is.na(current_breeding_line) && current_breeding_line != "") {
     available_lines <- unique(stats::na.omit(classifier_data$female_breeding_line))
     if (current_breeding_line %in% available_lines && length(available_lines) > 1) {
       breeding_line_candidates <- "female_breeding_line"
@@ -1498,12 +1985,22 @@ predict_pregnancy_ml_outputs <- function(model_bundle, current_features, current
 }
 
 predict_plugging_event_outcome <- function(plugging_row, current_weight_history, training_dataset,
-                                           breeding_lines = NULL, min_age_weeks = NA_real_, max_age_weeks = NA_real_) {
+                                           breeding_lines = NULL, min_age_weeks = NA_real_, max_age_weeks = NA_real_,
+                                           breeding_line_mode = "feature") {
   report_details <- extract_plugging_final_report(plugging_row)
   current_features <- build_body_weight_features_for_event(current_weight_history, plugging_row, report_details)
-  filtered_training <- filter_prediction_training_dataset(training_dataset, breeding_lines, min_age_weeks, max_age_weeks)
   current_age_weeks <- NA_real_
   current_breeding_line <- if ("female_breeding_line" %in% names(plugging_row)) plugging_row$female_breeding_line[1] else NA_character_
+  normalized_mode <- normalize_prediction_breeding_line_mode(breeding_line_mode)
+  model_mode_label <- describe_prediction_breeding_line_mode(normalized_mode, current_breeding_line)
+  filtered_training <- filter_prediction_training_dataset(
+    training_dataset,
+    breeding_lines,
+    min_age_weeks,
+    max_age_weeks,
+    breeding_line_mode = normalized_mode,
+    current_breeding_line = current_breeding_line
+  )
   current_female_dob <- if ("female_dob" %in% names(plugging_row)) safe_analysis_date(plugging_row$female_dob[1]) else as.Date(NA)
   current_pairing_start <- safe_analysis_date(plugging_row$pairing_start_date[1])
   if (!is.na(current_female_dob) && !is.na(current_pairing_start)) {
@@ -1515,7 +2012,14 @@ predict_plugging_event_outcome <- function(plugging_row, current_weight_history,
   trend_line <- build_actual_trend_line(weight_series)
   presumable_curve <- build_presumable_weight_curve(current_features$baseline_weight, filtered_training)
   fitted_anchor <- estimate_potential_pregnancy_anchor(anchor, weight_series, current_features$baseline_weight, filtered_training)
-  model_bundle <- build_pregnancy_ml_models(filtered_training, current_breeding_line = current_breeding_line)
+  resolved_models <- resolve_prediction_model_bundle(
+    filtered_training,
+    current_breeding_line = current_breeding_line,
+    breeding_line_mode = normalized_mode
+  )
+  model_bundle <- resolved_models$model_bundle
+  prediction_source <- resolved_models$source
+  prediction_source_label <- resolved_models$source_label
   ml_outputs <- predict_pregnancy_ml_outputs(model_bundle, current_features, current_age_weeks, current_breeding_line)
 
   if (nrow(filtered_training) < 10 || is.na(ml_outputs$probability)) {
@@ -1540,7 +2044,11 @@ predict_plugging_event_outcome <- function(plugging_row, current_weight_history,
       presumable_curve = presumable_curve,
       fitted_curve = fitted_anchor$fitted_curve,
       filtered_training = filtered_training,
-      report_details = report_details
+      report_details = report_details,
+      model_mode = normalized_mode,
+      model_mode_label = model_mode_label,
+      prediction_source = prediction_source,
+      prediction_source_label = prediction_source_label
     ))
   }
 
@@ -1550,7 +2058,11 @@ predict_plugging_event_outcome <- function(plugging_row, current_weight_history,
   evidence <- c(
     evidence,
     sprintf(
-      "ML pregnancy probability %.0f%% from age, breeding line, start weight, current weight, recent gain, and days since plug.",
+      if (isTRUE(model_bundle$breeding_line_used)) {
+        "ML pregnancy probability %.0f%% from age, breeding line, start weight, current weight, recent gain, and days since plug."
+      } else {
+        "ML pregnancy probability %.0f%% from age, start weight, current weight, recent gain, and days since plug."
+      },
       ml_outputs$probability * 100
     )
   )
@@ -1648,6 +2160,10 @@ predict_plugging_event_outcome <- function(plugging_row, current_weight_history,
     fitted_curve = fitted_anchor$fitted_curve,
     filtered_training = filtered_training,
     report_details = report_details,
+    model_mode = normalized_mode,
+    model_mode_label = model_mode_label,
+    prediction_source = prediction_source,
+    prediction_source_label = prediction_source_label,
     pregnancy_probability = ml_outputs$probability,
     predicted_embryos = ml_outputs$predicted_embryos
   )

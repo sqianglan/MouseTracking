@@ -82,7 +82,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       reload = NULL,
       viewing_id = NULL,
       editing_id = NULL,
-      confirming_id = NULL
+      confirming_id = NULL,
+      prediction_breeding_line_mode = "feature"
     )
   } else {
     plugging_state <- shared_plugging_state
@@ -433,21 +434,53 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       display_data <- display_data[, c("id", "actions", "female_id", "female_age", "female_breeding_line", "female_genotype", 
                                        "pairing_start_date", "pairing_end_date", "plug_observed_date", 
                                        "plugging_status", "expected_age_for_harvesting", "notes")]
+
+      pairing_group_index <- integer(nrow(display_data))
+      current_group_index <- 0L
+      previous_pairing_start <- NULL
+
+      for (row_idx in seq_len(nrow(display_data))) {
+        current_pairing_start <- display_data$pairing_start_date[row_idx]
+        if (is.null(previous_pairing_start) || !identical(current_pairing_start, previous_pairing_start)) {
+          current_group_index <- current_group_index + 1L
+          previous_pairing_start <- current_pairing_start
+        }
+        pairing_group_index[row_idx] <- current_group_index
+      }
+
+      display_data$row_background <- vapply(seq_len(nrow(display_data)), function(row_idx) {
+        group_is_even <- (pairing_group_index[row_idx] %% 2L) == 0L
+        row_is_even <- (row_idx %% 2L) == 0L
+
+        if (group_is_even && row_is_even) {
+          return("#f6fbff")
+        }
+        if (group_is_even && !row_is_even) {
+          return("#edf7ff")
+        }
+        if (!group_is_even && row_is_even) {
+          return("#fcfcff")
+        }
+
+        "#f7f8fc"
+      }, character(1))
       
       # Store the IDs for double-click functionality
       row_ids <- filtered$id
-      
-      DT::datatable(
+
+      dt <- DT::datatable(
         display_data,
         options = list(
           pageLength = 100,
           scrollX = TRUE,
           order = list(list(0, 'desc')),
-          columnDefs = list(list(visible = FALSE, targets = 0)) # hide id column
+          columnDefs = list(
+            list(visible = FALSE, targets = c(0, ncol(display_data) - 1))
+          ) # hide id and background helper columns
         ),
         rownames = FALSE,
         colnames = c("ID", "Actions", "Female ID", "Age (wks)", "Breeding Line", "Genotype", 
-                     "Pairing Start", "Pairing End", "Plug Observed", "Status", "Harvesting @", "Notes"),
+                     "Pairing Start", "Pairing End", "Plug Observed", "Status", "Harvesting @", "Notes", "Row Background"),
         selection = "single",
         escape = FALSE,
         callback = JS(
@@ -466,6 +499,15 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           '  Shiny.setInputValue("quick_delete_plugging_btn", id, {priority: "event"});',
           '});'
         )
+      )
+
+      DT::formatStyle(
+        dt,
+        columns = c("actions", "female_id", "female_age", "female_breeding_line", "female_genotype",
+                    "pairing_start_date", "pairing_end_date", "plug_observed_date",
+                    "plugging_status", "expected_age_for_harvesting", "notes"),
+        valueColumns = "row_background",
+        backgroundColor = DT::styleEqual(unique(display_data$row_background), unique(display_data$row_background))
       )
     }, finally = {
       db_disconnect(con)
@@ -769,8 +811,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       row <- plugging[1, ]
       event_body_weight_history <- build_event_weight_window(female_body_weight_history, plugging, female_plugging_history)
       training_dataset <- tryCatch(build_plugging_prediction_dataset(DB_PATH), error = function(e) data.frame())
+      current_prediction_mode <- normalize_prediction_breeding_line_mode(plugging_state$prediction_breeding_line_mode)
       current_prediction <- tryCatch(
-        predict_plugging_event_outcome(plugging, event_body_weight_history, training_dataset),
+        predict_plugging_event_outcome(
+          plugging,
+          event_body_weight_history,
+          training_dataset,
+          breeding_line_mode = current_prediction_mode
+        ),
         error = function(e) list(
           likelihood = "Unavailable",
           confidence = "Low",
@@ -820,8 +868,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               if (!dialog) {
                 return;
               }
-              dialog.style.setProperty('width', '48vw', 'important');
-              dialog.style.setProperty('max-width', '820px', 'important');
+              dialog.style.setProperty('width', '58vw', 'important');
+              dialog.style.setProperty('max-width', '984px', 'important');
               var body = dialog.querySelector('.modal-body');
               if (body) {
                 body.style.padding = '12px 14px';
@@ -835,7 +883,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             h4(paste("🐭 Plugging Details:", row$female_id), 
                style = "text-align: center; color: #1e3a5f; margin: 0 0 14px 0;"),
             div(
-              style = "display: grid; grid-template-columns: minmax(248px, 1.2fr) minmax(390px, 2.8fr); gap: 12px; align-items: stretch; max-width: 820px; margin: 0 auto;",
+              style = "display: grid; grid-template-columns: minmax(280px, 1.25fr) minmax(520px, 3.55fr); gap: 12px; align-items: stretch; max-width: 984px; margin: 0 auto;",
               div(
                 style = "display: flex; flex-direction: column; height: 100%;",
                 div(
@@ -881,7 +929,30 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                       tagList(br(), "Notes: ", span(style = "font-style: italic;", row$notes))
                     }
                   )
-                )
+                ),
+                tagList({
+                  summary_lines <- build_prediction_summary_lines(current_prediction)
+                  metadata_lines <- build_prediction_metadata_lines(current_prediction)
+
+                  if (length(c(summary_lines, metadata_lines)) > 0) {
+                    div(
+                      style = "background: rgba(245, 158, 11, 0.1); border-radius: 8px; padding: 10px 12px; border-left: 4px solid #f59e0b; margin-top: 10px;",
+                      h5("🧪 Prediction Details", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                      if (length(summary_lines) > 0) {
+                        div(
+                          style = "color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                          tagList(lapply(summary_lines, function(line_text) div(line_text)))
+                        )
+                      },
+                      if (length(metadata_lines) > 0) {
+                        div(
+                          style = "margin-top: 8px; color: #a16207; font-size: 0.82em; line-height: 1.35;",
+                          tagList(lapply(metadata_lines, function(line_text) div(line_text)))
+                        )
+                      }
+                    )
+                  }
+                })
               ),
               if (has_body_weight_records) {
                 div(
@@ -904,23 +975,20 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                       build_prediction_plot_label(current_prediction)
                     ),
                     {
-                      detail_lines <- build_prediction_banner_lines(current_prediction)
-                      if (length(detail_lines) > 0) {
-                        div(
-                          style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
-                          tagList(lapply(detail_lines, function(line_text) {
-                            is_timing_line <- grepl("^Estimated pregnancy timing:", line_text)
-                            div(
-                              style = if (is_timing_line) {
-                                "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;"
-                              } else {
-                                NULL
-                              },
-                              line_text
-                            )
-                          }))
-                        )
-                      }
+                      timing_lines <- build_prediction_timing_lines(current_prediction)
+                      tagList(
+                        if (length(timing_lines) > 0) {
+                          div(
+                            style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                            tagList(lapply(timing_lines, function(line_text) {
+                              div(
+                                style = "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;",
+                                line_text
+                              )
+                            }))
+                          )
+                        }
+                      )
                     }
                   ),
                   div(
@@ -943,23 +1011,20 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                         build_prediction_plot_label(current_prediction)
                       ),
                       {
-                        detail_lines <- build_prediction_banner_lines(current_prediction)
-                        if (length(detail_lines) > 0) {
-                          div(
-                            style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
-                            tagList(lapply(detail_lines, function(line_text) {
-                              is_timing_line <- grepl("^Estimated pregnancy timing:", line_text)
-                              div(
-                                style = if (is_timing_line) {
-                                  "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;"
-                                } else {
-                                  NULL
-                                },
-                                line_text
-                              )
-                            }))
-                          )
-                        }
+                        timing_lines <- build_prediction_timing_lines(current_prediction)
+                        tagList(
+                          if (length(timing_lines) > 0) {
+                            div(
+                              style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                              tagList(lapply(timing_lines, function(line_text) {
+                                div(
+                                  style = "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;",
+                                  line_text
+                                )
+                              }))
+                            )
+                          }
+                        )
                       }
                     ),
                     actionButton(
@@ -974,7 +1039,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             )
           ),
           wellPanel(
-            style = "margin: 12px auto 0 auto; padding: 10px 12px; max-width: 820px;",
+            style = "margin: 12px auto 0 auto; padding: 10px 12px; max-width: 984px;",
             tags$h4("Modification History", style = "margin: 0 0 8px 0;"),
             uiOutput("modification_history_ui")
           ),

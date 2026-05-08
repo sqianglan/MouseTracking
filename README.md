@@ -7,7 +7,7 @@ A comprehensive web-based application for tracking and managing mouse colony plu
 **Version beta 1.6**
 
 Recent highlights in this release:
-- Pregnancy prediction workspace with filtered historical training records and model curve review
+- Pregnancy prediction workspace with trainable saved models, filtered historical training review, and event-level prediction summaries
 - Structured Sample Collected Report workflow with embryo age, embryo counts, mixed-age support, and audit logging
 - Plugging and Calendar detail cards with pregnancy fit summary, compact layouts, and event-scoped body weight plots
 - Calendar single-click event opening plus in-card expected harvest age editing
@@ -73,11 +73,14 @@ The Mouse Management System addresses the critical gap in current webtools used 
 - **Historical Records**: View archived and deleted plugging records
 
 ### 🤰 Pregnancy Prediction
-- **Prediction Review Tab**: Inspect a filtered pregnancy model curve built from completed historical cases
+- **Prediction Review Tab**: Inspect filtered historical training records, model mode, and a pregnancy gain curve built from completed cases
+- **Trainable Saved Models**: Retrain and save the prediction bundle directly from the app for repeated use without rebuilding the model every time
+- **Two-Part Prediction Bundle**: The saved prediction bundle contains a pregnancy classifier and, when enough collected data exists, an embryo-count model
+- **Breeding Line Modeling Modes**: Run pooled prediction, pooled prediction with breeding line as a feature, or line-specific training for a selected breeding line
 - **Training Record Inspection**: Double-click historical rows to open the source plugging record or Sample Collected Report editor
-- **Ground-Truth Focus**: Training Records emphasize collected outcome fields such as embryo age and embryo counts rather than planned harvest targets
+- **Ground-Truth Focus**: Training records emphasize collected outcome fields such as embryo age and embryo counts rather than planned harvest targets
 - **Event-Scoped Analysis**: Current event prediction uses event-specific body weight windows instead of full lifetime history
-- **Pregnancy Fit Cards**: Plugging and Calendar detail modals show prediction status, estimated embryo age, estimated embryo number, and shifted pregnancy timing when meaningful
+- **Pregnancy Fit Cards**: Plugging and Calendar detail modals show prediction status, estimated embryo age, estimated embryo number, timing shifts when meaningful, the active model mode, and whether the result came from a saved model or a live refit
 - **Mixed-Age Collection Support**: Mixed embryo age groups entered during collection are parsed and incorporated into downstream prediction features
 
 ### 📊 Body Weight Tracking

@@ -99,7 +99,8 @@ all_mice_tab_server <- function(input, output, session, all_mice_table, is_syste
       reload = NULL,
       viewing_id = NULL,
       editing_id = NULL,
-      confirming_id = NULL
+      confirming_id = NULL,
+      prediction_breeding_line_mode = "feature"
     )
   }
 

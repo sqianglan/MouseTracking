@@ -3,10 +3,12 @@
 ## 🎉 Latest Updates (beta 1.6)
 
 ### 🤰 Pregnancy Prediction Workflow
-- **Prediction review tab**: Added a model-focused prediction workspace with filtered historical training records and a pregnancy gain curve
-- **Ground-truth training view**: Training Records now focus on observed collection outcomes instead of planned expected harvest age
+- **New prediction feature**: Added a pregnancy prediction workspace for reviewing historical training data and generating event-level pregnancy assessments
+- **Saved trainable prediction bundle**: One retrain action builds and saves a prediction bundle that contains a pregnancy classifier and, when enough collected data exists, an embryo-count model
+- **Ground-truth training data**: Prediction training uses completed plugging outcomes and collected embryo report fields instead of planned harvest targets
+- **Breeding line aware prediction**: Users can train pooled models, pooled models with breeding line as a predictor, or breeding-line-specific models for a selected line
+- **Saved-model reuse in event review**: Plugging and Calendar prediction cards can use a compatible saved model bundle and show whether the result came from a saved model or a live refit
 - **Event-scoped body weight analysis**: Prediction features are built from the active plugging event window rather than lifetime body weight history
-- **Biology-first prediction output**: Strong recent gain can override weak ML confidence for clearly positive cases, while low-gain cases are labeled as unclear vs unlikely more explicitly
 
 ### 🧫 Sample Collected Report Improvements
 - **Structured collection report editor**: Collected plugging events now support embryo age, embryo counts, sex counts, mixed-age entries, and final report notes in a dedicated modal

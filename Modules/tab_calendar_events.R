@@ -2003,8 +2003,18 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       }
 
       training_dataset <- tryCatch(build_plugging_prediction_dataset(db_path), error = function(e) data.frame())
+      current_prediction_mode <- if (!is.null(shared_plugging_state) && !is.null(shared_plugging_state$prediction_breeding_line_mode)) {
+        normalize_prediction_breeding_line_mode(shared_plugging_state$prediction_breeding_line_mode)
+      } else {
+        "feature"
+      }
       tryCatch(
-        predict_plugging_event_outcome(data$plugging, data$body_weight_history, training_dataset),
+        predict_plugging_event_outcome(
+          data$plugging,
+          data$body_weight_history,
+          training_dataset,
+          breeding_line_mode = current_prediction_mode
+        ),
         error = function(e) list(
           likelihood = "Unavailable",
           confidence = "Low",
@@ -2270,7 +2280,30 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                       tagList(br(), "Notes: ", span(style = "font-style: italic;", row$notes))
                     }
                   )
-                )
+                ),
+                tagList({
+                  summary_lines <- build_prediction_summary_lines(current_prediction)
+                  metadata_lines <- build_prediction_metadata_lines(current_prediction)
+
+                  if (length(c(summary_lines, metadata_lines)) > 0) {
+                    div(
+                      style = "background: rgba(245, 158, 11, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #f59e0b; margin-top: 12px;",
+                      h5("🧪 Prediction Details", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                      if (length(summary_lines) > 0) {
+                        div(
+                          style = "color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                          tagList(lapply(summary_lines, function(line_text) div(line_text)))
+                        )
+                      },
+                      if (length(metadata_lines) > 0) {
+                        div(
+                          style = "margin-top: 8px; color: #a16207; font-size: 0.82em; line-height: 1.35;",
+                          tagList(lapply(metadata_lines, function(line_text) div(line_text)))
+                        )
+                      }
+                    )
+                  }
+                })
               ),
               if (nrow(female_body_weight_history) > 0) {
                 div(
@@ -2293,23 +2326,20 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                       build_prediction_plot_label(current_prediction)
                     ),
                     {
-                      detail_lines <- build_prediction_banner_lines(current_prediction)
-                      if (length(detail_lines) > 0) {
-                        div(
-                          style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
-                          tagList(lapply(detail_lines, function(line_text) {
-                            is_timing_line <- grepl("^Estimated pregnancy timing:", line_text)
-                            div(
-                              style = if (is_timing_line) {
-                                "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;"
-                              } else {
-                                NULL
-                              },
-                              line_text
-                            )
-                          }))
-                        )
-                      }
+                      timing_lines <- build_prediction_timing_lines(current_prediction)
+                      tagList(
+                        if (length(timing_lines) > 0) {
+                          div(
+                            style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                            tagList(lapply(timing_lines, function(line_text) {
+                              div(
+                                style = "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;",
+                                line_text
+                              )
+                            }))
+                          )
+                        }
+                      )
                     }
                   ),
                   div(
@@ -2332,23 +2362,20 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                         build_prediction_plot_label(current_prediction)
                       ),
                       {
-                        detail_lines <- build_prediction_banner_lines(current_prediction)
-                        if (length(detail_lines) > 0) {
-                          div(
-                            style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
-                            tagList(lapply(detail_lines, function(line_text) {
-                              is_timing_line <- grepl("^Estimated pregnancy timing:", line_text)
-                              div(
-                                style = if (is_timing_line) {
-                                  "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;"
-                                } else {
-                                  NULL
-                                },
-                                line_text
-                              )
-                            }))
-                          )
-                        }
+                        timing_lines <- build_prediction_timing_lines(current_prediction)
+                        tagList(
+                          if (length(timing_lines) > 0) {
+                            div(
+                              style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                              tagList(lapply(timing_lines, function(line_text) {
+                                div(
+                                  style = "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;",
+                                  line_text
+                                )
+                              }))
+                            )
+                          }
+                        )
                       }
                     ),
                     actionButton(
