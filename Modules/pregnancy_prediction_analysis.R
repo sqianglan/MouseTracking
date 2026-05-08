@@ -781,6 +781,11 @@ describe_prediction_breeding_line_mode <- function(mode = "feature", current_bre
 }
 
 get_prediction_models_dir <- function() {
+  configured_models_dir <- Sys.getenv("MOUSE_MODELS_DIR", unset = "")
+  if (!is.null(configured_models_dir) && nzchar(configured_models_dir)) {
+    return(configured_models_dir)
+  }
+
   file.path(dirname(HIDDEN_DIR), "prediction_models")
 }
 

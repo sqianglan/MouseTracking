@@ -81,12 +81,17 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     plugging_state <- reactiveValues(
       reload = NULL,
       viewing_id = NULL,
+      viewing_refresh = 0,
       editing_id = NULL,
       confirming_id = NULL,
       prediction_breeding_line_mode = "feature"
     )
   } else {
     plugging_state <- shared_plugging_state
+  }
+
+  if (is.null(plugging_state$viewing_refresh)) {
+    plugging_state$viewing_refresh <- 0
   }
   
   # Add a reactiveVal to store the pending delete plugging_id
@@ -597,6 +602,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   # --- Modification History UI ---
   output$modification_history_ui <- renderUI({
     req(plugging_state$viewing_id)
+    plugging_state$viewing_refresh
     
     con <- db_connect()
     plugging <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_state$viewing_id))
@@ -1285,6 +1291,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       }
       
       plugging_state$viewing_id <- plugging_id
+      plugging_state$viewing_refresh <- isolate(plugging_state$viewing_refresh) + 1
       
     }, finally = {
       db_disconnect(con)

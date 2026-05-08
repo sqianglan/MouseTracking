@@ -2,6 +2,7 @@
 
 # Determine if we're running from an .app bundle (Platypus packaging)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export MOUSE_MODELS_DIR="$SCRIPT_DIR/prediction_models"
 
 # Check if we're inside a .app bundle
 if [[ "$SCRIPT_DIR" == *.app/Contents/* ]]; then
@@ -10,10 +11,12 @@ if [[ "$SCRIPT_DIR" == *.app/Contents/* ]]; then
     APP_PARENT_DIR="$(dirname "$APP_BUNDLE_DIR")"
     export MOUSE_DB_DIR="$APP_PARENT_DIR"
     echo "Running in packaged mode - database will be in: $APP_PARENT_DIR"
+    echo "Running in packaged mode - models will be in: $MOUSE_MODELS_DIR"
 else
     # We're running in development mode - use the script's directory
     export MOUSE_DB_DIR="$SCRIPT_DIR"
     echo "Running in development mode - database will be in: $SCRIPT_DIR"
+    echo "Running in development mode - models will be in: $MOUSE_MODELS_DIR"
 fi
 
 export MOUSE_DB_NAME="mice_colony.db"
