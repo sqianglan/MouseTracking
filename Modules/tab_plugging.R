@@ -90,7 +90,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     plugging_state <- shared_plugging_state
   }
 
-  if (is.null(plugging_state$viewing_refresh)) {
+  if (is.null(isolate(plugging_state$viewing_refresh))) {
     plugging_state$viewing_refresh <- 0
   }
   
@@ -1117,8 +1117,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             x = ~measurement_date,
             y = ~weight_grams,
             type = "scatter",
-            mode = "lines",
+            mode = "lines+markers",
             line = list(color = "#2196f3", width = 2),
+            marker = list(color = "#2196f3", size = 7),
             name = "Body Weight",
             showlegend = TRUE,
             hovertemplate = paste(
@@ -1132,13 +1133,16 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             fitted_curve_data <- current_prediction$fitted_curve[current_prediction$fitted_curve$day_since_anchor >= 0, , drop = FALSE]
             fitted_curve_data$measurement_date <- as.POSIXct(current_prediction$anchor$date) + fitted_curve_data$day_since_anchor * 86400
 
-            p <- add_lines(
+            p <- add_trace(
               p,
               data = fitted_curve_data,
               x = ~measurement_date,
               y = ~predicted_weight,
+              type = "scatter",
+              mode = "lines+markers",
               name = "Pregnancy Date Curve",
               line = list(color = "#f59e0b", width = 2, dash = "dash"),
+              marker = list(color = "#f59e0b", size = 6),
               hovertemplate = "<b>Date:</b> %{x}<br><b>Curve:</b> %{y:.2f} grams<br><extra></extra>"
             )
           }

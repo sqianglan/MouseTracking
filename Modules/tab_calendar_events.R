@@ -2125,6 +2125,17 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       if (view_mode() == "calendar") {
         # Original calendar view
         tagList(
+          tags$script(HTML(
+            "setTimeout(function() {
+              var modal = document.querySelectorAll('.modal-dialog');
+              var dialog = modal[modal.length - 1];
+              if (!dialog) {
+                return;
+              }
+              dialog.style.setProperty('width', '70%', 'important');
+              dialog.style.setProperty('max-width', '70%', 'important');
+            }, 0);"
+          )),
           # Statistics and legend
           div(class = "calendar-header",
             div(class = "calendar-controls",
@@ -2210,6 +2221,17 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         male_age <- if(!is.na(row$male_dob)) round(as.numeric(Sys.Date() - as.Date(row$male_dob)) / 7, 1) else NA
         female_age <- if(!is.na(row$female_dob)) round(as.numeric(Sys.Date() - as.Date(row$female_dob)) / 7, 1) else NA
         tagList(
+          tags$script(HTML(
+            "setTimeout(function() {
+              var modal = document.querySelectorAll('.modal-dialog');
+              var dialog = modal[modal.length - 1];
+              if (!dialog) {
+                return;
+              }
+              dialog.style.setProperty('width', '920px', 'important');
+              dialog.style.setProperty('max-width', '92vw', 'important');
+            }, 0);"
+          )),
           # Back button
           div(
             style = "margin-bottom: 20px; text-align: left;",
@@ -2426,8 +2448,9 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               x = ~measurement_date,
               y = ~weight_grams,
               type = "scatter",
-              mode = "lines",
+              mode = "lines+markers",
               line = list(color = "#2196f3", width = 2),
+              marker = list(color = "#2196f3", size = 7),
               name = "Body Weight",
               showlegend = TRUE,
               hovertemplate = paste(
@@ -2441,13 +2464,16 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               fitted_curve_data <- current_prediction$fitted_curve[current_prediction$fitted_curve$day_since_anchor >= 0, , drop = FALSE]
               fitted_curve_data$measurement_date <- as.POSIXct(current_prediction$anchor$date) + fitted_curve_data$day_since_anchor * 86400
 
-              p <- add_lines(
+              p <- add_trace(
                 p,
                 data = fitted_curve_data,
                 x = ~measurement_date,
                 y = ~predicted_weight,
+                type = "scatter",
+                mode = "lines+markers",
                 name = "Pregnancy Date Curve",
                 line = list(color = "#f59e0b", width = 2, dash = "dash"),
+                marker = list(color = "#f59e0b", size = 6),
                 hovertemplate = "<b>Date:</b> %{x}<br><b>Curve:</b> %{y:.2f} grams<br><extra></extra>"
               )
             }
