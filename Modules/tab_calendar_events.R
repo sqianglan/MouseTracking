@@ -613,6 +613,160 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
 
     calendar_prediction_training_dataset_cache <- reactiveVal(NULL)
     calendar_embryo_count_autofill_in_progress <- reactiveVal(FALSE)
+    calendar_embryo_autofill_enabled <- reactiveVal(TRUE)
+    calendar_other_age_row_count <- reactiveVal(1)
+    calendar_other_age_rows_seed <- reactiveVal(data.frame(stage = "", count = NA_integer_, stringsAsFactors = FALSE))
+
+    parse_calendar_other_age_rows_from_json <- function(age_groups_json, primary_age_text = "") {
+      default_rows <- data.frame(stage = "", count = NA_integer_, stringsAsFactors = FALSE)
+      if (is.null(age_groups_json) || is.na(age_groups_json) || trimws(as.character(age_groups_json)) == "") {
+        return(default_rows)
+      }
+
+      age_groups <- tryCatch(jsonlite::fromJSON(age_groups_json), error = function(e) NULL)
+      if (is.null(age_groups) || NROW(age_groups) == 0) {
+        return(default_rows)
+      }
+
+      age_df <- as.data.frame(age_groups, stringsAsFactors = FALSE)
+      if (!("age_label" %in% names(age_df))) {
+        return(default_rows)
+      }
+
+      primary_label <- normalize_embryo_age_input(primary_age_text)$label
+      parsed_rows <- lapply(seq_len(nrow(age_df)), function(idx) {
+        stage_value <- trimws(as.character(age_df$age_label[idx]))
+        if (stage_value == "") {
+          return(NULL)
+        }
+
+        if (!is.na(primary_label) && identical(toupper(stage_value), toupper(primary_label))) {
+          return(NULL)
+        }
+
+        count_value <- NA_integer_
+        if ("count" %in% names(age_df)) {
+          count_value <- suppressWarnings(as.integer(age_df$count[idx]))
+        }
+
+        data.frame(stage = stage_value, count = count_value, stringsAsFactors = FALSE)
+      })
+
+      parsed_rows <- Filter(Negate(is.null), parsed_rows)
+      if (length(parsed_rows) == 0) {
+        return(default_rows)
+      }
+
+      do.call(rbind, parsed_rows)
+    }
+
+    collect_calendar_other_age_rows <- function(row_count, seed_rows) {
+      count <- max(1, suppressWarnings(as.integer(row_count)))
+      rows <- vector("list", count)
+
+      for (idx in seq_len(count)) {
+        stage_id <- paste0("calendar_other_age_stage_", idx)
+        count_id <- paste0("calendar_other_age_count_", idx)
+
+        stage_value <- ""
+        count_value <- NA_integer_
+
+        if (!is.null(input[[stage_id]])) {
+          stage_value <- trimws(as.character(input[[stage_id]]))
+        } else if (idx <= nrow(seed_rows)) {
+          stage_value <- trimws(as.character(seed_rows$stage[idx]))
+        }
+
+        if (!is.null(input[[count_id]])) {
+          count_value <- suppressWarnings(as.integer(input[[count_id]]))
+        } else if (idx <= nrow(seed_rows)) {
+          count_value <- suppressWarnings(as.integer(seed_rows$count[idx]))
+        }
+
+        rows[[idx]] <- data.frame(stage = stage_value, count = count_value, stringsAsFactors = FALSE)
+      }
+
+      do.call(rbind, rows)
+    }
+
+    build_calendar_age_groups_text_from_rows <- function(rows_df) {
+      if (is.null(rows_df) || nrow(rows_df) == 0) {
+        return("")
+      }
+
+      valid_rows <- rows_df[
+        trimws(as.character(rows_df$stage)) != "" & !is.na(suppressWarnings(as.integer(rows_df$count))),
+        , drop = FALSE
+      ]
+      if (nrow(valid_rows) == 0) {
+        return("")
+      }
+
+      valid_rows$count <- suppressWarnings(as.integer(valid_rows$count))
+      valid_rows <- valid_rows[!is.na(valid_rows$count) & valid_rows$count >= 0, , drop = FALSE]
+      if (nrow(valid_rows) == 0) {
+        return("")
+      }
+
+      paste(apply(valid_rows, 1, function(row_value) {
+        paste0(trimws(as.character(row_value[["stage"]])), " x", as.integer(row_value[["count"]]))
+      }), collapse = "; ")
+    }
+
+    render_calendar_other_age_rows_ui <- function(row_count, seed_rows) {
+      count <- max(1, suppressWarnings(as.integer(row_count)))
+      rows <- seed_rows
+      if (nrow(rows) < count) {
+        rows <- rbind(rows, data.frame(stage = rep("", count - nrow(rows)), count = rep(NA_integer_, count - nrow(rows)), stringsAsFactors = FALSE))
+      }
+
+      tagList(lapply(seq_len(count), function(idx) {
+        is_last <- idx == count
+        div(
+          style = "display: flex; align-items: center; gap: 6px; margin-bottom: 2px;",
+          div(style = "flex: 3; min-width: 0;",
+            textInput(
+              ns(paste0("calendar_other_age_stage_", idx)),
+              if (idx == 1) "Stage" else NULL,
+              value = as.character(rows$stage[idx]),
+              placeholder = "E15.5"
+            )
+          ),
+          div(style = "flex: 1.5; min-width: 0;",
+            numericInput(
+              ns(paste0("calendar_other_age_count_", idx)),
+              if (idx == 1) "Number" else NULL,
+              value = if (is.na(rows$count[idx])) NA else suppressWarnings(as.integer(rows$count[idx])),
+              min = 0,
+              step = 1
+            )
+          ),
+          div(style = "flex: 0 0 40px; display: flex; justify-content: center;",
+            if (is_last) {
+              actionButton(ns("calendar_add_other_age_row_btn"), "+", class = "btn btn-default btn-sm", style = "min-width: 34px; padding: 2px 8px;")
+            } else {
+              tags$span(style = "display: inline-block; width: 34px;")
+            }
+          ),
+          div(style = "flex: 0 0 40px; display: flex; justify-content: center;",
+            if (is_last) {
+              actionButton(ns("calendar_remove_other_age_row_btn"), "-", class = "btn btn-default btn-sm", style = "min-width: 34px; padding: 2px 8px;")
+            } else {
+              tags$span(style = "display: inline-block; width: 34px;")
+            }
+          )
+        )
+      }))
+    }
+
+    initialize_calendar_other_age_rows <- function(report_defaults) {
+      seed_rows <- parse_calendar_other_age_rows_from_json(
+        report_defaults$final_report_age_groups_json,
+        report_defaults$final_report_primary_age
+      )
+      calendar_other_age_rows_seed(seed_rows)
+      calendar_other_age_row_count(max(1, nrow(seed_rows)))
+    }
 
     apply_calendar_embryo_count_autofill <- function(input_values) {
       normalized_counts <- normalize_final_report_embryo_counts(
@@ -623,24 +777,32 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       )
 
       if (!is.null(normalized_counts$validation_message) || length(normalized_counts$autofilled_fields) == 0) {
-        return()
+        return(FALSE)
       }
 
       calendar_embryo_count_autofill_in_progress(TRUE)
       on.exit(calendar_embryo_count_autofill_in_progress(FALSE), add = TRUE)
 
+      updated_any <- FALSE
+
       if ("total" %in% normalized_counts$autofilled_fields && !identical(input_values$total, normalized_counts$final_report_total_embryos)) {
         updateNumericInput(session, "calendar_euthanasia_total_embryos_input", value = normalized_counts$final_report_total_embryos)
+        updated_any <- TRUE
       }
       if ("male" %in% normalized_counts$autofilled_fields && !identical(input_values$male, normalized_counts$final_report_male_embryos)) {
         updateNumericInput(session, "calendar_euthanasia_male_embryos_input", value = normalized_counts$final_report_male_embryos)
+        updated_any <- TRUE
       }
       if ("female" %in% normalized_counts$autofilled_fields && !identical(input_values$female, normalized_counts$final_report_female_embryos)) {
         updateNumericInput(session, "calendar_euthanasia_female_embryos_input", value = normalized_counts$final_report_female_embryos)
+        updated_any <- TRUE
       }
       if ("unknown" %in% normalized_counts$autofilled_fields && !identical(input_values$unknown, normalized_counts$final_report_unknown_embryos)) {
         updateNumericInput(session, "calendar_euthanasia_unknown_embryos_input", value = normalized_counts$final_report_unknown_embryos)
+        updated_any <- TRUE
       }
+
+      updated_any
     }
 
     get_calendar_prediction_training_dataset <- function(force_refresh = FALSE) {
@@ -2442,16 +2604,20 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
     }, ignoreInit = TRUE)
 
     observeEvent(input$calendar_euthanize_mice_btn, {
+      calendar_embryo_autofill_enabled(TRUE)
       current_data <- selected_mouse_data()
       req(current_data, current_data$plugging)
 
       row <- current_data$plugging
       report_defaults <- extract_plugging_final_report(data.frame(row, stringsAsFactors = FALSE))
       female_age <- if (!is.na(row$female_dob[1])) round(as.numeric(Sys.Date() - as.Date(row$female_dob[1])) / 7, 1) else NA
+      initialize_calendar_other_age_rows(report_defaults)
+
+
 
       showModal(modalDialog(
         title = "Confirm Plug Status for Euthanasia",
-        size = "m",
+        size = "l",
         tagList(
           tags$style(HTML("\
             .euthanasia-layout-row { display: flex; align-items: stretch; }\
@@ -2500,23 +2666,52 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                   tags$div(style = "font-weight: 600; color: #166534; margin-bottom: 8px;", "Sample Collection Report"),
                   div(
                     class = "euthanasia-collection-row",
-                    textInput(
-                      ns("calendar_euthanasia_primary_age_input"),
-                      "Primary Embryo Stage",
-                      value = ifelse(is.na(report_defaults$final_report_primary_age), "", report_defaults$final_report_primary_age),
-                      placeholder = "E16 or E16.5"
+                    fluidRow(
+                      column(4,
+                        numericInput(
+                          ns("calendar_euthanasia_total_embryos_input"),
+                          "Total Embryos",
+                          value = ifelse(is.na(report_defaults$final_report_total_embryos), NA, report_defaults$final_report_total_embryos),
+                          min = 0,
+                          step = 1
+                        )
+                      ),
+                      column(8,
+                        textInput(
+                          ns("calendar_euthanasia_primary_age_input"),
+                          "Primary Embryo Stage",
+                          value = ifelse(is.na(report_defaults$final_report_primary_age), "", report_defaults$final_report_primary_age),
+                          placeholder = "E16 or E16.5"
+                        )
+                      )
                     )
                   ),
                   div(
                     class = "euthanasia-collection-row",
-                    numericInput(
-                      ns("calendar_euthanasia_total_embryos_input"),
-                      "Total Embryos",
-                      value = ifelse(is.na(report_defaults$final_report_total_embryos), NA, report_defaults$final_report_total_embryos),
-                      min = 0,
-                      step = 1
+                    checkboxInput(
+                      ns("calendar_euthanasia_mixed_age_input"),
+                      "Mixed embryo ages in this collection",
+                      value = isTRUE(report_defaults$final_report_mixed_age)
                     )
                   ),
+                  div(
+                    class = "euthanasia-collection-row",
+                    tags$div(style = "border-top: 1px solid #cbd5e1; margin: 8px 0 6px 0;"),
+                    tags$div(style = "font-weight: 600; color: #334155; margin-bottom: 4px;", "Other Embryo Ages and Number"),
+                    uiOutput(ns("calendar_euthanasia_other_age_rows_ui")),
+                    div(
+                      style = "display: none;",
+                      textAreaInput(
+                        ns("calendar_euthanasia_age_groups_input"),
+                        "Age Group Details",
+                        value = "",
+                        rows = 2,
+                        width = "100%",
+                        placeholder = "E15.5 x 1; E16.5 x 7"
+                      )
+                    )
+                  ),
+                  tags$div(style = "border-top: 1px solid #cbd5e1; margin: 8px 0 10px 0;"),
                   fluidRow(
                     column(4, numericInput(ns("calendar_euthanasia_male_embryos_input"), "Male", value = ifelse(is.na(report_defaults$final_report_male_embryos), NA, report_defaults$final_report_male_embryos), min = 0, step = 1)),
                     column(4, numericInput(ns("calendar_euthanasia_female_embryos_input"), "Female", value = ifelse(is.na(report_defaults$final_report_female_embryos), NA, report_defaults$final_report_female_embryos), min = 0, step = 1)),
@@ -2558,7 +2753,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         input$calendar_euthanasia_status_choice
       ),
       {
-        if (isTRUE(calendar_embryo_count_autofill_in_progress()) || !identical(input$calendar_euthanasia_status_choice, "Collected")) {
+        if (isTRUE(calendar_embryo_count_autofill_in_progress()) || !identical(input$calendar_euthanasia_status_choice, "Collected") || !isTRUE(calendar_embryo_autofill_enabled())) {
           return()
         }
 
@@ -2573,10 +2768,45 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           return()
         }
 
-        apply_calendar_embryo_count_autofill(input_values)
+        did_autofill <- apply_calendar_embryo_count_autofill(input_values)
+        if (isTRUE(did_autofill)) {
+          calendar_embryo_autofill_enabled(FALSE)
+        }
       },
       ignoreInit = TRUE
     )
+
+    output$calendar_euthanasia_other_age_rows_ui <- renderUI({
+      render_calendar_other_age_rows_ui(calendar_other_age_row_count(), calendar_other_age_rows_seed())
+    })
+
+    observeEvent(input$calendar_add_other_age_row_btn, {
+      current_rows <- collect_calendar_other_age_rows(calendar_other_age_row_count(), calendar_other_age_rows_seed())
+      calendar_other_age_rows_seed(rbind(current_rows, data.frame(stage = "", count = NA_integer_, stringsAsFactors = FALSE)))
+      calendar_other_age_row_count(calendar_other_age_row_count() + 1)
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_remove_other_age_row_btn, {
+      current_count <- calendar_other_age_row_count()
+      if (current_count <= 1) {
+        return()
+      }
+
+      current_rows <- collect_calendar_other_age_rows(current_count, calendar_other_age_rows_seed())
+      calendar_other_age_rows_seed(current_rows[seq_len(current_count - 1), , drop = FALSE])
+      calendar_other_age_row_count(current_count - 1)
+    }, ignoreInit = TRUE)
+
+    observe({
+      req(calendar_other_age_row_count() >= 1)
+      rows_df <- collect_calendar_other_age_rows(calendar_other_age_row_count(), calendar_other_age_rows_seed())
+      age_groups_text <- build_calendar_age_groups_text_from_rows(rows_df)
+      updateTextAreaInput(session, "calendar_euthanasia_age_groups_input", value = age_groups_text)
+
+      if (age_groups_text != "" && !isTRUE(input$calendar_euthanasia_mixed_age_input)) {
+        updateCheckboxInput(session, "calendar_euthanasia_mixed_age_input", value = TRUE)
+      }
+    })
 
     observeEvent(input$calendar_confirm_euthanasia_btn, {
       current_data <- selected_mouse_data()
@@ -2611,6 +2841,10 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           } else {
             normalized_primary_age$label
           }
+          mixed_age_text <- if (!is.null(input$calendar_euthanasia_age_groups_input) && !is.na(input$calendar_euthanasia_age_groups_input[1])) trimws(as.character(input$calendar_euthanasia_age_groups_input[1])) else ""
+          mixed_age_flag <- isTRUE(input$calendar_euthanasia_mixed_age_input)
+          age_groups_json <- NA_character_
+
           normalized_counts <- normalize_final_report_embryo_counts(
             total_embryos = input$calendar_euthanasia_total_embryos_input,
             male_embryos = input$calendar_euthanasia_male_embryos_input,
@@ -2622,9 +2856,25 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             return()
           }
 
+          if (mixed_age_text != "") {
+            parsed_age_groups <- parse_age_groups_text(mixed_age_text)
+            parsed_age_groups <- complete_age_groups_with_primary(
+              parsed_age_groups,
+              normalized_counts$final_report_total_embryos,
+              primary_age_label = primary_age_label,
+              primary_age_value = normalized_primary_age$numeric
+            )
+            if (nrow(parsed_age_groups) > 0) {
+              age_groups_json <- jsonlite::toJSON(parsed_age_groups, auto_unbox = TRUE, dataframe = "rows", null = "null")
+              mixed_age_flag <- TRUE
+            }
+          } else if (isTRUE(mixed_age_flag) && "final_report_age_groups_json" %in% names(row) && !is.na(row$final_report_age_groups_json[1]) && row$final_report_age_groups_json[1] != "") {
+            age_groups_json <- row$final_report_age_groups_json[1]
+          }
+
           dbExecute(
             con,
-            "UPDATE plugging_history SET plugging_status = ?, notes = ?, final_report_date = ?, final_report_primary_age = ?, final_report_primary_age_value = ?, final_report_total_embryos = ?, final_report_male_embryos = ?, final_report_female_embryos = ?, final_report_unknown_embryos = ?, final_report_notes = ?, updated_at = DATETIME('now') WHERE id = ?",
+            "UPDATE plugging_history SET plugging_status = ?, notes = ?, final_report_date = ?, final_report_primary_age = ?, final_report_primary_age_value = ?, final_report_total_embryos = ?, final_report_male_embryos = ?, final_report_female_embryos = ?, final_report_unknown_embryos = ?, final_report_mixed_age = ?, final_report_age_groups_json = ?, final_report_notes = ?, updated_at = DATETIME('now') WHERE id = ?",
             params = list(
               selected_status,
               strip_plugging_status_audit_notes(input$calendar_euthanasia_notes_input),
@@ -2635,6 +2885,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               normalized_counts$final_report_male_embryos,
               normalized_counts$final_report_female_embryos,
               normalized_counts$final_report_unknown_embryos,
+              mixed_age_flag,
+              age_groups_json,
               collection_notes_value,
               plugging_id
             )
@@ -2675,6 +2927,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             final_report_male_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_male_embryos else NULL,
             final_report_female_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_female_embryos else NULL,
             final_report_unknown_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_unknown_embryos else NULL,
+            final_report_mixed_age = if (identical(selected_status, "Collected")) mixed_age_flag else NULL,
+            final_report_age_groups_json = if (identical(selected_status, "Collected")) age_groups_json else NULL,
             final_report_notes = if (identical(selected_status, "Collected")) collection_notes_value else NULL
           )
         )

@@ -70,9 +70,13 @@ prediction_tab_ui <- function() {
                   "Double-click a row to inspect the source record. Collected rows open the collection report editor directly."
                 ),
                 tags$div(
-                  style = "flex: 0 0 auto; display: flex; justify-content: flex-end; align-items: center; gap: 8px; white-space: nowrap;",
-                  tags$span("Focus pregnant events only"),
-                  checkboxInput("prediction_focus_pregnant", NULL, value = FALSE, width = "auto")
+                  style = "flex: 0 0 auto; display: flex; justify-content: flex-end; align-items: center; gap: 10px; white-space: nowrap;",
+                  tags$input(
+                    id = "prediction_focus_pregnant",
+                    type = "checkbox",
+                    style = "width: 20px; height: 20px; margin: 0; accent-color: #2563eb; cursor: pointer;"
+                  ),
+                  tags$span("Focus pregnant events only", style = "display: inline-flex; align-items: center; line-height: 1;")
                 )
               ),
               DT::dataTableOutput("prediction_training_table")
@@ -445,7 +449,7 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
         "table.on('dblclick', 'tbody tr', function() {",
         "  var data = table.row(this).data();",
         "  if (!data || data.length === 0) { return; }",
-        "  Shiny.setInputValue('prediction_training_table_row_dblclicked', { id: data[0], status: data[3] }, {priority: 'event'});",
+        "  Shiny.setInputValue('prediction_training_table_row_dblclicked', { id: data[0], status: data[3], outcome: data[4] }, {priority: 'event'});",
         "});"
       )
     )
@@ -457,7 +461,8 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
     req(!is.na(selected_id))
 
     status_text <- if (!is.null(selected_row$status) && !is.na(selected_row$status)) as.character(selected_row$status) else ""
-    is_not_pregnant <- grepl("not\\s*preg", tolower(status_text), perl = TRUE)
+    outcome_text <- if (!is.null(selected_row$outcome) && !is.na(selected_row$outcome)) as.character(selected_row$outcome) else ""
+    is_not_pregnant <- grepl("not\\s*preg", tolower(status_text), perl = TRUE) || identical(tolower(trimws(outcome_text)), "not_pregnant")
 
     if (identical(selected_row$status, "Collected")) {
       prediction_state$open_collection_id <- NULL

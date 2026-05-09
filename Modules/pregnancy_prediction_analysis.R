@@ -159,6 +159,74 @@ parse_age_groups_text <- function(text_value) {
   combined
 }
 
+complete_age_groups_with_primary <- function(age_groups, total_embryos, primary_age_label = NA_character_, primary_age_value = NA_real_) {
+  if (is.null(age_groups) || NROW(age_groups) == 0 || is.na(total_embryos)) {
+    return(age_groups)
+  }
+
+  age_df <- as.data.frame(age_groups, stringsAsFactors = FALSE)
+  if (!("count" %in% names(age_df))) {
+    return(age_df)
+  }
+
+  parsed_counts <- suppressWarnings(as.integer(age_df$count))
+  if (all(is.na(parsed_counts))) {
+    return(age_df)
+  }
+
+  known_sum <- sum(parsed_counts, na.rm = TRUE)
+  if (!is.finite(known_sum) || known_sum >= total_embryos) {
+    return(age_df)
+  }
+
+  remaining <- as.integer(total_embryos - known_sum)
+  if (is.na(remaining) || remaining <= 0) {
+    return(age_df)
+  }
+
+  normalized_primary <- normalize_embryo_age_input(primary_age_label)
+  if (is.na(normalized_primary$numeric) && !is.na(primary_age_value)) {
+    normalized_primary <- normalize_embryo_age_input(as.character(primary_age_value))
+  }
+  if (is.na(normalized_primary$numeric)) {
+    return(age_df)
+  }
+
+  if (!("age_label" %in% names(age_df))) {
+    age_df$age_label <- NA_character_
+  }
+  if (!("age_value" %in% names(age_df))) {
+    age_df$age_value <- suppressWarnings(as.numeric(NA))
+  }
+  if (!("source_text" %in% names(age_df))) {
+    age_df$source_text <- ""
+  }
+
+  primary_row_idx <- which(toupper(trimws(as.character(age_df$age_label))) == toupper(normalized_primary$label))
+  if (length(primary_row_idx) > 0) {
+    target_idx <- primary_row_idx[1]
+    existing_count <- suppressWarnings(as.integer(age_df$count[target_idx]))
+    if (is.na(existing_count)) {
+      existing_count <- 0L
+    }
+    age_df$count[target_idx] <- existing_count + remaining
+    return(age_df)
+  }
+
+  age_df <- rbind(
+    age_df,
+    data.frame(
+      age_label = normalized_primary$label,
+      age_value = normalized_primary$numeric,
+      count = remaining,
+      source_text = "[auto-filled from primary age]",
+      stringsAsFactors = FALSE
+    )
+  )
+  rownames(age_df) <- NULL
+  age_df
+}
+
 extract_integer_from_text <- function(text_value, patterns) {
   if (is.null(text_value) || length(text_value) == 0 || is.na(text_value) || trimws(text_value) == "") {
     return(NA_integer_)
@@ -503,6 +571,13 @@ merge_final_report_details <- function(existing_row = NULL, status = NULL, final
   if (nrow(merged_age_groups) == 0 && nrow(parsed_notes$age_groups) > 0) {
     merged_age_groups <- parsed_notes$age_groups
   }
+
+  merged_age_groups <- complete_age_groups_with_primary(
+    merged_age_groups,
+    merged_total,
+    primary_age_label = merged_age_label,
+    primary_age_value = merged_age_value
+  )
 
   mixed_age_flag <- FALSE
   if (!is.null(existing_row) && nrow(existing_row) > 0 && "final_report_mixed_age" %in% names(existing_row)) {
