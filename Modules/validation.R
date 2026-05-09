@@ -130,6 +130,9 @@ ensure_startup_database_schema <- function(db_path = DB_PATH) {
       if (identical(final_report_notes, "NA")) {
         final_report_notes <- ""
       }
+      if (exists("strip_plugging_status_audit_notes", mode = "function")) {
+        final_report_notes <- strip_plugging_status_audit_notes(final_report_notes)
+      }
 
       DBI::dbExecute(
         con,
@@ -151,6 +154,54 @@ ensure_startup_database_schema <- function(db_path = DB_PATH) {
     }
 
     list(updated_rows = updated_rows, parsed_rows = parsed_rows)
+  }
+
+  strip_status_audit_notes_from_plugging_history <- function() {
+    required_columns <- c("id", "notes")
+    existing_columns <- tryCatch(DBI::dbListFields(con, "plugging_history"), error = function(e) character(0))
+    if (!all(required_columns %in% existing_columns)) {
+      return(list(updated_rows = 0L))
+    }
+
+    plugging_rows <- tryCatch(
+      DBI::dbGetQuery(
+        con,
+        paste(
+          "SELECT id, notes",
+          "FROM plugging_history",
+          "WHERE TRIM(COALESCE(notes, '')) != ''"
+        )
+      ),
+      error = function(e) data.frame()
+    )
+
+    if (nrow(plugging_rows) == 0) {
+      return(list(updated_rows = 0L))
+    }
+
+    updated_rows <- 0L
+    for (row_index in seq_len(nrow(plugging_rows))) {
+      plugging_row <- plugging_rows[row_index, , drop = FALSE]
+      cleaned_notes <- if (exists("strip_plugging_status_audit_notes", mode = "function")) {
+        strip_plugging_status_audit_notes(plugging_row$notes[1])
+      } else {
+        trimws(as.character(plugging_row$notes[1]))
+      }
+
+      original_notes <- trimws(as.character(plugging_row$notes[1]))
+      if (identical(cleaned_notes, original_notes)) {
+        next
+      }
+
+      DBI::dbExecute(
+        con,
+        "UPDATE plugging_history SET notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        params = list(cleaned_notes, as.integer(plugging_row$id[1]))
+      )
+      updated_rows <- updated_rows + 1L
+    }
+
+    list(updated_rows = updated_rows)
   }
 
   changes <- character(0)
@@ -279,6 +330,18 @@ ensure_startup_database_schema <- function(db_path = DB_PATH) {
       paste0(
         "plugging_history legacy final-report backfill: ",
         legacy_backfill_result$updated_rows,
+        " rows"
+      )
+    )
+  }
+
+  collected_note_backfill_result <- strip_status_audit_notes_from_plugging_history()
+  if (collected_note_backfill_result$updated_rows > 0) {
+    changes <- c(
+      changes,
+      paste0(
+        "plugging_history status-note cleanup: ",
+        collected_note_backfill_result$updated_rows,
         " rows"
       )
     )

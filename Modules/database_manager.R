@@ -44,7 +44,11 @@ list_backup_database_files <- function(db_path = get_current_db_path(), backup_d
     return(character(0))
   }
 
-  backup_files
+  backup_info <- file.info(backup_files)
+  backup_times <- backup_info$mtime
+  backup_times[is.na(backup_times)] <- as.POSIXct("1970-01-01", tz = "UTC")
+
+  backup_files[order(backup_times, decreasing = TRUE)]
 }
 
 # Initialize all required directories

@@ -181,6 +181,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     }
   }
 
+  normalize_plugging_notes_input <- function(note_text) {
+    if (is.null(note_text) || length(note_text) == 0 || is.na(note_text[1])) {
+      return("")
+    }
+
+    strip_plugging_status_audit_notes(note_text[1])
+  }
+
   build_plugging_details_clipboard_text <- function(row) {
     female_label <- build_plugging_mouse_label(row$female_id, row$female_genotype, row$female_breeding_line, "female")
     male_label <- build_plugging_mouse_label(row$male_id, row$male_genotype, row$male_breeding_line, "male")
@@ -417,6 +425,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       display_data <- filtered[, c("id", "female_id", "female_age", "female_breeding_line", "female_genotype", 
                                    "pairing_start_date", "pairing_end_date", "plug_observed_date", 
                                    "plugging_status", "expected_age_for_harvesting", "notes")]
+      display_data$notes <- vapply(display_data$notes, strip_plugging_status_audit_notes, character(1))
       
       # Add action buttons column
       display_data$actions <- sapply(seq_len(nrow(display_data)), function(i) {
@@ -931,8 +940,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                     "Current Status: ", strong(row$plugging_status),
                     br(),
                     "Expected Harvest Age: ", strong(ifelse(is.na(row$expected_age_for_harvesting) || row$expected_age_for_harvesting == "", "Not specified", row$expected_age_for_harvesting)),
-                    if (!is.na(row$notes) && row$notes != "") {
-                      tagList(br(), "Notes: ", span(style = "font-style: italic;", row$notes))
+                    if (!is.na(strip_plugging_status_audit_notes(row$notes)) && strip_plugging_status_audit_notes(row$notes) != "") {
+                      tagList(br(), "Notes: ", span(style = "font-style: italic;", strip_plugging_status_audit_notes(row$notes)))
                     }
                   )
                 ),
@@ -1712,24 +1721,21 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       pairing_end_date_value <- plug_observed_date_value
       
       # Update the plugging event
+      updated_notes <- normalize_plugging_notes_input(input$plug_observed_notes_input)
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET 
          plug_observed_date = ?,
          pairing_end_date = ?,
          plugging_status = 'Plugged',
          expected_age_for_harvesting = ?,
-         notes = CASE 
-           WHEN notes IS NULL OR notes = '' THEN ?
-           ELSE notes || '\n' || ?
-         END,
+         notes = ?,
          updated_at = DATETIME('now')
          WHERE id = ?",
         params = list(
           plug_observed_date_value,
           pairing_end_date_value,
           input$expected_age_for_harvesting_input,
-          input$plug_observed_notes_input,
-          input$plug_observed_notes_input,
+          updated_notes,
           plugging_id
         )
       )
@@ -1894,15 +1900,11 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           "UPDATE plugging_history SET \
            plugging_status = ?,\
            updated_at = DATETIME('now'),\
-           notes = CASE \
-             WHEN notes IS NULL OR notes = '' THEN ?\
-             ELSE notes || '\n' || ?\
-           END\
+           notes = ?\
            WHERE id = ?",
           params = list(
             selected_status,
-            input$euthanasia_notes_input,
-            input$euthanasia_notes_input,
+            normalize_plugging_notes_input(input$euthanasia_notes_input),
             plugging_id
           )
         )
@@ -1915,7 +1917,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           list(
             plugging_status = selected_status,
             completion_date = as.character(input$euthanasia_date_input),
-            notes = input$euthanasia_notes_input
+            notes = normalize_plugging_notes_input(input$euthanasia_notes_input)
           )
         )
         db_disconnect(con2)
@@ -2295,7 +2297,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                 textAreaInput(
                   "quick_euthanasia_notes_input",
                   "Notes",
-                  value = if (!is.null(report_defaults$final_report_notes) && !is.na(report_defaults$final_report_notes) && report_defaults$final_report_notes != "") report_defaults$final_report_notes else current_notes,
+                  value = if (!is.null(report_defaults$final_report_notes) && !is.na(report_defaults$final_report_notes) && report_defaults$final_report_notes != "") report_defaults$final_report_notes else "",
                   rows = 3
                 )
               )
@@ -2397,7 +2399,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           notes_input <- if (is.null(input$quick_status_notes_input) || length(input$quick_status_notes_input) == 0) {
             ""
           } else {
-            as.character(input$quick_status_notes_input)
+            normalize_plugging_notes_input(input$quick_status_notes_input)
           }
           expected_age <- input$confirm_expected_age_for_harvesting
           plug_observed_date_value <- if (input$confirm_plug_observed_type == "unknown") {
@@ -2410,13 +2412,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           pairing_end_date_value <- plug_observed_date_value
           
           result <- DBI::dbExecute(con, 
-            "UPDATE plugging_history SET plugging_status = ?, expected_age_for_harvesting = ?, plug_observed_date = ?, pairing_end_date = ?, updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?",
+            "UPDATE plugging_history SET plugging_status = ?, expected_age_for_harvesting = ?, plug_observed_date = ?, pairing_end_date = ?, updated_at = DATETIME('now'), notes = ? WHERE id = ?",
             params = list(
               selected_status,
               expected_age,
               plug_observed_date_value,
               pairing_end_date_value,
-              notes_input,
               notes_input,
               plugging_id
             )
@@ -2469,7 +2470,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       notes_input <- if (is.null(input$quick_status_notes_input) || length(input$quick_status_notes_input) == 0) {
         ""
       } else {
-        as.character(input$quick_status_notes_input)
+        normalize_plugging_notes_input(input$quick_status_notes_input)
       }
       
       # Auto-set plug_observed_date to "Unknown" for specific statuses in quick updates
@@ -2477,18 +2478,16 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       
       if (selected_status %in% statuses_requiring_unknown_plug_date) {
         # For these statuses, only set plug_observed_date to Unknown (pairing_end_date unchanged)
-        update_query <- "UPDATE plugging_history SET plugging_status = ?, plug_observed_date = 'Unknown', updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?"
+        update_query <- "UPDATE plugging_history SET plugging_status = ?, plug_observed_date = 'Unknown', updated_at = DATETIME('now'), notes = ? WHERE id = ?"
         update_params <- list(
           selected_status,
-          notes_input,
           notes_input,
           plugging_id
         )
       } else {
-        update_query <- "UPDATE plugging_history SET plugging_status = ?, updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?"
+        update_query <- "UPDATE plugging_history SET plugging_status = ?, updated_at = DATETIME('now'), notes = ? WHERE id = ?"
         update_params <- list(
           selected_status,
-          notes_input,
           notes_input,
           plugging_id
         )
@@ -2594,7 +2593,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               textAreaInput(
                 "quick_euthanasia_notes_input",
                 "Notes",
-                value = if (!is.null(report_defaults$final_report_notes) && !is.na(report_defaults$final_report_notes) && report_defaults$final_report_notes != "") report_defaults$final_report_notes else current_notes,
+                value = if (!is.null(report_defaults$final_report_notes) && !is.na(report_defaults$final_report_notes) && report_defaults$final_report_notes != "") report_defaults$final_report_notes else "",
                 rows = 3
               )
             )
@@ -2697,18 +2696,15 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       old_values <- current[1, ]
       
       # Update the plugging event
+      updated_notes <- normalize_plugging_notes_input(notes)
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET \
          plugging_status = 'Empty',\
          updated_at = DATETIME('now'),\
-         notes = CASE \
-           WHEN notes IS NULL OR notes = '' THEN ?\
-           ELSE notes || '\n' || ?\
-         END\
+         notes = ?\
          WHERE id = ?",
         params = list(
-          notes,
-          notes,
+          updated_notes,
           plugging_id
         )
       )
@@ -2877,21 +2873,18 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       old_values <- current[1, ]
       
       # Update the plugging event
+      updated_notes <- normalize_plugging_notes_input(input$surprising_plug_notes_input)
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET 
          plug_observed_date = 'Unknown',
          plugging_status = 'Surprising Plug!!',
          expected_age_for_harvesting = ?,
-         notes = CASE 
-           WHEN notes IS NULL OR notes = '' THEN ?
-           ELSE notes || '\n' || ?
-         END,
+         notes = ?,
          updated_at = DATETIME('now')
          WHERE id = ?",
         params = list(
           input$expected_age_for_harvesting_surprising_input,
-          input$surprising_plug_notes_input,
-          input$surprising_plug_notes_input,
+          updated_notes,
           plugging_id
         )
       )
@@ -2998,18 +2991,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
          pairing_end_date = ?,\
          plugging_status = 'Plugged',\
          expected_age_for_harvesting = ?,\
-         notes = CASE \
-           WHEN notes IS NULL OR notes = '' THEN ?\
-           ELSE notes || '\n' || ?\
-         END,\
+         notes = ?,\
          updated_at = DATETIME('now')\
          WHERE id = ?",
         params = list(
           plug_observed_date_value,
           pairing_end_date_value,
           input$expected_age_for_harvesting_input,
-          input$plug_observed_notes_input,
-          input$plug_observed_notes_input,
+          normalize_plugging_notes_input(input$plug_observed_notes_input),
           plugging_id
         )
       )
@@ -3062,16 +3051,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
          plug_observed_date = 'Unknown',\
          plugging_status = 'Surprising Plug!!',\
          expected_age_for_harvesting = ?,\
-         notes = CASE \
-           WHEN notes IS NULL OR notes = '' THEN ?\
-           ELSE notes || '\n' || ?\
-         END,\
+         notes = ?,\
          updated_at = DATETIME('now')\
          WHERE id = ?",
         params = list(
           input$expected_age_for_harvesting_surprising_input_quick,
-          input$surprising_plug_notes_input_quick,
-          input$surprising_plug_notes_input_quick,
+          normalize_plugging_notes_input(input$surprising_plug_notes_input_quick),
           plugging_id
         )
       )
@@ -3173,14 +3158,10 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         "UPDATE plugging_history SET \
          plugging_status = 'Empty',\
          updated_at = DATETIME('now'),\
-         notes = CASE \
-           WHEN notes IS NULL OR notes = '' THEN ?\
-           ELSE notes || '\n' || ?\
-         END\
+         notes = ?\
          WHERE id = ?",
         params = list(
-          notes,
-          notes,
+          normalize_plugging_notes_input(notes),
           plugging_id
         )
       )
@@ -3215,36 +3196,154 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   observeEvent(input$confirm_quick_euthanasia_btn, {
     plugging_id <- plugging_state$confirming_id
     if (is.null(plugging_id)) return()
+
     selected_status <- input$confirm_status_choice
+    if (is.null(selected_status) || identical(selected_status, "")) {
+      selected_status <- "Collected"
+    }
     date_of_death <- input$quick_euthanasia_date_input
     notes <- input$quick_euthanasia_notes_input
     if (is.null(selected_status) || !(selected_status %in% c("Empty", "Collected"))) return()
+
+    normalize_text_scalar <- function(value) {
+      if (is.null(value) || length(value) == 0 || is.na(value[1])) {
+        return("")
+      }
+
+      trimws(as.character(value[1]))
+    }
+
+    normalize_integer_scalar <- function(value) {
+      if (is.null(value) || length(value) == 0) {
+        return(NA_integer_)
+      }
+
+      suppressWarnings(as.integer(value[1]))
+    }
+
+    normalize_flag_scalar <- function(value) {
+      if (is.null(value) || length(value) == 0 || is.na(value[1])) {
+        return(FALSE)
+      }
+
+      isTRUE(as.logical(value[1]))
+    }
+
+    saved_db_path <- normalizePath(get_current_db_path(), mustWork = FALSE)
+    saved_db_label <- basename(saved_db_path)
     con <- db_connect()
+    transaction_started <- FALSE
+    save_committed <- FALSE
     tryCatch({
+      DBI::dbBegin(con)
+      transaction_started <- TRUE
+
       current <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
       if (nrow(current) == 0) {
-        showNotification("Plugging event not found", type = "error")
-        return()
+        stop("Plugging event not found")
       }
       old_values <- current[1, ]
-      report_details <- merge_final_report_details(
-        existing_row = current,
-        status = selected_status,
-        final_report_date = date_of_death,
-        primary_age_input = input$quick_primary_embryo_age_input,
-        mixed_age_input = input$quick_embryo_age_groups_input,
-        total_embryos = input$quick_total_embryos_input,
-        male_embryos = input$quick_male_embryos_input,
-        female_embryos = input$quick_female_embryos_input,
-        unknown_embryos = input$quick_unknown_embryos_input,
-        final_report_notes = notes
-      )
-      report_details$final_report_mixed_age <- isTRUE(input$quick_mixed_embryo_ages_input) || isTRUE(report_details$final_report_mixed_age)
-      note_entry <- build_final_report_note_entry(selected_status, report_details)
+      existing_row <- current[1, , drop = FALSE]
 
+      current_text_value <- function(column_name) {
+        if (!(column_name %in% names(existing_row))) {
+          return("")
+        }
+
+        normalize_text_scalar(existing_row[[column_name]][1])
+      }
+
+      current_integer_value <- function(column_name) {
+        if (!(column_name %in% names(existing_row))) {
+          return(NA_integer_)
+        }
+
+        normalize_integer_scalar(existing_row[[column_name]][1])
+      }
+
+      current_flag_value <- function(column_name) {
+        if (!(column_name %in% names(existing_row))) {
+          return(FALSE)
+        }
+
+        normalize_flag_scalar(existing_row[[column_name]][1])
+      }
+
+      collection_date_value <- safe_analysis_date(date_of_death)
+      collection_date_text <- if (is.na(collection_date_value)) {
+        current_text_value("final_report_date")
+      } else {
+        as.character(collection_date_value)
+      }
+
+      primary_age_text <- normalize_text_scalar(input$quick_primary_embryo_age_input)
+      if (primary_age_text == "") {
+        primary_age_text <- current_text_value("final_report_primary_age")
+      }
+
+      normalized_primary_age <- normalize_embryo_age_input(primary_age_text)
+      primary_age_value <- if (is.na(normalized_primary_age$numeric)) {
+        suppressWarnings(as.numeric(existing_row$final_report_primary_age_value[1]))
+      } else {
+        normalized_primary_age$numeric
+      }
+      primary_age_label <- if (is.na(normalized_primary_age$numeric)) {
+        if (primary_age_text == "") NA_character_ else primary_age_text
+      } else {
+        normalized_primary_age$label
+      }
+
+      mixed_age_text <- normalize_text_scalar(input$quick_embryo_age_groups_input)
+      mixed_age_flag <- isTRUE(input$quick_mixed_embryo_ages_input) || current_flag_value("final_report_mixed_age")
+      age_groups_json <- NA_character_
+      if (mixed_age_text != "") {
+        parsed_age_groups <- parse_age_groups_text(mixed_age_text)
+        if (nrow(parsed_age_groups) > 0) {
+          age_groups_json <- jsonlite::toJSON(parsed_age_groups, auto_unbox = TRUE, dataframe = "rows", null = "null")
+          mixed_age_flag <- TRUE
+        }
+      } else if (mixed_age_flag) {
+        existing_age_groups_json <- current_text_value("final_report_age_groups_json")
+        age_groups_json <- if (existing_age_groups_json == "") NA_character_ else existing_age_groups_json
+      }
+
+      total_embryos_value <- normalize_integer_scalar(input$quick_total_embryos_input)
+      if (is.na(total_embryos_value)) {
+        total_embryos_value <- current_integer_value("final_report_total_embryos")
+      }
+
+      male_embryos_value <- normalize_integer_scalar(input$quick_male_embryos_input)
+      if (is.na(male_embryos_value)) {
+        male_embryos_value <- current_integer_value("final_report_male_embryos")
+      }
+
+      female_embryos_value <- normalize_integer_scalar(input$quick_female_embryos_input)
+      if (is.na(female_embryos_value)) {
+        female_embryos_value <- current_integer_value("final_report_female_embryos")
+      }
+
+      unknown_embryos_value <- normalize_integer_scalar(input$quick_unknown_embryos_input)
+      if (is.na(unknown_embryos_value)) {
+        unknown_embryos_value <- current_integer_value("final_report_unknown_embryos")
+      }
+
+      final_report_notes_value <- normalize_text_scalar(notes)
+
+      report_details <- list(
+        final_report_date = if (collection_date_text == "") NA_character_ else collection_date_text,
+        final_report_primary_age = primary_age_label,
+        final_report_primary_age_value = if (is.na(primary_age_value)) NA_real_ else primary_age_value,
+        final_report_total_embryos = total_embryos_value,
+        final_report_male_embryos = male_embryos_value,
+        final_report_female_embryos = female_embryos_value,
+        final_report_unknown_embryos = unknown_embryos_value,
+        final_report_mixed_age = mixed_age_flag,
+        final_report_age_groups_json = age_groups_json,
+        final_report_notes = final_report_notes_value
+      )
       # Update plugging status
-      DBI::dbExecute(con, 
-        "UPDATE plugging_history SET plugging_status = ?, updated_at = DATETIME('now'), final_report_date = ?, final_report_primary_age = ?, final_report_primary_age_value = ?, final_report_total_embryos = ?, final_report_male_embryos = ?, final_report_female_embryos = ?, final_report_unknown_embryos = ?, final_report_mixed_age = ?, final_report_age_groups_json = ?, final_report_notes = ?, notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?",
+      plugging_rows_updated <- DBI::dbExecute(con, 
+        "UPDATE plugging_history SET plugging_status = ?, updated_at = DATETIME('now'), final_report_date = ?, final_report_primary_age = ?, final_report_primary_age_value = ?, final_report_total_embryos = ?, final_report_male_embryos = ?, final_report_female_embryos = ?, final_report_unknown_embryos = ?, final_report_mixed_age = ?, final_report_age_groups_json = ?, final_report_notes = ? WHERE id = ?",
         params = list(
           selected_status,
           report_details$final_report_date,
@@ -3257,11 +3356,13 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           ifelse(isTRUE(report_details$final_report_mixed_age), 1L, 0L),
           report_details$final_report_age_groups_json,
           report_details$final_report_notes,
-          note_entry,
-          note_entry,
           plugging_id
         )
       )
+      if (!isTRUE(plugging_rows_updated == 1L)) {
+        stop("Plugging report update did not affect the expected record.")
+      }
+
       # Update female mouse to Deceased
       female_id <- old_values$female_id
       DBI::dbExecute(con, 
@@ -3271,49 +3372,105 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           female_id
         )
       )
-      # Log to audit trail for female mouse status change
-      log_audit_trail(
-        "mice_stock",
-        female_id,
-        "UPDATE",
-        list(status = "Alive"),
-        list(
-          status = "Deceased",
-          date_of_death = as.character(date_of_death),
-          notes = notes,
-          source = "Plugging Tab",
-          source_event_id = plugging_id
-        )
+
+      updated_row <- DBI::dbGetQuery(
+        con,
+        "SELECT plugging_status, final_report_date, final_report_primary_age, final_report_total_embryos, final_report_notes, final_report_mixed_age FROM plugging_history WHERE id = ?",
+        params = list(plugging_id)
       )
-      log_audit_trail(
-        "plugging_history",
-        plugging_id,
-        "UPDATE",
-        old_values,
-        list(
-          plugging_status = selected_status,
-          confirmation_date = as.character(date_of_death),
-          notes = notes,
-          final_report_primary_age = report_details$final_report_primary_age,
-          final_report_total_embryos = report_details$final_report_total_embryos,
-          final_report_male_embryos = report_details$final_report_male_embryos,
-          final_report_female_embryos = report_details$final_report_female_embryos,
-          final_report_unknown_embryos = report_details$final_report_unknown_embryos,
-          final_report_mixed_age = report_details$final_report_mixed_age
-        )
+
+      if (nrow(updated_row) != 1) {
+        stop("Unable to confirm the saved collection report in the database.")
+      }
+
+      if (!identical(normalize_text_scalar(updated_row$plugging_status[1]), normalize_text_scalar(selected_status)) ||
+          !identical(normalize_text_scalar(updated_row$final_report_date[1]), normalize_text_scalar(report_details$final_report_date)) ||
+          !identical(normalize_text_scalar(updated_row$final_report_primary_age[1]), normalize_text_scalar(report_details$final_report_primary_age)) ||
+          !identical(normalize_integer_scalar(updated_row$final_report_total_embryos[1]), normalize_integer_scalar(report_details$final_report_total_embryos)) ||
+          !identical(normalize_flag_scalar(updated_row$final_report_mixed_age[1]), normalize_flag_scalar(report_details$final_report_mixed_age)) ||
+          !identical(normalize_text_scalar(updated_row$final_report_notes[1]), normalize_text_scalar(report_details$final_report_notes))) {
+        stop("Collection report save could not be verified after updating the database.")
+      }
+
+      DBI::dbCommit(con)
+      transaction_started <- FALSE
+      save_committed <- TRUE
+
+      showNotification(
+        paste0(
+          "Plugging status updated to '",
+          selected_status,
+          "' and saved to ",
+          saved_db_label,
+          "."
+        ),
+        type = "message"
       )
-      showNotification(paste("Plugging status updated to '", selected_status, "' and mouse marked as deceased!", sep = ""), type = "message")
       removeModal()
       plugging_state$confirming_id <- NULL
-      Sys.sleep(1)
-      auto_update_plugging_status_to_unknown()
-      plugging_state$reload <- Sys.time()
-      if (!is.null(global_refresh_trigger)) {
-        global_refresh_trigger(Sys.time())
-      }
-      invalidateLater(100, session)
+
+      tryCatch({
+        log_audit_trail(
+          "mice_stock",
+          female_id,
+          "UPDATE",
+          list(status = "Alive"),
+          list(
+            status = "Deceased",
+            date_of_death = as.character(date_of_death),
+            notes = notes,
+            source = "Plugging Tab",
+            source_event_id = plugging_id,
+            source_db = saved_db_path
+          )
+        )
+        log_audit_trail(
+          "plugging_history",
+          plugging_id,
+          "UPDATE",
+          old_values,
+          list(
+            plugging_status = selected_status,
+            confirmation_date = as.character(date_of_death),
+            notes = final_report_notes_value,
+            final_report_date = report_details$final_report_date,
+            final_report_primary_age = report_details$final_report_primary_age,
+            final_report_primary_age_value = report_details$final_report_primary_age_value,
+            final_report_total_embryos = report_details$final_report_total_embryos,
+            final_report_male_embryos = report_details$final_report_male_embryos,
+            final_report_female_embryos = report_details$final_report_female_embryos,
+            final_report_unknown_embryos = report_details$final_report_unknown_embryos,
+            final_report_mixed_age = report_details$final_report_mixed_age,
+            final_report_age_groups_json = report_details$final_report_age_groups_json,
+            final_report_notes = report_details$final_report_notes,
+            source_db = saved_db_path
+          )
+        )
+        Sys.sleep(1)
+        auto_update_plugging_status_to_unknown()
+        plugging_state$reload <- Sys.time()
+        if (!is.null(global_refresh_trigger)) {
+          global_refresh_trigger(Sys.time())
+        }
+        invalidateLater(100, session)
+      }, error = function(post_commit_error) {
+        showNotification(
+          paste("Collection report saved, but follow-up refresh failed:", post_commit_error$message),
+          type = "warning"
+        )
+      })
     }, error = function(e) {
-      showNotification(paste("Error updating plugging status:", e$message), type = "error")
+      if (isTRUE(transaction_started)) {
+        tryCatch(DBI::dbRollback(con), error = function(rollback_error) NULL)
+      }
+      if (isTRUE(save_committed)) {
+        showNotification(
+          paste("Collection report saved to", saved_db_label, "but follow-up processing failed:", e$message),
+          type = "warning"
+        )
+      } else {
+        showNotification(paste("Error updating plugging status:", e$message), type = "error")
+      }
     }, finally = {
       db_disconnect(con)
     })
@@ -3334,11 +3491,11 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       }
       old_values <- current[1, ]
       # Update plugging status to Empty (but don't mark mouse as deceased)
+      updated_notes <- normalize_plugging_notes_input(notes)
       DBI::dbExecute(con, 
-        "UPDATE plugging_history SET plugging_status = 'Empty', updated_at = DATETIME('now'), notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?",
+        "UPDATE plugging_history SET plugging_status = 'Empty', updated_at = DATETIME('now'), notes = ? WHERE id = ?",
         params = list(
-          paste0("[Status updated to 'Empty (Alive)' on ", as.character(date_of_confirmation), "]"),
-          paste0("[Status updated to 'Empty (Alive)' on ", as.character(date_of_confirmation), "]"),
+          updated_notes,
           plugging_id
         )
       )

@@ -1,9 +1,11 @@
 # Pregnancy prediction and final-report parsing helpers
 
 safe_analysis_date <- function(value) {
-  if (is.null(value) || length(value) == 0 || is.na(value) || value == "" || identical(value, "Unknown")) {
+  if (is.null(value) || length(value) == 0) {
     return(as.Date(NA))
   }
+
+  value <- value[1]
 
   if (inherits(value, "Date")) {
     return(value)
@@ -11,6 +13,16 @@ safe_analysis_date <- function(value) {
 
   if (is.numeric(value)) {
     return(as.Date(value, origin = "1970-01-01"))
+  }
+
+  if (is.na(value)) {
+    return(as.Date(NA))
+  }
+
+  value <- trimws(as.character(value))
+
+  if (identical(value, "") || identical(value, "Unknown")) {
+    return(as.Date(NA))
   }
 
   try_formats <- c("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%m-%d-%Y", "%d-%m-%Y")
@@ -47,6 +59,32 @@ normalize_embryo_age_input <- function(age_value) {
   }
 
   list(label = label, numeric = age_num)
+}
+
+strip_plugging_status_audit_notes <- function(note_text) {
+  if (is.null(note_text) || length(note_text) == 0 || is.na(note_text[1])) {
+    return("")
+  }
+
+  note_lines <- unlist(strsplit(as.character(note_text[1]), "\\n", perl = TRUE))
+  note_lines <- note_lines[!grepl(
+    "^(\\[(Status updated to|Plug set to|Plug marked as).*(on|due to).+\\]|Auto-update: .*)$",
+    trimws(note_lines),
+    perl = TRUE
+  )]
+  cleaned_lines <- trimws(note_lines)
+  cleaned_lines <- cleaned_lines[nzchar(cleaned_lines)]
+
+  if (length(cleaned_lines) == 0) {
+    return("")
+  }
+
+  if (length(cleaned_lines) > 1) {
+    keep_line <- c(TRUE, cleaned_lines[-1] != cleaned_lines[-length(cleaned_lines)])
+    cleaned_lines <- cleaned_lines[keep_line]
+  }
+
+  paste(cleaned_lines, collapse = "\n")
 }
 
 parse_age_group_segment <- function(segment_text) {
@@ -248,16 +286,51 @@ merge_final_report_details <- function(existing_row = NULL, status = NULL, final
   existing_notes <- ""
   existing_final_report_notes <- ""
   if (!is.null(existing_row) && nrow(existing_row) > 0 && "notes" %in% names(existing_row)) {
-    existing_notes <- existing_row$notes[1]
+    existing_notes <- strip_plugging_status_audit_notes(existing_row$notes[1])
   }
   if (!is.null(existing_row) && nrow(existing_row) > 0 && "final_report_notes" %in% names(existing_row)) {
     existing_final_report_notes <- existing_row$final_report_notes[1]
   }
 
-  parse_note_source <- paste(
-    unique(stats::na.omit(c(existing_final_report_notes, existing_notes))),
-    collapse = "; "
-  )
+  has_structured_final_report <- FALSE
+  if (!is.null(existing_row) && nrow(existing_row) > 0) {
+    structured_columns <- c(
+      "final_report_date",
+      "final_report_primary_age",
+      "final_report_primary_age_value",
+      "final_report_total_embryos",
+      "final_report_male_embryos",
+      "final_report_female_embryos",
+      "final_report_unknown_embryos",
+      "final_report_mixed_age",
+      "final_report_age_groups_json",
+      "final_report_notes"
+    )
+    available_columns <- intersect(structured_columns, names(existing_row))
+
+    if (length(available_columns) > 0) {
+      structured_values <- lapply(available_columns, function(column_name) existing_row[[column_name]][1])
+      has_structured_final_report <- any(vapply(structured_values, function(value) {
+        if (is.null(value) || length(value) == 0 || is.na(value[1])) {
+          return(FALSE)
+        }
+
+        if (is.logical(value)) {
+          return(isTRUE(value[1]))
+        }
+
+        trimws(as.character(value[1])) != ""
+      }, logical(1)))
+    }
+  }
+
+  parse_sources <- if (isTRUE(has_structured_final_report)) {
+    c(existing_final_report_notes)
+  } else {
+    c(existing_final_report_notes, existing_notes)
+  }
+
+  parse_note_source <- paste(unique(stats::na.omit(parse_sources)), collapse = "; ")
   if (trimws(parse_note_source) == "") {
     parse_note_source <- ""
   }
@@ -653,7 +726,7 @@ build_plugging_prediction_dataset <- function(db_path = DB_PATH, legacy_backfill
       pairing_start_date = ifelse(is.na(pairing_start), NA_character_, as.character(pairing_start)),
       plug_observed_date = ifelse(is.na(safe_analysis_date(plugging_row$plug_observed_date[1])), NA_character_, as.character(safe_analysis_date(plugging_row$plug_observed_date[1]))),
       expected_age_for_harvesting = if ("expected_age_for_harvesting" %in% names(plugging_row)) plugging_row$expected_age_for_harvesting[1] else NA_character_,
-      notes = if ("notes" %in% names(plugging_row)) plugging_row$notes[1] else NA_character_,
+      notes = if ("notes" %in% names(plugging_row)) strip_plugging_status_audit_notes(plugging_row$notes[1]) else NA_character_,
       final_report_date = report_details$final_report_date,
       final_report_primary_age = report_details$final_report_primary_age,
       final_report_primary_age_value = report_details$final_report_primary_age_value,

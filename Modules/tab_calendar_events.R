@@ -2298,8 +2298,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                     "Current Status: ", strong(row$plugging_status),
                     br(),
                     "Expected Harvest Age: ", strong(ifelse(is.na(row$expected_age_for_harvesting) || row$expected_age_for_harvesting == "", "Not specified", row$expected_age_for_harvesting)),
-                    if (!is.na(row$notes) && row$notes != "") {
-                      tagList(br(), "Notes: ", span(style = "font-style: italic;", row$notes))
+                    if (!is.na(strip_plugging_status_audit_notes(row$notes)) && strip_plugging_status_audit_notes(row$notes) != "") {
+                      tagList(br(), "Notes: ", span(style = "font-style: italic;", strip_plugging_status_audit_notes(row$notes)))
                     }
                   )
                 ),
