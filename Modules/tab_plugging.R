@@ -189,6 +189,76 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     strip_plugging_status_audit_notes(note_text[1])
   }
 
+  write_collection_debug_log <- function(stage, details = list()) {
+    timestamp_text <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+    detail_text <- ""
+    if (length(details) > 0) {
+      detail_pairs <- vapply(names(details), function(detail_name) {
+        paste0(detail_name, "=", as.character(details[[detail_name]]))
+      }, character(1))
+      detail_text <- paste0(" | ", paste(detail_pairs, collapse = ", "))
+    }
+
+    log_line <- paste0("[CollectionReport] ", timestamp_text, " | ", stage, detail_text, "\n")
+    cat(log_line, file = stderr())
+    flush.console()
+  }
+
+  embryo_count_autofill_in_progress <- reactiveVal(FALSE)
+
+  observeEvent(
+    list(
+      input$quick_total_embryos_input,
+      input$quick_male_embryos_input,
+      input$quick_female_embryos_input,
+      input$quick_unknown_embryos_input
+    ),
+    {
+      if (isTRUE(embryo_count_autofill_in_progress()) || is.null(plugging_state$confirming_id)) {
+        return()
+      }
+
+      input_values <- list(
+        total = input$quick_total_embryos_input,
+        male = input$quick_male_embryos_input,
+        female = input$quick_female_embryos_input,
+        unknown = input$quick_unknown_embryos_input
+      )
+
+      if (all(vapply(input_values, is.null, logical(1)))) {
+        return()
+      }
+
+      normalized_counts <- normalize_final_report_embryo_counts(
+        total_embryos = input_values$total,
+        male_embryos = input_values$male,
+        female_embryos = input_values$female,
+        unknown_embryos = input_values$unknown
+      )
+
+      if (!is.null(normalized_counts$validation_message) || length(normalized_counts$autofilled_fields) == 0) {
+        return()
+      }
+
+      embryo_count_autofill_in_progress(TRUE)
+      on.exit(embryo_count_autofill_in_progress(FALSE), add = TRUE)
+
+      if ("total" %in% normalized_counts$autofilled_fields && !identical(input_values$total, normalized_counts$final_report_total_embryos)) {
+        updateNumericInput(session, "quick_total_embryos_input", value = normalized_counts$final_report_total_embryos)
+      }
+      if ("male" %in% normalized_counts$autofilled_fields && !identical(input_values$male, normalized_counts$final_report_male_embryos)) {
+        updateNumericInput(session, "quick_male_embryos_input", value = normalized_counts$final_report_male_embryos)
+      }
+      if ("female" %in% normalized_counts$autofilled_fields && !identical(input_values$female, normalized_counts$final_report_female_embryos)) {
+        updateNumericInput(session, "quick_female_embryos_input", value = normalized_counts$final_report_female_embryos)
+      }
+      if ("unknown" %in% normalized_counts$autofilled_fields && !identical(input_values$unknown, normalized_counts$final_report_unknown_embryos)) {
+        updateNumericInput(session, "quick_unknown_embryos_input", value = normalized_counts$final_report_unknown_embryos)
+      }
+    },
+    ignoreInit = TRUE
+  )
+
   build_plugging_details_clipboard_text <- function(row) {
     female_label <- build_plugging_mouse_label(row$female_id, row$female_genotype, row$female_breeding_line, "female")
     male_label <- build_plugging_mouse_label(row$male_id, row$male_genotype, row$male_breeding_line, "male")
@@ -2544,6 +2614,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   show_collection_report_modal <- function(plugging_id) {
     if (is.null(plugging_id)) return()
 
+    write_collection_debug_log("open_modal_request", list(plugging_id = plugging_id))
+
     con <- db_connect()
     tryCatch({
       plugging_row <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
@@ -2573,6 +2645,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       }
 
       plugging_state$confirming_id <- plugging_id
+  write_collection_debug_log("open_modal_ready", list(plugging_id = plugging_id, female_id = plugging_row$female_id[1]))
       showModal(modalDialog(
         title = "Review Sample Collected Report",
         size = "l",
@@ -2644,7 +2717,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         ),
         footer = tagList(
           modalButton("Cancel"),
-          actionButton("confirm_quick_euthanasia_btn", "Save Collection Report", class = "btn-danger")
+          actionButton("confirm_collection_report_btn", "Save Collection Report", class = "btn-danger")
         )
       ))
     }, finally = {
@@ -3193,9 +3266,22 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   })
 
   # Add new observer for quick euthanasia/collected confirmation
-  observeEvent(input$confirm_quick_euthanasia_btn, {
+  save_collection_report <- function(trigger_value = NULL, trigger_name = "unknown") {
     plugging_id <- plugging_state$confirming_id
-    if (is.null(plugging_id)) return()
+    write_collection_debug_log(
+      "save_clicked",
+      list(
+        trigger = trigger_name,
+        button_value = ifelse(is.null(trigger_value), "NULL", trigger_value),
+        plugging_id = ifelse(is.null(plugging_id), "NULL", plugging_id),
+        selected_status_raw = ifelse(is.null(input$confirm_status_choice), "NULL", input$confirm_status_choice)
+      )
+    )
+    if (is.null(plugging_id)) {
+      write_collection_debug_log("early_return_missing_plugging_id")
+      showNotification("Collection report save did not start: missing plugging event context.", type = "error")
+      return()
+    }
 
     selected_status <- input$confirm_status_choice
     if (is.null(selected_status) || identical(selected_status, "")) {
@@ -3203,7 +3289,11 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     }
     date_of_death <- input$quick_euthanasia_date_input
     notes <- input$quick_euthanasia_notes_input
-    if (is.null(selected_status) || !(selected_status %in% c("Empty", "Collected"))) return()
+    if (is.null(selected_status) || !(selected_status %in% c("Empty", "Collected"))) {
+      write_collection_debug_log("early_return_invalid_status", list(selected_status = selected_status))
+      showNotification("Collection report save did not start: invalid status value.", type = "error")
+      return()
+    }
 
     normalize_text_scalar <- function(value) {
       if (is.null(value) || length(value) == 0 || is.na(value[1])) {
@@ -3234,14 +3324,18 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     con <- db_connect()
     transaction_started <- FALSE
     save_committed <- FALSE
+
     tryCatch({
+      write_collection_debug_log("start", list(plugging_id = plugging_id, selected_status = selected_status))
       DBI::dbBegin(con)
       transaction_started <- TRUE
+      write_collection_debug_log("transaction_started")
 
       current <- DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
       if (nrow(current) == 0) {
         stop("Plugging event not found")
       }
+      write_collection_debug_log("loaded_current_row", list(rows = nrow(current), female_id = current$female_id[1]))
       old_values <- current[1, ]
       existing_row <- current[1, , drop = FALSE]
 
@@ -3327,6 +3421,32 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         unknown_embryos_value <- current_integer_value("final_report_unknown_embryos")
       }
 
+      normalized_embryo_counts <- normalize_final_report_embryo_counts(
+        total_embryos = total_embryos_value,
+        male_embryos = male_embryos_value,
+        female_embryos = female_embryos_value,
+        unknown_embryos = unknown_embryos_value
+      )
+      write_collection_debug_log(
+        "normalized_embryo_counts",
+        list(
+          total = normalized_embryo_counts$final_report_total_embryos,
+          male = normalized_embryo_counts$final_report_male_embryos,
+          female = normalized_embryo_counts$final_report_female_embryos,
+          unknown = normalized_embryo_counts$final_report_unknown_embryos,
+          autofilled = paste(normalized_embryo_counts$autofilled_fields, collapse = "/"),
+          validation = ifelse(is.null(normalized_embryo_counts$validation_message), "", normalized_embryo_counts$validation_message)
+        )
+      )
+      if (!is.null(normalized_embryo_counts$validation_message)) {
+        stop(normalized_embryo_counts$validation_message)
+      }
+
+      total_embryos_value <- normalized_embryo_counts$final_report_total_embryos
+      male_embryos_value <- normalized_embryo_counts$final_report_male_embryos
+      female_embryos_value <- normalized_embryo_counts$final_report_female_embryos
+      unknown_embryos_value <- normalized_embryo_counts$final_report_unknown_embryos
+
       final_report_notes_value <- normalize_text_scalar(notes)
 
       report_details <- list(
@@ -3340,6 +3460,18 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         final_report_mixed_age = mixed_age_flag,
         final_report_age_groups_json = age_groups_json,
         final_report_notes = final_report_notes_value
+      )
+      write_collection_debug_log(
+        "report_details_ready",
+        list(
+          final_report_date = report_details$final_report_date,
+          primary_age = report_details$final_report_primary_age,
+          total = report_details$final_report_total_embryos,
+          male = report_details$final_report_male_embryos,
+          female = report_details$final_report_female_embryos,
+          unknown = report_details$final_report_unknown_embryos,
+          mixed_age = report_details$final_report_mixed_age
+        )
       )
       # Update plugging status
       plugging_rows_updated <- DBI::dbExecute(con, 
@@ -3359,6 +3491,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           plugging_id
         )
       )
+      write_collection_debug_log("plugging_history_updated", list(rows = plugging_rows_updated))
       if (!isTRUE(plugging_rows_updated == 1L)) {
         stop("Plugging report update did not affect the expected record.")
       }
@@ -3372,12 +3505,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           female_id
         )
       )
+      write_collection_debug_log("female_status_updated", list(female_id = female_id, date_of_death = as.character(date_of_death)))
 
       updated_row <- DBI::dbGetQuery(
         con,
         "SELECT plugging_status, final_report_date, final_report_primary_age, final_report_total_embryos, final_report_notes, final_report_mixed_age FROM plugging_history WHERE id = ?",
         params = list(plugging_id)
       )
+      write_collection_debug_log("reloaded_updated_row", list(rows = nrow(updated_row)))
 
       if (nrow(updated_row) != 1) {
         stop("Unable to confirm the saved collection report in the database.")
@@ -3395,6 +3530,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       DBI::dbCommit(con)
       transaction_started <- FALSE
       save_committed <- TRUE
+      write_collection_debug_log("transaction_committed")
 
       showNotification(
         paste0(
@@ -3406,6 +3542,26 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         ),
         type = "message"
       )
+      if (length(normalized_embryo_counts$autofilled_fields) > 0) {
+        autofill_labels <- vapply(
+          normalized_embryo_counts$autofilled_fields,
+          function(field_name) {
+            switch(
+              field_name,
+              total = "Total Embryos",
+              male = "Male",
+              female = "Female",
+              unknown = "Unknown",
+              field_name
+            )
+          },
+          character(1)
+        )
+        showNotification(
+          paste0(paste(autofill_labels, collapse = " and "), " were autofilled from the other embryo counts."),
+          type = "message"
+        )
+      }
       removeModal()
       plugging_state$confirming_id <- NULL
 
@@ -3447,6 +3603,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           )
         )
         Sys.sleep(1)
+        write_collection_debug_log("audit_logged")
         auto_update_plugging_status_to_unknown()
         plugging_state$reload <- Sys.time()
         if (!is.null(global_refresh_trigger)) {
@@ -3460,6 +3617,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         )
       })
     }, error = function(e) {
+      write_collection_debug_log(
+        "error",
+        list(
+          message = e$message,
+          transaction_started = transaction_started,
+          save_committed = save_committed
+        )
+      )
       if (isTRUE(transaction_started)) {
         tryCatch(DBI::dbRollback(con), error = function(rollback_error) NULL)
       }
@@ -3474,6 +3639,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     }, finally = {
       db_disconnect(con)
     })
+  }
+
+  observeEvent(input$confirm_quick_euthanasia_btn, {
+    save_collection_report(input$confirm_quick_euthanasia_btn, "confirm_quick_euthanasia_btn")
+  })
+
+  observeEvent(input$confirm_collection_report_btn, {
+    save_collection_report(input$confirm_collection_report_btn, "confirm_collection_report_btn")
   })
 
   # Add new observer for quick Empty (Alive) confirmation

@@ -278,6 +278,81 @@ parse_final_report_notes <- function(note_text) {
   )
 }
 
+normalize_final_report_embryo_counts <- function(total_embryos = NA_integer_, male_embryos = NA_integer_,
+                                                 female_embryos = NA_integer_, unknown_embryos = NA_integer_) {
+  normalize_count <- function(value) {
+    parsed <- suppressWarnings(as.integer(value))
+    if (length(parsed) == 0 || is.na(parsed[1])) {
+      return(NA_integer_)
+    }
+
+    parsed <- parsed[1]
+    if (parsed < 0) {
+      return(NA_integer_)
+    }
+
+    parsed
+  }
+
+  counts <- list(
+    total = normalize_count(total_embryos),
+    male = normalize_count(male_embryos),
+    female = normalize_count(female_embryos),
+    unknown = normalize_count(unknown_embryos)
+  )
+
+  component_names <- c("male", "female", "unknown")
+  missing_components <- component_names[vapply(component_names, function(name) is.na(counts[[name]]), logical(1))]
+
+  autofilled_fields <- character(0)
+
+  if (is.na(counts$unknown) && !is.na(counts$male) && !is.na(counts$female) && is.na(counts$total)) {
+    counts$unknown <- 0L
+    autofilled_fields <- c(autofilled_fields, "unknown")
+  }
+
+  if (!is.na(counts$total) && is.na(counts$unknown) &&
+      xor(is.na(counts$male), is.na(counts$female))) {
+    counts$unknown <- 0L
+    autofilled_fields <- c(autofilled_fields, "unknown")
+  }
+
+  missing_components <- component_names[vapply(component_names, function(name) is.na(counts[[name]]), logical(1))]
+
+  if (is.na(counts$total) && length(missing_components) == 0) {
+    counts$total <- counts$male + counts$female + counts$unknown
+    autofilled_fields <- c(autofilled_fields, "total")
+  }
+
+  if (!is.na(counts$total) && length(missing_components) == 1) {
+    known_component_sum <- sum(unlist(counts[setdiff(component_names, missing_components)]), na.rm = TRUE)
+    if (known_component_sum <= counts$total) {
+      counts[[missing_components[1]]] <- counts$total - known_component_sum
+      autofilled_fields <- c(autofilled_fields, missing_components[1])
+    }
+  }
+
+  component_values <- unlist(counts[component_names])
+  known_component_values <- component_values[!is.na(component_values)]
+  known_component_sum <- if (length(known_component_values) > 0) sum(known_component_values) else NA_integer_
+
+  validation_message <- NULL
+  if (!is.na(counts$total) && !is.na(known_component_sum) && known_component_sum > counts$total) {
+    validation_message <- "Total embryos must be greater than or equal to male + female + unknown."
+  } else if (!is.na(counts$total) && length(missing_components) == 0 && known_component_sum != counts$total) {
+    validation_message <- "Total embryos must equal male + female + unknown when all three component counts are provided."
+  }
+
+  list(
+    final_report_total_embryos = counts$total,
+    final_report_male_embryos = counts$male,
+    final_report_female_embryos = counts$female,
+    final_report_unknown_embryos = counts$unknown,
+    autofilled_fields = unique(autofilled_fields),
+    validation_message = validation_message
+  )
+}
+
 merge_final_report_details <- function(existing_row = NULL, status = NULL, final_report_date = NULL,
                                        primary_age_input = NULL, mixed_age_input = NULL,
                                        total_embryos = NA_integer_, male_embryos = NA_integer_,
@@ -401,6 +476,17 @@ merge_final_report_details <- function(existing_row = NULL, status = NULL, final
   if (is.na(merged_unknown)) {
     merged_unknown <- parsed_notes$unknown_embryos
   }
+
+  normalized_counts <- normalize_final_report_embryo_counts(
+    total_embryos = merged_total,
+    male_embryos = merged_male,
+    female_embryos = merged_female,
+    unknown_embryos = merged_unknown
+  )
+  merged_total <- normalized_counts$final_report_total_embryos
+  merged_male <- normalized_counts$final_report_male_embryos
+  merged_female <- normalized_counts$final_report_female_embryos
+  merged_unknown <- normalized_counts$final_report_unknown_embryos
 
   merged_age_groups <- structured_age_groups
   if (nrow(merged_age_groups) == 0 && !is.null(existing_row) && nrow(existing_row) > 0 && "final_report_age_groups_json" %in% names(existing_row)) {

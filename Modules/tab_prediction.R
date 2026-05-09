@@ -407,6 +407,9 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
     training_rows <- training_table_rows()
     req(nrow(training_rows) > 0, cancelOutput = TRUE)
 
+    session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('prediction_training_table');")
+    session$sendCustomMessage(type = "eval", message = "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
+
     display_rows <- training_rows[, c(
       "plugging_id", "female_id", "male_id", "plugging_status", "outcome_label",
       "pairing_start_date", "plug_observed_date",
@@ -414,6 +417,11 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
       "final_report_male_embryos", "final_report_female_embryos",
       "parse_confidence", "notes", "final_report_notes"
     ), drop = FALSE]
+
+    on.exit({
+      session$sendCustomMessage(type = "eval", message = "setTimeout(function() { if(typeof restoreDataTableState === 'function') restoreDataTableState('prediction_training_table'); }, 100);")
+      session$sendCustomMessage(type = "eval", message = "setTimeout(function() { if(typeof restoreScrollForAllTables === 'function') restoreScrollForAllTables(); }, 200);")
+    }, add = TRUE)
 
     DT::datatable(
       display_rows,

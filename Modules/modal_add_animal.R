@@ -894,6 +894,11 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     }
     db_path
   }
+
+  session_is_active <- reactiveVal(TRUE)
+  session$onSessionEnded(function() {
+    session_is_active(FALSE)
+  })
   
   # Helper function to refresh all_mice_table
   refresh_all_mice_table <- function() {
@@ -983,9 +988,23 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
   
   # Handle ASU ID availability checking for dynamically created input IDs
   observe({
+    if (!isTRUE(session_is_active())) {
+      return()
+    }
+
     # Get all input names that start with check_asu_id_
-    input_names <- names(reactiveValuesToList(input))
+    input_names <- tryCatch(
+      names(reactiveValuesToList(input)),
+      error = function(e) NULL
+    )
+    if (!is.character(input_names) || length(input_names) == 0) {
+      return()
+    }
+
     check_asu_inputs <- input_names[grepl("^check_asu_id_", input_names)]
+    if (length(check_asu_inputs) == 0) {
+      return()
+    }
     
     # Process each check request
     for (input_name in check_asu_inputs) {
