@@ -93,6 +93,11 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   if (is.null(isolate(plugging_state$viewing_refresh))) {
     plugging_state$viewing_refresh <- 0
   }
+
+  details_prediction_training_dataset <- reactive({
+    global_refresh_trigger()
+    tryCatch(build_plugging_prediction_dataset(DB_PATH), error = function(e) data.frame())
+  })
   
   # Add a reactiveVal to store the pending delete plugging_id
   pending_delete_id <- reactiveVal(NULL)
@@ -190,21 +195,39 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   }
 
   write_collection_debug_log <- function(stage, details = list()) {
-    timestamp_text <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-    detail_text <- ""
-    if (length(details) > 0) {
-      detail_pairs <- vapply(names(details), function(detail_name) {
-        paste0(detail_name, "=", as.character(details[[detail_name]]))
-      }, character(1))
-      detail_text <- paste0(" | ", paste(detail_pairs, collapse = ", "))
-    }
-
-    log_line <- paste0("[CollectionReport] ", timestamp_text, " | ", stage, detail_text, "\n")
-    cat(log_line, file = stderr())
-    flush.console()
+    invisible(NULL)
   }
 
   embryo_count_autofill_in_progress <- reactiveVal(FALSE)
+
+  apply_embryo_count_autofill <- function(input_values, input_ids) {
+    normalized_counts <- normalize_final_report_embryo_counts(
+      total_embryos = input_values$total,
+      male_embryos = input_values$male,
+      female_embryos = input_values$female,
+      unknown_embryos = input_values$unknown
+    )
+
+    if (!is.null(normalized_counts$validation_message) || length(normalized_counts$autofilled_fields) == 0) {
+      return()
+    }
+
+    embryo_count_autofill_in_progress(TRUE)
+    on.exit(embryo_count_autofill_in_progress(FALSE), add = TRUE)
+
+    if ("total" %in% normalized_counts$autofilled_fields && !identical(input_values$total, normalized_counts$final_report_total_embryos)) {
+      updateNumericInput(session, input_ids$total, value = normalized_counts$final_report_total_embryos)
+    }
+    if ("male" %in% normalized_counts$autofilled_fields && !identical(input_values$male, normalized_counts$final_report_male_embryos)) {
+      updateNumericInput(session, input_ids$male, value = normalized_counts$final_report_male_embryos)
+    }
+    if ("female" %in% normalized_counts$autofilled_fields && !identical(input_values$female, normalized_counts$final_report_female_embryos)) {
+      updateNumericInput(session, input_ids$female, value = normalized_counts$final_report_female_embryos)
+    }
+    if ("unknown" %in% normalized_counts$autofilled_fields && !identical(input_values$unknown, normalized_counts$final_report_unknown_embryos)) {
+      updateNumericInput(session, input_ids$unknown, value = normalized_counts$final_report_unknown_embryos)
+    }
+  }
 
   observeEvent(
     list(
@@ -229,32 +252,88 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         return()
       }
 
-      normalized_counts <- normalize_final_report_embryo_counts(
-        total_embryos = input_values$total,
-        male_embryos = input_values$male,
-        female_embryos = input_values$female,
-        unknown_embryos = input_values$unknown
+      apply_embryo_count_autofill(
+        input_values,
+        list(
+          total = "quick_total_embryos_input",
+          male = "quick_male_embryos_input",
+          female = "quick_female_embryos_input",
+          unknown = "quick_unknown_embryos_input"
+        )
       )
+    },
+    ignoreInit = TRUE
+  )
 
-      if (!is.null(normalized_counts$validation_message) || length(normalized_counts$autofilled_fields) == 0) {
+  observeEvent(
+    list(
+      input$edit_final_report_total_embryos,
+      input$edit_final_report_male_embryos,
+      input$edit_final_report_female_embryos,
+      input$edit_final_report_unknown_embryos
+    ),
+    {
+      if (isTRUE(embryo_count_autofill_in_progress())) {
         return()
       }
 
-      embryo_count_autofill_in_progress(TRUE)
-      on.exit(embryo_count_autofill_in_progress(FALSE), add = TRUE)
+      input_values <- list(
+        total = input$edit_final_report_total_embryos,
+        male = input$edit_final_report_male_embryos,
+        female = input$edit_final_report_female_embryos,
+        unknown = input$edit_final_report_unknown_embryos
+      )
 
-      if ("total" %in% normalized_counts$autofilled_fields && !identical(input_values$total, normalized_counts$final_report_total_embryos)) {
-        updateNumericInput(session, "quick_total_embryos_input", value = normalized_counts$final_report_total_embryos)
+      if (all(vapply(input_values, is.null, logical(1)))) {
+        return()
       }
-      if ("male" %in% normalized_counts$autofilled_fields && !identical(input_values$male, normalized_counts$final_report_male_embryos)) {
-        updateNumericInput(session, "quick_male_embryos_input", value = normalized_counts$final_report_male_embryos)
+
+      apply_embryo_count_autofill(
+        input_values,
+        list(
+          total = "edit_final_report_total_embryos",
+          male = "edit_final_report_male_embryos",
+          female = "edit_final_report_female_embryos",
+          unknown = "edit_final_report_unknown_embryos"
+        )
+      )
+    },
+    ignoreInit = TRUE
+  )
+
+  observeEvent(
+    list(
+      input$euthanasia_total_embryos_input,
+      input$euthanasia_male_embryos_input,
+      input$euthanasia_female_embryos_input,
+      input$euthanasia_unknown_embryos_input,
+      input$euthanasia_status_choice
+    ),
+    {
+      if (isTRUE(embryo_count_autofill_in_progress()) || !identical(input$euthanasia_status_choice, "Collected")) {
+        return()
       }
-      if ("female" %in% normalized_counts$autofilled_fields && !identical(input_values$female, normalized_counts$final_report_female_embryos)) {
-        updateNumericInput(session, "quick_female_embryos_input", value = normalized_counts$final_report_female_embryos)
+
+      input_values <- list(
+        total = input$euthanasia_total_embryos_input,
+        male = input$euthanasia_male_embryos_input,
+        female = input$euthanasia_female_embryos_input,
+        unknown = input$euthanasia_unknown_embryos_input
+      )
+
+      if (all(vapply(input_values, is.null, logical(1)))) {
+        return()
       }
-      if ("unknown" %in% normalized_counts$autofilled_fields && !identical(input_values$unknown, normalized_counts$final_report_unknown_embryos)) {
-        updateNumericInput(session, "quick_unknown_embryos_input", value = normalized_counts$final_report_unknown_embryos)
-      }
+
+      apply_embryo_count_autofill(
+        input_values,
+        list(
+          total = "euthanasia_total_embryos_input",
+          male = "euthanasia_male_embryos_input",
+          female = "euthanasia_female_embryos_input",
+          unknown = "euthanasia_unknown_embryos_input"
+        )
+      )
     },
     ignoreInit = TRUE
   )
@@ -870,7 +949,8 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       plugging <- DBI::dbGetQuery(con, 
         "SELECT ph.*, 
                 m.dob as male_dob, m.breeding_line as male_breeding_line, m.genotype as male_genotype, m.status as male_status,
-                f.dob as female_dob, f.breeding_line as female_breeding_line, f.genotype as female_genotype, f.status as female_status
+                f.dob as female_dob, f.breeding_line as female_breeding_line, f.genotype as female_genotype, f.status as female_status,
+                f.date_of_death as female_date_of_death
          FROM plugging_history ph
          LEFT JOIN mice_stock m ON ph.male_id = m.asu_id
          LEFT JOIN mice_stock f ON ph.female_id = f.asu_id
@@ -894,8 +974,24 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       if (nrow(plugging) == 0) return()
       
       row <- plugging[1, ]
+      report_defaults <- extract_plugging_final_report(plugging)
+      mixed_age_text <- ""
+      if (!is.na(report_defaults$final_report_age_groups_json) && report_defaults$final_report_age_groups_json != "") {
+        mixed_age_groups <- tryCatch(jsonlite::fromJSON(report_defaults$final_report_age_groups_json), error = function(e) NULL)
+        if (!is.null(mixed_age_groups) && NROW(mixed_age_groups) > 0) {
+          mixed_age_df <- as.data.frame(mixed_age_groups, stringsAsFactors = FALSE)
+          mixed_age_text <- paste(apply(mixed_age_df, 1, function(group_row) {
+            if (!is.na(group_row[["count"]]) && group_row[["count"]] != "") {
+              paste0(group_row[["age_label"]], " x", group_row[["count"]])
+            } else {
+              group_row[["age_label"]]
+            }
+          }), collapse = "; ")
+        }
+      }
+      report_details <- extract_plugging_final_report(plugging)
       event_body_weight_history <- build_event_weight_window(female_body_weight_history, plugging, female_plugging_history)
-      training_dataset <- tryCatch(build_plugging_prediction_dataset(DB_PATH), error = function(e) data.frame())
+      training_dataset <- details_prediction_training_dataset()
       current_prediction_mode <- normalize_prediction_breeding_line_mode(plugging_state$prediction_breeding_line_mode)
       current_prediction <- tryCatch(
         predict_plugging_event_outcome(
@@ -1446,10 +1542,15 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     show_collection_report_modal(external_id)
   }, ignoreInit = TRUE)
 
-  # Edit button from details view
-  observeEvent(input$edit_plugging_details_btn, {
-    plugging_id <- plugging_state$viewing_id
-    if (is.null(plugging_id)) return()
+  # Controls whether canceling edit should reopen details modal.
+  # TRUE for standard details->edit flow; FALSE for external direct edit requests.
+  return_to_details_after_edit <- reactiveVal(TRUE)
+  edit_modal_date_defaults <- reactiveVal(NULL)
+
+  show_plugging_edit_modal <- function(plugging_id) {
+    if (is.null(plugging_id)) {
+      return()
+    }
 
     align_for_binding <- function(source_df, target_columns) {
       missing_columns <- setdiff(target_columns, colnames(source_df))
@@ -1466,6 +1567,21 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       
       if (nrow(plugging) == 0) return()
       row <- plugging[1, ]
+      report_defaults <- extract_plugging_final_report(plugging)
+      mixed_age_text <- ""
+      if (!is.na(report_defaults$final_report_age_groups_json) && report_defaults$final_report_age_groups_json != "") {
+        mixed_age_groups <- tryCatch(jsonlite::fromJSON(report_defaults$final_report_age_groups_json), error = function(e) NULL)
+        if (!is.null(mixed_age_groups) && NROW(mixed_age_groups) > 0) {
+          mixed_age_df <- as.data.frame(mixed_age_groups, stringsAsFactors = FALSE)
+          mixed_age_text <- paste(apply(mixed_age_df, 1, function(group_row) {
+            if (!is.na(group_row[["count"]]) && group_row[["count"]] != "") {
+              paste0(group_row[["age_label"]], " x", group_row[["count"]])
+            } else {
+              group_row[["age_label"]]
+            }
+          }), collapse = "; ")
+        }
+      }
       
       # Get available LIVE mice for dropdown
       live_mice_data <- get_live_mice()
@@ -1504,6 +1620,23 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       }
       female_choices <- setNames(all_females$asu_id, 
                                 paste(all_females$asu_id, "-", all_females$breeding_line, "(", all_females$genotype, ")"))
+
+      pairing_start_valid <- is_valid_pairing_date(row$pairing_start_date)
+      pairing_end_valid <- is_valid_pairing_date(row$pairing_end_date)
+      plug_observed_valid <- is_valid_plug_date(row$plug_observed_date)
+
+      default_pairing_start <- if (pairing_start_valid) as.Date(row$pairing_start_date) else Sys.Date()
+      default_pairing_end <- if (pairing_end_valid) as.Date(row$pairing_end_date) else Sys.Date()
+      default_plug_observed <- if (plug_observed_valid) as.Date(row$plug_observed_date) else Sys.Date()
+
+      edit_modal_date_defaults(list(
+        pairing_start_was_missing = !pairing_start_valid,
+        pairing_end_was_missing = !pairing_end_valid,
+        plug_observed_was_missing = !plug_observed_valid,
+        pairing_start_default = as.character(default_pairing_start),
+        pairing_end_default = as.character(default_pairing_end),
+        plug_observed_default = as.character(default_plug_observed)
+      ))
       
       # Close the details modal first
       removeModal()
@@ -1525,9 +1658,9 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           ),
           fluidRow(
             column(6, dateInput("edit_pairing_start_date", "Pairing Start Date", 
-                                value = if(is_valid_pairing_date(row$pairing_start_date)) as.Date(row$pairing_start_date) else Sys.Date())),
+                                value = default_pairing_start)),
             column(6, dateInput("edit_pairing_end_date", "Pairing End Date", 
-                                value = if(is_valid_pairing_date(row$pairing_end_date)) as.Date(row$pairing_end_date) else Sys.Date()))
+                                value = default_pairing_end))
           ),
           fluidRow(
             column(6, 
@@ -1537,14 +1670,68 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               conditionalPanel(
                 condition = "input.edit_plug_observed_type == 'date'",
                 div(style = "margin-top: -10px;", dateInput("edit_plug_observed_date", "Plug Observed Date", 
-                          value = if(is_valid_plug_date(row$plug_observed_date)) as.Date(row$plug_observed_date) else Sys.Date()))
+                          value = default_plug_observed))
               )
             ),
             column(6, selectInput("edit_plugging_status", "Plugging Status", 
                                  choices = PLUGGING_STATUSES, selected = row$plugging_status)),
             column(6, textInput("edit_expected_age_for_harvesting", "Expected Age for Harvesting (Embryonic Days, e.g. 14)", value = if(!is.null(row$expected_age_for_harvesting) && !is.na(row$expected_age_for_harvesting)) row$expected_age_for_harvesting else "", width = "100%"))
           ),
-          textAreaInput("edit_plugging_notes", "Notes", value = row$notes, rows = 3)
+          textAreaInput("edit_plugging_notes", "Plugging History Notes", value = row$notes, rows = 3),
+          conditionalPanel(
+            condition = "input.edit_plugging_status == 'Collected' || input.edit_plugging_status == 'Empty'",
+            div(
+              style = "margin-top: 14px; padding: 12px 14px; background: #fff8e1; border-left: 4px solid #f59e0b; border-radius: 6px;",
+              h4("Collection / Sacrifice Report", style = "margin: 0 0 10px 0; color: #b45309; font-size: 1.05em;"),
+              fluidRow(
+                column(6,
+                  dateInput(
+                    "edit_final_report_date",
+                    "Collection / Sacrifice Date",
+                    value = if (!is.na(report_defaults$final_report_date) && report_defaults$final_report_date != "") as.Date(report_defaults$final_report_date) else Sys.Date()
+                  ),
+                  textInput(
+                    "edit_final_report_primary_age",
+                    "Primary Embryo Age",
+                    value = ifelse(is.na(report_defaults$final_report_primary_age), "", report_defaults$final_report_primary_age),
+                    placeholder = "E16 or E16.5"
+                  ),
+                  checkboxInput(
+                    "edit_final_report_mixed_age",
+                    "Mixed embryo ages in this collection",
+                    value = isTRUE(report_defaults$final_report_mixed_age)
+                  ),
+                  textAreaInput(
+                    "edit_final_report_age_groups",
+                    "Age Group Details",
+                    value = mixed_age_text,
+                    rows = 2,
+                    placeholder = "E15 x 4; E16 x 6"
+                  )
+                ),
+                column(6,
+                  numericInput(
+                    "edit_final_report_total_embryos",
+                    "Total Embryos",
+                    value = ifelse(is.na(report_defaults$final_report_total_embryos), NA, report_defaults$final_report_total_embryos),
+                    min = 0,
+                    step = 1
+                  ),
+                  fluidRow(
+                    column(4, numericInput("edit_final_report_male_embryos", "Male", value = ifelse(is.na(report_defaults$final_report_male_embryos), NA, report_defaults$final_report_male_embryos), min = 0, step = 1)),
+                    column(4, numericInput("edit_final_report_female_embryos", "Female", value = ifelse(is.na(report_defaults$final_report_female_embryos), NA, report_defaults$final_report_female_embryos), min = 0, step = 1)),
+                    column(4, numericInput("edit_final_report_unknown_embryos", "Unknown", value = ifelse(is.na(report_defaults$final_report_unknown_embryos), NA, report_defaults$final_report_unknown_embryos), min = 0, step = 1))
+                  ),
+                  textAreaInput(
+                    "edit_final_report_notes",
+                    "Sample Collection Notes",
+                    value = if (!is.null(report_defaults$final_report_notes) && !is.na(report_defaults$final_report_notes)) report_defaults$final_report_notes else "",
+                    rows = 3
+                  )
+                )
+              )
+            )
+          )
         ),
         footer = tagList(
           actionButton("cancel_plugging_edit_btn", "Cancel", class = "btn btn-default"),
@@ -1557,6 +1744,24 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     }, finally = {
       db_disconnect(con)
     })
+  }
+
+  # Edit button from details view
+  observeEvent(input$edit_plugging_details_btn, {
+    plugging_id <- plugging_state$viewing_id
+    if (is.null(plugging_id)) return()
+    return_to_details_after_edit(TRUE)
+    show_plugging_edit_modal(plugging_id)
+  })
+
+  # External edit request (for prediction not_pregnant rows)
+  observeEvent(plugging_state$open_edit_id, {
+    req(plugging_state$open_edit_id)
+
+    external_id <- plugging_state$open_edit_id
+    plugging_state$open_edit_id <- NULL
+    return_to_details_after_edit(FALSE)
+    show_plugging_edit_modal(external_id)
   })
   
   # Helper function to perform the actual save operation, callable from multiple places
@@ -1569,28 +1774,81 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         return()
       }
       old_values <- current[1, ]
+
+      normalize_compare_value <- function(value) {
+        if (is.null(value) || length(value) == 0 || all(is.na(value))) {
+          return(NA_character_)
+        }
+
+        scalar <- value[1]
+        if (is.logical(scalar)) {
+          if (is.na(scalar)) return(NA_character_)
+          return(ifelse(isTRUE(scalar), "1", "0"))
+        }
+
+        if (is.numeric(scalar)) {
+          if (is.na(scalar)) return(NA_character_)
+          return(as.character(scalar))
+        }
+
+        text_value <- trimws(as.character(scalar))
+        if (identical(text_value, "") || identical(tolower(text_value), "na")) {
+          return(NA_character_)
+        }
+
+        text_value
+      }
+
+      changed_fields <- names(update_data)[vapply(names(update_data), function(field_name) {
+        old_value <- if (field_name %in% colnames(old_values)) old_values[[field_name]][1] else NA
+        new_value <- update_data[[field_name]]
+
+        old_norm <- normalize_compare_value(old_value)
+        new_norm <- normalize_compare_value(new_value)
+
+        !(is.na(old_norm) && is.na(new_norm)) && !identical(old_norm, new_norm)
+      }, logical(1))]
+
+      if (length(changed_fields) == 0) {
+        showNotification("No changes detected. Nothing was saved.", type = "warning")
+        removeModal()
+        plugging_state$editing_id <- NULL
+        edit_modal_date_defaults(NULL)
+        return_to_details_after_edit(TRUE)
+        return()
+      }
+
+      changed_update_data <- update_data[changed_fields]
       
       result <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET 
          male_id = ?, female_id = ?, pairing_start_date = ?, pairing_end_date = ?,
          plug_observed_date = ?, plugging_status = ?, expected_age_for_harvesting = ?,
-         notes = ?, updated_at = DATETIME('now')
+         notes = ?, final_report_date = ?, final_report_primary_age = ?, final_report_primary_age_value = ?,
+         final_report_total_embryos = ?, final_report_male_embryos = ?, final_report_female_embryos = ?,
+         final_report_unknown_embryos = ?, final_report_mixed_age = ?, final_report_age_groups_json = ?,
+         final_report_notes = ?, updated_at = DATETIME('now')
          WHERE id = ?",
         params = list(
           update_data$male_id, update_data$female_id, update_data$pairing_start_date,
           update_data$pairing_end_date, update_data$plug_observed_date, update_data$plugging_status,
-          update_data$expected_age_for_harvesting, update_data$notes, plugging_id
+          update_data$expected_age_for_harvesting, update_data$notes,
+          update_data$final_report_date, update_data$final_report_primary_age, update_data$final_report_primary_age_value,
+          update_data$final_report_total_embryos, update_data$final_report_male_embryos, update_data$final_report_female_embryos,
+          update_data$final_report_unknown_embryos, ifelse(isTRUE(update_data$final_report_mixed_age), 1L, 0L),
+          update_data$final_report_age_groups_json, update_data$final_report_notes, plugging_id
         )
       )
       
       if (result > 0) {
-        log_audit_trail("plugging_history", plugging_id, "UPDATE", old_values, update_data)
+        log_audit_trail("plugging_history", plugging_id, "UPDATE", old_values, changed_update_data)
         showNotification("Plugging event updated successfully", type = "message")
         removeModal() # Close confirmation modal if open
         removeModal() # Close edit modal
         Sys.sleep(1)
         auto_update_plugging_status_to_unknown()
         plugging_state$editing_id <- NULL
+        edit_modal_date_defaults(NULL)
         plugging_state$viewing_id <- plugging_id
         # Save state before reload
         session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('plugging_history_table');")
@@ -1624,7 +1882,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     
     con <- db_connect()
     original_record <- tryCatch({
-      DBI::dbGetQuery(con, "SELECT male_id, female_id FROM plugging_history WHERE id = ?", params = list(plugging_id))
+      DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
     }, finally = {
       db_disconnect(con)
     })
@@ -1636,17 +1894,102 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
 
     id_changed <- (original_record$male_id[1] != input$edit_plugging_male) || (original_record$female_id[1] != input$edit_plugging_female)
     
-    plug_observed_date_value <- if(input$edit_plug_observed_type == "unknown") "Unknown" else as.character(input$edit_plug_observed_date)
+    safe_modal_date_text <- function(date_value) {
+      parsed_date <- safe_analysis_date(date_value)
+      if (is.na(parsed_date)) {
+        return(NA_character_)
+      }
+
+      as.character(parsed_date)
+    }
+
+    normalize_edit_modal_date <- function(date_value, missing_flag_key, default_value_key) {
+      parsed_value <- safe_modal_date_text(date_value)
+      if (is.na(parsed_value)) {
+        return(NA_character_)
+      }
+
+      modal_defaults <- edit_modal_date_defaults()
+      if (!is.null(modal_defaults) && isTRUE(modal_defaults[[missing_flag_key]]) &&
+          !is.null(modal_defaults[[default_value_key]]) &&
+          identical(parsed_value, as.character(modal_defaults[[default_value_key]]))) {
+        return(NA_character_)
+      }
+
+      parsed_value
+    }
+
+    pairing_start_date_value <- normalize_edit_modal_date(input$edit_pairing_start_date, "pairing_start_was_missing", "pairing_start_default")
+    pairing_end_date_value <- normalize_edit_modal_date(input$edit_pairing_end_date, "pairing_end_was_missing", "pairing_end_default")
+    plug_observed_date_value <- if (input$edit_plug_observed_type == "unknown") {
+      "Unknown"
+    } else {
+      normalize_edit_modal_date(input$edit_plug_observed_date, "plug_observed_was_missing", "plug_observed_default")
+    }
+
+    report_details <- extract_plugging_final_report(original_record)
+    if (input$edit_plugging_status %in% c("Collected", "Empty")) {
+      primary_age_text <- normalize_text_scalar(input$edit_final_report_primary_age)
+      normalized_primary_age <- normalize_embryo_age_input(primary_age_text)
+      primary_age_label <- if (is.na(normalized_primary_age$numeric)) {
+        if (primary_age_text == "") NA_character_ else primary_age_text
+      } else {
+        normalized_primary_age$label
+      }
+
+      mixed_age_text <- normalize_text_scalar(input$edit_final_report_age_groups)
+      mixed_age_flag <- isTRUE(input$edit_final_report_mixed_age)
+      age_groups_json <- NA_character_
+      if (mixed_age_text != "") {
+        parsed_age_groups <- parse_age_groups_text(mixed_age_text)
+        if (nrow(parsed_age_groups) > 0) {
+          age_groups_json <- jsonlite::toJSON(parsed_age_groups, auto_unbox = TRUE, dataframe = "rows", null = "null")
+          mixed_age_flag <- TRUE
+        }
+      }
+
+      normalized_counts <- normalize_final_report_embryo_counts(
+        total_embryos = input$edit_final_report_total_embryos,
+        male_embryos = input$edit_final_report_male_embryos,
+        female_embryos = input$edit_final_report_female_embryos,
+        unknown_embryos = input$edit_final_report_unknown_embryos
+      )
+      if (!is.null(normalized_counts$validation_message)) {
+        showNotification(normalized_counts$validation_message, type = "error")
+        return()
+      }
+
+      report_details$final_report_date <- as.character(input$edit_final_report_date)
+      report_details$final_report_primary_age <- primary_age_label
+      report_details$final_report_primary_age_value <- if (is.na(normalized_primary_age$numeric)) NA_real_ else normalized_primary_age$numeric
+      report_details$final_report_total_embryos <- normalized_counts$final_report_total_embryos
+      report_details$final_report_male_embryos <- normalized_counts$final_report_male_embryos
+      report_details$final_report_female_embryos <- normalized_counts$final_report_female_embryos
+      report_details$final_report_unknown_embryos <- normalized_counts$final_report_unknown_embryos
+      report_details$final_report_mixed_age <- mixed_age_flag
+      report_details$final_report_age_groups_json <- age_groups_json
+      report_details$final_report_notes <- normalize_text_scalar(input$edit_final_report_notes)
+    }
 
     update_data <- list(
       male_id = input$edit_plugging_male,
       female_id = input$edit_plugging_female,
-      pairing_start_date = as.character(input$edit_pairing_start_date),
-      pairing_end_date = as.character(input$edit_pairing_end_date),
+      pairing_start_date = pairing_start_date_value,
+      pairing_end_date = pairing_end_date_value,
       plug_observed_date = plug_observed_date_value,
       plugging_status = input$edit_plugging_status,
       expected_age_for_harvesting = input$edit_expected_age_for_harvesting,
-      notes = input$edit_plugging_notes
+      notes = input$edit_plugging_notes,
+      final_report_date = report_details$final_report_date,
+      final_report_primary_age = report_details$final_report_primary_age,
+      final_report_primary_age_value = report_details$final_report_primary_age_value,
+      final_report_total_embryos = report_details$final_report_total_embryos,
+      final_report_male_embryos = report_details$final_report_male_embryos,
+      final_report_female_embryos = report_details$final_report_female_embryos,
+      final_report_unknown_embryos = report_details$final_report_unknown_embryos,
+      final_report_mixed_age = report_details$final_report_mixed_age,
+      final_report_age_groups_json = report_details$final_report_age_groups_json,
+      final_report_notes = report_details$final_report_notes
     )
 
     if (id_changed) {
@@ -1685,8 +2028,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
 
     plugging_id <- plugging_state$editing_id
     plugging_state$editing_id <- NULL
+    edit_modal_date_defaults(NULL)
 
-    if (!is.null(plugging_id)) {
+    should_return_to_details <- isTRUE(return_to_details_after_edit())
+    return_to_details_after_edit(TRUE)
+
+    if (should_return_to_details && !is.null(plugging_id)) {
       plugging_state$viewing_id <- plugging_id
       show_plugging_details_modal(plugging_id)
     }
@@ -1873,6 +2220,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       
       if (nrow(plugging) == 0) return()
       row <- plugging[1, ]
+      report_defaults <- extract_plugging_final_report(plugging)
       
       # Get female mouse information
       female_info <- DBI::dbGetQuery(con, 
@@ -1888,22 +2236,94 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         title = "Confirm Plug Status for Euthanasia",
         size = "m",
         tagList(
+          tags$style(HTML("\
+            .euthanasia-layout-row { display: flex; align-items: stretch; }\
+            .euthanasia-left-col, .euthanasia-right-col { display: flex; flex-direction: column; }\
+            .euthanasia-left-col { gap: 12px; }\
+            .euthanasia-right-col .euthanasia-card { height: 100%; }\
+            .euthanasia-card .form-group { margin-bottom: 10px; }\
+            .euthanasia-collection-row { margin-bottom: 2px; }\
+          ")),
+          div(
+            style = "background: #f8fafc; border: 1px solid #dbeafe; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; color: #1e3a5f;",
+            tags$div(style = "font-weight: 600; margin-bottom: 4px;", "Female Mouse Summary"),
+            tags$div(
+              style = "display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: 0.95em;",
+              span(tags$b("ASU ID:"), female_info$asu_id),
+              span(tags$b("Age:"), paste0(female_age, " weeks")),
+              span(tags$b("Line:"), ifelse(is.na(female_info$breeding_line) || female_info$breeding_line == "", "N/A", female_info$breeding_line)),
+              span(tags$b("Genotype:"), ifelse(is.na(female_info$genotype) || female_info$genotype == "", "N/A", female_info$genotype))
+            )
+          ),
           fluidRow(
-            column(6, 
-              wellPanel(
-                tags$h4("Female Mouse Information"),
-                tags$b("ASU ID:"), female_info$asu_id, br(),
-                tags$b("Age (weeks):"), female_age, br(),
-                tags$b("Breeding Line:"), female_info$breeding_line, br(),
-                tags$b("Genotype:"), female_info$genotype
+            class = "euthanasia-layout-row",
+            column(5,
+              class = "euthanasia-left-col",
+              div(
+                class = "euthanasia-card",
+                style = "background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 12px; flex: 1;",
+                tags$div(style = "font-weight: 600; color: #9a3412; margin-bottom: 8px;", "Status Update"),
+                dateInput("euthanasia_date_input", "Date of Death", value = Sys.Date()),
+                radioButtons("euthanasia_status_choice", "Plugging Status after Euthanasia:",
+                  choices = c("Empty" = "Empty", "Sample Collected" = "Collected"),
+                  selected = "Collected"
+                )
+              ),
+              div(
+                class = "euthanasia-card",
+                style = "background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; flex: 1;",
+                tags$div(style = "font-weight: 600; color: #334155; margin-bottom: 8px;", "Plugging History Notes"),
+                textAreaInput("euthanasia_notes_input", NULL, value = ifelse(is.na(plugging$notes) || plugging$notes == "", "", plugging$notes), rows = 3, width = "100%")
               )
             ),
-            column(6,
-              dateInput("euthanasia_date_input", "Date of Death", value = Sys.Date()),
-              textAreaInput("euthanasia_notes_input", "Notes", value = ifelse(is.na(plugging$notes) || plugging$notes == "", "", plugging$notes), rows = 2),
-              radioButtons("euthanasia_status_choice", "Plugging Status after Euthanasia:",
-                choices = c("Empty" = "Empty", "Sample Collected" = "Collected"),
-                selected = "Collected"
+            column(7,
+              class = "euthanasia-right-col",
+              conditionalPanel(
+                condition = "input.euthanasia_status_choice == 'Collected'",
+                div(
+                  class = "euthanasia-card",
+                  style = "background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px;",
+                  tags$div(style = "font-weight: 600; color: #166534; margin-bottom: 8px;", "Sample Collection Report"),
+                  div(
+                    class = "euthanasia-collection-row",
+                    textInput(
+                      "euthanasia_primary_embryo_age_input",
+                      "Primary Embryo Stage",
+                      value = ifelse(is.na(report_defaults$final_report_primary_age), "", report_defaults$final_report_primary_age),
+                      placeholder = "E16 or E16.5"
+                    )
+                  ),
+                  div(
+                    class = "euthanasia-collection-row",
+                    numericInput(
+                      "euthanasia_total_embryos_input",
+                      "Total Embryos",
+                      value = ifelse(is.na(report_defaults$final_report_total_embryos), NA, report_defaults$final_report_total_embryos),
+                      min = 0,
+                      step = 1
+                    )
+                  ),
+                  fluidRow(
+                    column(4, numericInput("euthanasia_male_embryos_input", "Male", value = ifelse(is.na(report_defaults$final_report_male_embryos), NA, report_defaults$final_report_male_embryos), min = 0, step = 1)),
+                    column(4, numericInput("euthanasia_female_embryos_input", "Female", value = ifelse(is.na(report_defaults$final_report_female_embryos), NA, report_defaults$final_report_female_embryos), min = 0, step = 1)),
+                    column(4, numericInput("euthanasia_unknown_embryos_input", "Unknown", value = ifelse(is.na(report_defaults$final_report_unknown_embryos), NA, report_defaults$final_report_unknown_embryos), min = 0, step = 1))
+                  ),
+                  textAreaInput(
+                    "euthanasia_collection_notes_input",
+                    "Sample Collection Notes",
+                    value = if (!is.null(report_defaults$final_report_notes) && !is.na(report_defaults$final_report_notes)) report_defaults$final_report_notes else "",
+                    rows = 3,
+                    width = "100%"
+                  )
+                )
+              ),
+              conditionalPanel(
+                condition = "input.euthanasia_status_choice == 'Empty'",
+                div(
+                  class = "euthanasia-card",
+                  style = "background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px; color: #475569;",
+                  "No collection report is needed when the final status is Empty."
+                )
               )
             )
           ),
@@ -1929,6 +2349,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     if (is.null(plugging_id)) return()
     selected_status <- input$euthanasia_status_choice
     if (is.null(selected_status)) return()
+
+    normalize_modal_text <- function(value) {
+      if (is.null(value) || length(value) == 0 || is.na(value[1])) {
+        return("")
+      }
+
+      trimws(as.character(value[1]))
+    }
     
     con <- db_connect()
     tryCatch({
@@ -1966,18 +2394,70 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         # Update plugging status to selected value
         con2 <- db_connect()
         old_plug <- DBI::dbGetQuery(con2, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
-        DBI::dbExecute(con2, 
-          "UPDATE plugging_history SET \
-           plugging_status = ?,\
-           updated_at = DATETIME('now'),\
-           notes = ?\
-           WHERE id = ?",
-          params = list(
-            selected_status,
-            normalize_plugging_notes_input(input$euthanasia_notes_input),
-            plugging_id
+        collection_notes_value <- normalize_modal_text(input$euthanasia_collection_notes_input)
+        existing_report_details <- extract_plugging_final_report(old_plug)
+        if (identical(selected_status, "Collected")) {
+          primary_age_text <- normalize_modal_text(input$euthanasia_primary_embryo_age_input)
+          normalized_primary_age <- normalize_embryo_age_input(primary_age_text)
+          primary_age_label <- if (is.na(normalized_primary_age$numeric)) {
+            if (primary_age_text == "") NA_character_ else primary_age_text
+          } else {
+            normalized_primary_age$label
+          }
+          normalized_counts <- normalize_final_report_embryo_counts(
+            total_embryos = input$euthanasia_total_embryos_input,
+            male_embryos = input$euthanasia_male_embryos_input,
+            female_embryos = input$euthanasia_female_embryos_input,
+            unknown_embryos = input$euthanasia_unknown_embryos_input
           )
-        )
+          if (!is.null(normalized_counts$validation_message)) {
+            db_disconnect(con2)
+            showNotification(normalized_counts$validation_message, type = "error")
+            return()
+          }
+
+          DBI::dbExecute(con2, 
+            "UPDATE plugging_history SET \
+             plugging_status = ?,\
+             updated_at = DATETIME('now'),\
+             notes = ?,\
+             final_report_date = ?,\
+             final_report_primary_age = ?,\
+             final_report_primary_age_value = ?,\
+             final_report_total_embryos = ?,\
+             final_report_male_embryos = ?,\
+             final_report_female_embryos = ?,\
+             final_report_unknown_embryos = ?,\
+             final_report_notes = ?\
+             WHERE id = ?",
+            params = list(
+              selected_status,
+              normalize_plugging_notes_input(input$euthanasia_notes_input),
+              as.character(input$euthanasia_date_input),
+              primary_age_label,
+              if (is.na(normalized_primary_age$numeric)) existing_report_details$final_report_primary_age_value else normalized_primary_age$numeric,
+              normalized_counts$final_report_total_embryos,
+              normalized_counts$final_report_male_embryos,
+              normalized_counts$final_report_female_embryos,
+              normalized_counts$final_report_unknown_embryos,
+              collection_notes_value,
+              plugging_id
+            )
+          )
+        } else {
+          DBI::dbExecute(con2, 
+            "UPDATE plugging_history SET \
+             plugging_status = ?,\
+             updated_at = DATETIME('now'),\
+             notes = ?\
+             WHERE id = ?",
+            params = list(
+              selected_status,
+              normalize_plugging_notes_input(input$euthanasia_notes_input),
+              plugging_id
+            )
+          )
+        }
         # Log to audit trail for plugging_history change
         plug_audit_result <- log_audit_trail(
           "plugging_history",
@@ -1987,7 +2467,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           list(
             plugging_status = selected_status,
             completion_date = as.character(input$euthanasia_date_input),
-            notes = normalize_plugging_notes_input(input$euthanasia_notes_input)
+            notes = normalize_plugging_notes_input(input$euthanasia_notes_input),
+            final_report_date = if (identical(selected_status, "Collected")) as.character(input$euthanasia_date_input) else NULL,
+            final_report_primary_age = if (identical(selected_status, "Collected")) primary_age_label else NULL,
+            final_report_total_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_total_embryos else NULL,
+            final_report_male_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_male_embryos else NULL,
+            final_report_female_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_female_embryos else NULL,
+            final_report_unknown_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_unknown_embryos else NULL,
+            final_report_notes = if (identical(selected_status, "Collected")) collection_notes_value else NULL
           )
         )
         db_disconnect(con2)
@@ -3473,6 +3960,37 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           mixed_age = report_details$final_report_mixed_age
         )
       )
+
+      female_id <- old_values$female_id
+      female_state <- DBI::dbGetQuery(
+        con,
+        "SELECT status FROM mice_stock WHERE asu_id = ? LIMIT 1",
+        params = list(female_id)
+      )
+      female_requires_update <- nrow(female_state) == 0 || !identical(normalize_text_scalar(female_state$status[1]), "Deceased")
+
+      has_plugging_changes <- !identical(normalize_text_scalar(existing_row$plugging_status[1]), normalize_text_scalar(selected_status)) ||
+        !identical(normalize_text_scalar(existing_row$final_report_date[1]), normalize_text_scalar(report_details$final_report_date)) ||
+        !identical(normalize_text_scalar(existing_row$final_report_primary_age[1]), normalize_text_scalar(report_details$final_report_primary_age)) ||
+        !identical(suppressWarnings(as.numeric(existing_row$final_report_primary_age_value[1])), suppressWarnings(as.numeric(report_details$final_report_primary_age_value))) ||
+        !identical(normalize_integer_scalar(existing_row$final_report_total_embryos[1]), normalize_integer_scalar(report_details$final_report_total_embryos)) ||
+        !identical(normalize_integer_scalar(existing_row$final_report_male_embryos[1]), normalize_integer_scalar(report_details$final_report_male_embryos)) ||
+        !identical(normalize_integer_scalar(existing_row$final_report_female_embryos[1]), normalize_integer_scalar(report_details$final_report_female_embryos)) ||
+        !identical(normalize_integer_scalar(existing_row$final_report_unknown_embryos[1]), normalize_integer_scalar(report_details$final_report_unknown_embryos)) ||
+        !identical(normalize_flag_scalar(existing_row$final_report_mixed_age[1]), normalize_flag_scalar(report_details$final_report_mixed_age)) ||
+        !identical(normalize_text_scalar(existing_row$final_report_age_groups_json[1]), normalize_text_scalar(report_details$final_report_age_groups_json)) ||
+        !identical(normalize_text_scalar(existing_row$final_report_notes[1]), normalize_text_scalar(report_details$final_report_notes))
+
+      if (!has_plugging_changes && !female_requires_update) {
+        write_collection_debug_log("no_changes_detected", list(plugging_id = plugging_id))
+        DBI::dbRollback(con)
+        transaction_started <- FALSE
+        showNotification("No changes detected. Nothing was saved.", type = "warning")
+        removeModal()
+        plugging_state$confirming_id <- NULL
+        return()
+      }
+
       # Update plugging status
       plugging_rows_updated <- DBI::dbExecute(con, 
         "UPDATE plugging_history SET plugging_status = ?, updated_at = DATETIME('now'), final_report_date = ?, final_report_primary_age = ?, final_report_primary_age_value = ?, final_report_total_embryos = ?, final_report_male_embryos = ?, final_report_female_embryos = ?, final_report_unknown_embryos = ?, final_report_mixed_age = ?, final_report_age_groups_json = ?, final_report_notes = ? WHERE id = ?",
@@ -3497,7 +4015,6 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       }
 
       # Update female mouse to Deceased
-      female_id <- old_values$female_id
       DBI::dbExecute(con, 
         "UPDATE mice_stock SET status = 'Deceased', date_of_death = ?, deceased_timestamp = DATETIME('now'), last_updated = DATETIME('now') WHERE asu_id = ? AND status != 'Deceased'",
         params = list(
@@ -3588,7 +4105,6 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           list(
             plugging_status = selected_status,
             confirmation_date = as.character(date_of_death),
-            notes = final_report_notes_value,
             final_report_date = report_details$final_report_date,
             final_report_primary_age = report_details$final_report_primary_age,
             final_report_primary_age_value = report_details$final_report_primary_age_value,

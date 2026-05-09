@@ -964,7 +964,8 @@ server <- function(input, output, session) {
     confirming_id = NULL,
     prediction_target_id = NULL,
     open_details_id = NULL,
-    open_collection_id = NULL
+    open_collection_id = NULL,
+    open_edit_id = NULL
   )
 
   reset_database_dependent_state <- function() {
@@ -975,6 +976,7 @@ server <- function(input, output, session) {
     shared_plugging_state$prediction_target_id <- NULL
     shared_plugging_state$open_details_id <- NULL
     shared_plugging_state$open_collection_id <- NULL
+    shared_plugging_state$open_edit_id <- NULL
   }
   
   # Global lock system for deletion protection

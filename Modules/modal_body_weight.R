@@ -582,10 +582,34 @@ update_body_weight_record <- function(record_id, asu_id, weight_grams, measureme
   on.exit(DBI::dbDisconnect(con), add = TRUE)
   
   tryCatch({
+    existing_record <- DBI::dbGetQuery(
+      con,
+      "SELECT weight_grams, measurement_date, notes FROM body_weight_history WHERE id = ?",
+      params = list(record_id)
+    )
+
+    if (nrow(existing_record) == 0) {
+      showNotification("Body weight record not found.", type = "error", duration = 4)
+      return(FALSE)
+    }
+
+    old_weight <- suppressWarnings(as.numeric(existing_record$weight_grams[1]))
+    old_date <- ifelse(is.na(existing_record$measurement_date[1]), "", as.character(existing_record$measurement_date[1]))
+    old_notes <- ifelse(is.na(existing_record$notes[1]), "", trimws(as.character(existing_record$notes[1])))
+
+    new_weight <- suppressWarnings(as.numeric(weight_grams))
+    new_date <- as.character(measurement_date)
+    new_notes <- ifelse(is.null(notes) || is.na(notes[1]), "", trimws(as.character(notes[1])))
+
+    if (identical(old_weight, new_weight) && identical(old_date, new_date) && identical(old_notes, new_notes)) {
+      showNotification("No changes detected. Nothing was saved.", type = "warning", duration = 3)
+      return(FALSE)
+    }
+
     # Update the body weight record
     DBI::dbExecute(con, 
       "UPDATE body_weight_history SET weight_grams = ?, measurement_date = ?, notes = ?, updated_at = datetime('now') WHERE id = ?",
-      params = list(weight_grams, as.character(measurement_date), notes, record_id)
+      params = list(new_weight, new_date, new_notes, record_id)
     )
     
     showNotification(

@@ -93,7 +93,7 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
   saved_model_choices_version <- reactiveVal(Sys.time())
 
   prediction_state <- if (is.null(shared_plugging_state)) {
-    reactiveValues(prediction_target_id = NULL, viewing_id = NULL, open_details_id = NULL, open_collection_id = NULL, prediction_breeding_line_mode = "feature")
+    reactiveValues(prediction_target_id = NULL, viewing_id = NULL, open_details_id = NULL, open_collection_id = NULL, open_edit_id = NULL, prediction_breeding_line_mode = "feature")
   } else {
     shared_plugging_state
   }
@@ -456,9 +456,15 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
     selected_id <- suppressWarnings(as.integer(selected_row$id))
     req(!is.na(selected_id))
 
+    status_text <- if (!is.null(selected_row$status) && !is.na(selected_row$status)) as.character(selected_row$status) else ""
+    is_not_pregnant <- grepl("not\\s*preg", tolower(status_text), perl = TRUE)
+
     if (identical(selected_row$status, "Collected")) {
       prediction_state$open_collection_id <- NULL
       prediction_state$open_collection_id <- selected_id
+    } else if (is_not_pregnant) {
+      prediction_state$open_edit_id <- NULL
+      prediction_state$open_edit_id <- selected_id
     } else {
       prediction_state$open_details_id <- NULL
       prediction_state$open_details_id <- selected_id
