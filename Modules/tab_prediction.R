@@ -101,6 +101,15 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
   } else {
     shared_plugging_state
   }
+  
+  previous_training_filter_state <- reactiveVal(list(
+    age_range = NULL,
+    breeding_lines = NULL,
+    focus_pregnant = FALSE,
+    breeding_mode = "feature"
+  ))
+  prediction_training_table_page <- reactiveVal(0L)
+  prediction_training_table_page_length <- reactiveVal(25L)
 
   observe({
     prediction_state$prediction_breeding_line_mode <- normalize_prediction_breeding_line_mode(input$prediction_breeding_line_mode)
@@ -407,11 +416,36 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
     training_rows
   })
 
+  observeEvent(input$prediction_training_table_state, {
+    table_state <- input$prediction_training_table_state
+    if (!is.null(table_state$page) && !is.na(table_state$page)) {
+      prediction_training_table_page(as.integer(table_state$page))
+    }
+    if (!is.null(table_state$length) && !is.na(table_state$length)) {
+      prediction_training_table_page_length(as.integer(table_state$length))
+    }
+  }, ignoreInit = TRUE)
+
   output$prediction_training_table <- DT::renderDataTable({
     training_rows <- training_table_rows()
     req(nrow(training_rows) > 0, cancelOutput = TRUE)
 
-    session$sendCustomMessage(type = "eval", message = "if(typeof saveDataTableState === 'function') saveDataTableState('prediction_training_table');")
+    # Track current filter state
+    current_filter_state <- list(
+      age_range = if (is.null(input$prediction_age_range)) NULL else list(input$prediction_age_range[1], input$prediction_age_range[2]),
+      breeding_lines = if (is.null(input$prediction_breeding_lines)) NULL else sort(as.character(input$prediction_breeding_lines)),
+      focus_pregnant = isTRUE(input$prediction_focus_pregnant),
+      breeding_mode = if (is.null(input$prediction_breeding_line_mode)) "feature" else as.character(input$prediction_breeding_line_mode)
+    )
+    
+    previous_state <- previous_training_filter_state()
+    filter_changed <- !identical(current_filter_state, previous_state)
+
+    previous_training_filter_state(current_filter_state)
+    if (filter_changed) {
+      prediction_training_table_page(0L)
+    }
+
     session$sendCustomMessage(type = "eval", message = "if(typeof saveScrollForAllTables === 'function') saveScrollForAllTables();")
 
     display_rows <- training_rows[, c(
@@ -422,9 +456,20 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
       "parse_confidence", "notes", "final_report_notes"
     ), drop = FALSE]
 
+    current_page_length <- prediction_training_table_page_length()
+    if (is.null(current_page_length) || is.na(current_page_length) || current_page_length <= 0) {
+      current_page_length <- 25L
+    }
+    current_page <- prediction_training_table_page()
+    if (is.null(current_page) || is.na(current_page) || current_page < 0) {
+      current_page <- 0L
+    }
+    max_page <- max(0L, ceiling(nrow(display_rows) / current_page_length) - 1L)
+    current_page <- min(as.integer(current_page), as.integer(max_page))
+    display_start <- current_page * current_page_length
+
     on.exit({
-      session$sendCustomMessage(type = "eval", message = "setTimeout(function() { if(typeof restoreDataTableState === 'function') restoreDataTableState('prediction_training_table'); }, 100);")
-      session$sendCustomMessage(type = "eval", message = "setTimeout(function() { if(typeof restoreScrollForAllTables === 'function') restoreScrollForAllTables(); }, 200);")
+      session$sendCustomMessage(type = "eval", message = "setTimeout(function() { if(typeof restoreScrollForAllTables === 'function') restoreScrollForAllTables(); }, 100);")
     }, add = TRUE)
 
     DT::datatable(
@@ -433,7 +478,8 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
       selection = "none",
       escape = TRUE,
       options = list(
-        pageLength = 25,
+        pageLength = current_page_length,
+        displayStart = display_start,
         scrollX = TRUE,
         order = list(list(0, "desc")),
         columnDefs = list(list(visible = FALSE, targets = 0))
@@ -446,6 +492,17 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
         "Parse", "Notes", "Parsed Report Notes"
       ),
       callback = DT::JS(
+        "  function syncPredictionTrainingState() {",
+        "    var info = table.page.info();",
+        "    if (!info) { return; }",
+        "    Shiny.setInputValue('prediction_training_table_state', {",
+        "      page: info.page,",
+        "      length: info.length,",
+        "      nonce: Date.now()",
+        "    }, {priority: 'event'});",
+        "  }",
+        "  table.on('page.dt length.dt order.dt search.dt', syncPredictionTrainingState);",
+        "  setTimeout(syncPredictionTrainingState, 0);",
         "table.on('dblclick', 'tbody tr', function() {",
         "  var data = table.row(this).data();",
         "  if (!data || data.length === 0) { return; }",

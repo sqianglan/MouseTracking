@@ -796,12 +796,25 @@ build_body_weight_features_for_event <- function(weight_history, plugging_row, r
   recent_day_offset <- if (!is.na(latest_post_date) && !is.na(anchor_date)) as.numeric(latest_post_date - anchor_date) else NA_real_
 
   average_daily_gain <- NA_real_
-  if (!is.na(baseline_weight) && nrow(post_weights) > 0) {
-    last_post_date <- max(post_weights$measurement_date, na.rm = TRUE)
-    last_post_weight <- post_weights$weight_grams[which.max(post_weights$measurement_date)]
-    days_elapsed <- as.numeric(last_post_date - anchor_date)
+  if (!is.na(baseline_weight) && nrow(weight_history) > 0) {
+    # Find the baseline weight measurement date
+    baseline_candidates_indices <- which(
+      weight_history$measurement_date <= (if (!is.na(pairing_start)) pairing_start else anchor_date)
+    )
+    baseline_date <- if (length(baseline_candidates_indices) > 0) {
+      weight_history$measurement_date[baseline_candidates_indices[length(baseline_candidates_indices)]]
+    } else {
+      weight_history$measurement_date[1]
+    }
+    
+    # Get the final weight measurement (closest to or on collection date)
+    final_weight <- weight_history$weight_grams[nrow(weight_history)]
+    final_date <- weight_history$measurement_date[nrow(weight_history)]
+    
+    # Calculate days from baseline to final measurement
+    days_elapsed <- as.numeric(final_date - baseline_date)
     if (!is.na(days_elapsed) && days_elapsed > 0) {
-      average_daily_gain <- (last_post_weight - baseline_weight) / days_elapsed
+      average_daily_gain <- (final_weight - baseline_weight) / days_elapsed
     }
   }
 

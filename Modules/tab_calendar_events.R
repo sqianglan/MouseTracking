@@ -2610,7 +2610,21 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
 
       row <- current_data$plugging
       report_defaults <- extract_plugging_final_report(data.frame(row, stringsAsFactors = FALSE))
-      female_age <- if (!is.na(row$female_dob[1])) round(as.numeric(Sys.Date() - as.Date(row$female_dob[1])) / 7, 1) else NA
+      collection_date_default <- safe_analysis_date(report_defaults$final_report_date)
+      if (is.na(collection_date_default) && "female_date_of_death" %in% names(row)) {
+        collection_date_default <- safe_analysis_date(row$female_date_of_death[1])
+      }
+      if (is.na(collection_date_default)) {
+        collection_date_default <- Sys.Date()
+      }
+
+      female_age_at_collection <- NA
+      if (!is.na(row$female_dob[1])) {
+        female_dob <- safe_analysis_date(row$female_dob[1])
+        if (!is.na(female_dob) && !is.na(collection_date_default)) {
+          female_age_at_collection <- round(as.numeric(collection_date_default - female_dob) / 7, 1)
+        }
+      }
       initialize_calendar_other_age_rows(report_defaults)
 
 
@@ -2633,7 +2647,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             tags$div(
               style = "display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: 0.95em;",
               span(tags$b("ASU ID:"), row$female_id[1]),
-              span(tags$b("Age:"), ifelse(is.na(female_age), "N/A", paste0(female_age, " weeks"))),
+              span(tags$b("Age at Collection/Death:"), ifelse(is.na(female_age_at_collection), "N/A", paste0(female_age_at_collection, " weeks"))),
               span(tags$b("Line:"), ifelse(is.na(row$female_breeding_line[1]) || row$female_breeding_line[1] == "", "N/A", row$female_breeding_line[1])),
               span(tags$b("Genotype:"), ifelse(is.na(row$female_genotype[1]) || row$female_genotype[1] == "", "N/A", row$female_genotype[1]))
             )
@@ -2646,7 +2660,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                 class = "euthanasia-card",
                 style = "background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 12px; flex: 1;",
                 tags$div(style = "font-weight: 600; color: #9a3412; margin-bottom: 8px;", "Status Update"),
-                dateInput(ns("calendar_euthanasia_date_input"), "Date of Death", value = Sys.Date()),
+                dateInput(ns("calendar_euthanasia_date_input"), "Date of Death", value = collection_date_default),
                 radioButtons(ns("calendar_euthanasia_status_choice"), "Plugging Status after Euthanasia:", choices = c("Empty" = "Empty", "Sample Collected" = "Collected"), selected = "Collected")
               ),
               div(

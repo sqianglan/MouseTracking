@@ -306,6 +306,36 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     }), collapse = "; ")
   }
 
+  format_age_groups_text_from_json <- function(age_groups_json) {
+    if (is.null(age_groups_json) || length(age_groups_json) == 0 || is.na(age_groups_json) || trimws(as.character(age_groups_json)[1]) == "") {
+      return("")
+    }
+
+    mixed_age_groups <- tryCatch(jsonlite::fromJSON(age_groups_json), error = function(e) NULL)
+    if (is.null(mixed_age_groups) || NROW(mixed_age_groups) == 0) {
+      return("")
+    }
+
+    mixed_age_df <- as.data.frame(mixed_age_groups, stringsAsFactors = FALSE)
+    if (!("age_label" %in% names(mixed_age_df)) || nrow(mixed_age_df) == 0) {
+      return("")
+    }
+
+    paste(vapply(seq_len(nrow(mixed_age_df)), function(idx) {
+      age_label <- trimws(as.character(mixed_age_df$age_label[idx]))
+      if (age_label == "") {
+        return("")
+      }
+
+      count_value <- if ("count" %in% names(mixed_age_df)) mixed_age_df$count[idx] else NA
+      if (!is.na(count_value) && as.character(count_value) != "") {
+        paste0(age_label, " x", count_value)
+      } else {
+        age_label
+      }
+    }, character(1)), collapse = "; ")
+  }
+
   render_other_age_rows_ui <- function(prefix, row_count, seed_rows) {
     count <- max(1, suppressWarnings(as.integer(row_count)))
     rows <- seed_rows
@@ -1272,20 +1302,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       
       row <- plugging[1, ]
       report_defaults <- extract_plugging_final_report(plugging)
-      mixed_age_text <- ""
-      if (!is.na(report_defaults$final_report_age_groups_json) && report_defaults$final_report_age_groups_json != "") {
-        mixed_age_groups <- tryCatch(jsonlite::fromJSON(report_defaults$final_report_age_groups_json), error = function(e) NULL)
-        if (!is.null(mixed_age_groups) && NROW(mixed_age_groups) > 0) {
-          mixed_age_df <- as.data.frame(mixed_age_groups, stringsAsFactors = FALSE)
-          mixed_age_text <- paste(apply(mixed_age_df, 1, function(group_row) {
-            if (!is.na(group_row[["count"]]) && group_row[["count"]] != "") {
-              paste0(group_row[["age_label"]], " x", group_row[["count"]])
-            } else {
-              group_row[["age_label"]]
-            }
-          }), collapse = "; ")
-        }
-      }
+      mixed_age_text <- format_age_groups_text_from_json(report_defaults$final_report_age_groups_json)
       report_details <- extract_plugging_final_report(plugging)
       event_body_weight_history <- build_event_weight_window(female_body_weight_history, plugging, female_plugging_history)
       training_dataset <- details_prediction_training_dataset()
@@ -1868,20 +1885,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       row <- plugging[1, ]
       report_defaults <- extract_plugging_final_report(plugging)
       initialize_edit_other_age_rows(report_defaults)
-      mixed_age_text <- ""
-      if (!is.na(report_defaults$final_report_age_groups_json) && report_defaults$final_report_age_groups_json != "") {
-        mixed_age_groups <- tryCatch(jsonlite::fromJSON(report_defaults$final_report_age_groups_json), error = function(e) NULL)
-        if (!is.null(mixed_age_groups) && NROW(mixed_age_groups) > 0) {
-          mixed_age_df <- as.data.frame(mixed_age_groups, stringsAsFactors = FALSE)
-          mixed_age_text <- paste(apply(mixed_age_df, 1, function(group_row) {
-            if (!is.na(group_row[["count"]]) && group_row[["count"]] != "") {
-              paste0(group_row[["age_label"]], " x", group_row[["count"]])
-            } else {
-              group_row[["age_label"]]
-            }
-          }), collapse = "; ")
-        }
-      }
+      mixed_age_text <- format_age_groups_text_from_json(report_defaults$final_report_age_groups_json)
       
       # Get available LIVE mice for dropdown
       live_mice_data <- get_live_mice()
@@ -2182,6 +2186,14 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
   observeEvent(input$save_plugging_edit_btn, {
     plugging_id <- plugging_state$editing_id
     if (is.null(plugging_id)) return()
+
+    normalize_text_scalar <- function(value) {
+      if (is.null(value) || length(value) == 0 || is.na(value[1])) {
+        return("")
+      }
+
+      trimws(as.character(value[1]))
+    }
     
     # Validation
     if (is.null(input$edit_plugging_male) || input$edit_plugging_male == "" || is.null(input$edit_plugging_female) || input$edit_plugging_female == "") {
@@ -2550,8 +2562,21 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       
       if (nrow(female_info) == 0) return()
       
-      # Calculate female age
-      female_age <- round(as.numeric(Sys.Date() - as.Date(female_info$dob)) / 7, 1)
+      collection_date_default <- safe_analysis_date(report_defaults$final_report_date)
+      if (is.na(collection_date_default) && "date_of_death" %in% names(female_info)) {
+        collection_date_default <- safe_analysis_date(female_info$date_of_death[1])
+      }
+      if (is.na(collection_date_default)) {
+        collection_date_default <- Sys.Date()
+      }
+
+      female_age_at_collection <- NA
+      if (!is.na(female_info$dob[1]) && female_info$dob[1] != "") {
+        female_dob <- safe_analysis_date(female_info$dob[1])
+        if (!is.na(female_dob) && !is.na(collection_date_default)) {
+          female_age_at_collection <- round(as.numeric(collection_date_default - female_dob) / 7, 1)
+        }
+      }
       
       initialize_euthanasia_other_age_rows(report_defaults)
       
@@ -2573,7 +2598,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             tags$div(
               style = "display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: 0.95em;",
               span(tags$b("ASU ID:"), female_info$asu_id),
-              span(tags$b("Age:"), paste0(female_age, " weeks")),
+              span(tags$b("Age at Collection/Death:"), ifelse(is.na(female_age_at_collection), "N/A", paste0(female_age_at_collection, " weeks"))),
               span(tags$b("Line:"), ifelse(is.na(female_info$breeding_line) || female_info$breeding_line == "", "N/A", female_info$breeding_line)),
               span(tags$b("Genotype:"), ifelse(is.na(female_info$genotype) || female_info$genotype == "", "N/A", female_info$genotype))
             )
@@ -2586,7 +2611,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                 class = "euthanasia-card",
                 style = "background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 12px; flex: 1;",
                 tags$div(style = "font-weight: 600; color: #9a3412; margin-bottom: 8px;", "Status Update"),
-                dateInput("euthanasia_date_input", "Date of Death", value = Sys.Date()),
+                dateInput("euthanasia_date_input", "Date of Death", value = collection_date_default),
                 radioButtons("euthanasia_status_choice", "Plugging Status after Euthanasia:",
                   choices = c("Empty" = "Empty", "Sample Collected" = "Collected"),
                   selected = "Collected"
@@ -3093,6 +3118,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       plugging_row <- NULL
       female_info <- NULL
       female_age <- NA
+      female_age_at_collection <- NA
       if (!is.null(plugging_id)) {
         plugging_row <- tryCatch({
           DBI::dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
@@ -3202,18 +3228,19 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         }
         report_defaults <- extract_plugging_final_report(plugging_row)
         initialize_quick_other_age_rows(report_defaults)
-        mixed_age_text <- ""
-        if (!is.na(report_defaults$final_report_age_groups_json) && report_defaults$final_report_age_groups_json != "") {
-          mixed_age_groups <- tryCatch(jsonlite::fromJSON(report_defaults$final_report_age_groups_json), error = function(e) NULL)
-          if (!is.null(mixed_age_groups) && NROW(mixed_age_groups) > 0) {
-            mixed_age_df <- as.data.frame(mixed_age_groups, stringsAsFactors = FALSE)
-            mixed_age_text <- paste(apply(mixed_age_df, 1, function(group_row) {
-              if (!is.na(group_row[["count"]]) && group_row[["count"]] != "") {
-                paste0(group_row[["age_label"]], " x", group_row[["count"]])
-              } else {
-                group_row[["age_label"]]
-              }
-            }), collapse = "; ")
+        mixed_age_text <- format_age_groups_text_from_json(report_defaults$final_report_age_groups_json)
+
+        collection_date_default <- safe_analysis_date(report_defaults$final_report_date)
+        if (is.na(collection_date_default) && !is.null(female_info) && nrow(female_info) > 0 && "date_of_death" %in% names(female_info)) {
+          collection_date_default <- safe_analysis_date(female_info$date_of_death[1])
+        }
+        if (is.na(collection_date_default)) {
+          collection_date_default <- Sys.Date()
+        }
+        if (!is.null(female_info) && nrow(female_info) > 0 && !is.na(female_info$dob[1]) && female_info$dob[1] != "") {
+          female_dob <- safe_analysis_date(female_info$dob[1])
+          if (!is.na(female_dob) && !is.na(collection_date_default)) {
+            female_age_at_collection <- floor(as.numeric(collection_date_default - female_dob) / 7)
           }
         }
         
@@ -3233,7 +3260,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
               tags$div(
                 style = "display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: 0.95em;",
                 span(tags$b("ASU ID:"), if (!is.null(female_info) && nrow(female_info) > 0) female_info$asu_id[1] else "N/A"),
-                span(tags$b("Age:"), if (!is.na(female_age)) paste0(female_age, " weeks") else "N/A"),
+                span(tags$b("Age at Collection/Death:"), if (!is.na(female_age_at_collection)) paste0(female_age_at_collection, " weeks") else "N/A"),
                 span(tags$b("Line:"), if (!is.null(female_info) && nrow(female_info) > 0 && !is.na(female_info$breeding_line[1]) && female_info$breeding_line[1] != "") female_info$breeding_line[1] else "N/A"),
                 span(tags$b("Genotype:"), if (!is.null(female_info) && nrow(female_info) > 0 && !is.na(female_info$genotype[1]) && female_info$genotype[1] != "") female_info$genotype[1] else "N/A")
               )
@@ -3249,7 +3276,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                       style = "background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 12px; flex: 1;",
                       tags$div(style = "font-weight: 600; color: #9a3412; margin-bottom: 8px;", "Status Update"),
                       tags$div(style = "color: #7c2d12; font-size: 0.92em; margin-bottom: 8px;", "This record will be saved as Sample Collected."),
-                      dateInput("quick_euthanasia_date_input", "Date of Death", value = ifelse(is.na(report_defaults$final_report_date), Sys.Date(), as.Date(report_defaults$final_report_date)))
+                      dateInput("quick_euthanasia_date_input", "Date of Death", value = collection_date_default)
                     ),
                     div(
                       class = "quick-eu-card",
@@ -3525,26 +3552,25 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       if (nrow(plugging_row) == 0) return()
 
       female_info <- DBI::dbGetQuery(con, "SELECT * FROM mice_stock WHERE asu_id = ?", params = list(plugging_row$female_id[1]))
-      female_age <- NA
-      if (nrow(female_info) > 0 && !is.na(female_info$dob[1]) && female_info$dob[1] != "") {
-        female_age <- floor(as.numeric(Sys.Date() - as.Date(female_info$dob[1])) / 7)
-      }
 
       current_notes <- ifelse(is.na(plugging_row$notes[1]) || plugging_row$notes[1] == "", "", plugging_row$notes[1])
       report_defaults <- extract_plugging_final_report(plugging_row)
       initialize_quick_other_age_rows(report_defaults)
-      mixed_age_text <- ""
-      if (!is.na(report_defaults$final_report_age_groups_json) && report_defaults$final_report_age_groups_json != "") {
-        mixed_age_groups <- tryCatch(jsonlite::fromJSON(report_defaults$final_report_age_groups_json), error = function(e) NULL)
-        if (!is.null(mixed_age_groups) && NROW(mixed_age_groups) > 0) {
-          mixed_age_df <- as.data.frame(mixed_age_groups, stringsAsFactors = FALSE)
-          mixed_age_text <- paste(apply(mixed_age_df, 1, function(group_row) {
-            if (!is.na(group_row[["count"]]) && group_row[["count"]] != "") {
-              paste0(group_row[["age_label"]], " x", group_row[["count"]])
-            } else {
-              group_row[["age_label"]]
-            }
-          }), collapse = "; ")
+      mixed_age_text <- format_age_groups_text_from_json(report_defaults$final_report_age_groups_json)
+
+      collection_date_default <- safe_analysis_date(report_defaults$final_report_date)
+      if (is.na(collection_date_default) && nrow(female_info) > 0 && "date_of_death" %in% names(female_info)) {
+        collection_date_default <- safe_analysis_date(female_info$date_of_death[1])
+      }
+      if (is.na(collection_date_default)) {
+        collection_date_default <- Sys.Date()
+      }
+
+      female_age_at_collection <- NA
+      if (nrow(female_info) > 0 && !is.na(female_info$dob[1]) && female_info$dob[1] != "") {
+        female_dob <- safe_analysis_date(female_info$dob[1])
+        if (!is.na(female_dob) && !is.na(collection_date_default)) {
+          female_age_at_collection <- floor(as.numeric(collection_date_default - female_dob) / 7)
         }
       }
 
@@ -3569,7 +3595,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
             tags$div(
               style = "display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: 0.95em;",
               span(tags$b("ASU ID:"), if (nrow(female_info) > 0) female_info$asu_id[1] else "N/A"),
-              span(tags$b("Age:"), ifelse(is.na(female_age), "N/A", paste0(female_age, " weeks"))),
+              span(tags$b("Age at Collection/Death:"), ifelse(is.na(female_age_at_collection), "N/A", paste0(female_age_at_collection, " weeks"))),
               span(tags$b("Line:"), if (nrow(female_info) > 0 && !is.na(female_info$breeding_line[1]) && female_info$breeding_line[1] != "") female_info$breeding_line[1] else "N/A"),
               span(tags$b("Genotype:"), if (nrow(female_info) > 0 && !is.na(female_info$genotype[1]) && female_info$genotype[1] != "") female_info$genotype[1] else "N/A")
             )
@@ -3583,7 +3609,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
                 style = "background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 12px; flex: 1;",
                 tags$div(style = "font-weight: 600; color: #9a3412; margin-bottom: 8px;", "Status Update"),
                 tags$div(style = "color: #7c2d12; font-size: 0.92em; margin-bottom: 8px;", "This record will be saved as Sample Collected."),
-                dateInput("quick_euthanasia_date_input", "Date of Death", value = ifelse(is.na(report_defaults$final_report_date), Sys.Date(), as.Date(report_defaults$final_report_date)))
+                dateInput("quick_euthanasia_date_input", "Date of Death", value = collection_date_default)
               ),
               div(
                 class = "review-collection-card",
@@ -4435,10 +4461,21 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       female_id <- old_values$female_id
       female_state <- DBI::dbGetQuery(
         con,
-        "SELECT status FROM mice_stock WHERE asu_id = ? LIMIT 1",
+        "SELECT status, date_of_death FROM mice_stock WHERE asu_id = ? LIMIT 1",
         params = list(female_id)
       )
       female_requires_update <- nrow(female_state) == 0 || !identical(normalize_text_scalar(female_state$status[1]), "Deceased")
+
+      resolved_date_of_death <- safe_analysis_date(date_of_death)
+      if (is.na(resolved_date_of_death)) {
+        resolved_date_of_death <- safe_analysis_date(report_details$final_report_date)
+      }
+      if (is.na(resolved_date_of_death) && nrow(female_state) > 0 && "date_of_death" %in% names(female_state)) {
+        resolved_date_of_death <- safe_analysis_date(female_state$date_of_death[1])
+      }
+      if (is.na(resolved_date_of_death)) {
+        resolved_date_of_death <- Sys.Date()
+      }
 
       has_plugging_changes <- !identical(normalize_text_scalar(existing_row$plugging_status[1]), normalize_text_scalar(selected_status)) ||
         !identical(normalize_text_scalar(existing_row$final_report_date[1]), normalize_text_scalar(report_details$final_report_date)) ||
@@ -4489,11 +4526,11 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       DBI::dbExecute(con, 
         "UPDATE mice_stock SET status = 'Deceased', date_of_death = ?, deceased_timestamp = DATETIME('now'), last_updated = DATETIME('now') WHERE asu_id = ? AND status != 'Deceased'",
         params = list(
-          as.character(date_of_death),
+          as.character(resolved_date_of_death),
           female_id
         )
       )
-      write_collection_debug_log("female_status_updated", list(female_id = female_id, date_of_death = as.character(date_of_death)))
+      write_collection_debug_log("female_status_updated", list(female_id = female_id, date_of_death = as.character(resolved_date_of_death)))
 
       updated_row <- DBI::dbGetQuery(
         con,
@@ -4561,7 +4598,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           list(status = "Alive"),
           list(
             status = "Deceased",
-            date_of_death = as.character(date_of_death),
+            date_of_death = as.character(resolved_date_of_death),
             notes = notes,
             source = "Plugging Tab",
             source_event_id = plugging_id,
@@ -4575,7 +4612,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           old_values,
           list(
             plugging_status = selected_status,
-            confirmation_date = as.character(date_of_death),
+            confirmation_date = as.character(resolved_date_of_death),
             final_report_date = report_details$final_report_date,
             final_report_primary_age = report_details$final_report_primary_age,
             final_report_primary_age_value = report_details$final_report_primary_age_value,

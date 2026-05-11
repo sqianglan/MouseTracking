@@ -9,6 +9,10 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
   # Get mouse details
   current_data <- all_mice_table()
   mouse_info <- current_data[current_data$asu_id == asu_id, ]
+
+  if (!"date_of_death" %in% names(mouse_info)) {
+    mouse_info$date_of_death <- NA_character_
+  }
   
   if (nrow(mouse_info) == 0) {
     showNotification("Mouse information not found.", type = "error", duration = 3)
@@ -21,7 +25,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
   
   # Get complete mouse information including last_updated
   mouse_details_query <- paste0(
-    "SELECT asu_id, animal_id, gender, dob, breeding_line, genotype, responsible_person, stock_category, status, last_updated, notes\n     FROM mice_stock \n     WHERE asu_id = '", asu_id, "'"
+    "SELECT asu_id, animal_id, gender, dob, breeding_line, genotype, responsible_person, stock_category, status, date_of_death, last_updated, notes\n     FROM mice_stock \n     WHERE asu_id = '", asu_id, "'"
   )
   
   mouse_details <- tryCatch({
@@ -34,6 +38,8 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
   # Use database data if available, otherwise use current data
   if (nrow(mouse_details) > 0) {
     mouse_info <- mouse_details[1, ]
+  } else if (!"date_of_death" %in% names(mouse_info)) {
+    mouse_info$date_of_death <- NA_character_
   }
   
   # Get breeding history where this mouse is involved
@@ -77,6 +83,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
 
   latest_final_report_row <- NULL
   latest_final_report_details <- NULL
+  show_latest_final_report <- FALSE
   if (nrow(plugging_history) > 0) {
     finalized_rows <- plugging_history[
       plugging_history$female_id == asu_id & plugging_history$plugging_status %in% c("Collected", "Empty", "Not Pregnant", "Not Observed (Confirmed)"),
@@ -88,6 +95,13 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
       latest_final_report_details <- extract_plugging_final_report(latest_final_report_row)
     }
   }
+
+  mouse_status_text <- if (!is.null(mouse_info$status) && length(mouse_info$status) > 0 && !is.na(mouse_info$status[1])) {
+    trimws(as.character(mouse_info$status[1]))
+  } else {
+    ""
+  }
+  show_latest_final_report <- identical(mouse_status_text, "Deceased") && !is.null(latest_final_report_row)
   
   # Get body weight history for this mouse
   body_weight_query <- paste0(
@@ -272,7 +286,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
           strong("Last Updated:"), ifelse(is.na(mouse_info$last_updated) || mouse_info$last_updated == "", "N/A", mouse_info$last_updated)
         )
       ),
-      if (!is.null(latest_final_report_row)) {
+      if (isTRUE(show_latest_final_report)) {
         div(
           style = "margin: 10px 0 20px 0; padding: 12px; background: #fff8e1; border-left: 4px solid #ff9800; border-radius: 6px; color: #333;",
           h4("Latest Final Report", style = "font-size: 1.1em; color: #ef6c00; margin-bottom: 8px;"),
@@ -308,7 +322,13 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
               strong("Report Notes: "), latest_final_report_details$final_report_notes
             )
           },
-          if (!is.na(latest_final_report_details$final_report_age_groups_json)) {
+          if (!is.null(latest_final_report_details$final_report_age_groups_json) &&
+              length(latest_final_report_details$final_report_age_groups_json) > 0 &&
+              !is.na(latest_final_report_details$final_report_age_groups_json) &&
+              latest_final_report_details$final_report_age_groups_json != "" &&
+              is.data.frame(latest_final_report_details$age_groups) &&
+              nrow(latest_final_report_details$age_groups) > 0 &&
+              "age_label" %in% names(latest_final_report_details$age_groups)) {
             div(
               style = "margin-top: 6px; color: #555; font-size: 0.95em;",
               strong("Age Groups: "),
@@ -317,7 +337,7 @@ show_mouse_history_tracing <- function(input, output, session, asu_id, all_mice_
                   seq_len(nrow(latest_final_report_details$age_groups)),
                   function(idx) {
                     age_group <- latest_final_report_details$age_groups[idx, , drop = FALSE]
-                    if (!is.na(age_group$count[1])) {
+                    if ("count" %in% names(age_group) && !is.na(age_group$count[1])) {
                       paste0(age_group$age_label[1], " x", age_group$count[1])
                     } else {
                       age_group$age_label[1]
