@@ -170,14 +170,106 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
     paste0("E", floor(embryonic_age) + 0.5, " today")
   }
 
-  build_plugging_mouse_label <- function(mouse_id, genotype, breeding_line, sex_label) {
-    descriptor <- NA_character_
+  expand_plugging_line_genotype_descriptor <- function(breeding_line, genotype) {
+    line_text <- if (is.null(breeding_line) || is.na(breeding_line)) "" else trimws(as.character(breeding_line)[1])
+    genotype_text <- if (is.null(genotype) || is.na(genotype)) "" else trimws(as.character(genotype)[1])
 
-    if (!is.null(genotype) && !is.na(genotype) && trimws(genotype) != "") {
-      descriptor <- trimws(genotype)
-    } else if (!is.null(breeding_line) && !is.na(breeding_line) && trimws(breeding_line) != "") {
-      descriptor <- trimws(breeding_line)
+    if (line_text == "" && genotype_text == "") {
+      return(NA_character_)
     }
+
+    split_components <- function(value) {
+      if (is.null(value) || is.na(value)) {
+        return(character(0))
+      }
+
+      pieces <- trimws(unlist(strsplit(as.character(value), "[/:]")))
+      pieces[nzchar(pieces)]
+    }
+
+    is_cre_line <- function(line_component) {
+      grepl("(^K5$|CRE)", trimws(as.character(line_component)), ignore.case = TRUE)
+    }
+
+    normalize_component_genotype <- function(line_component, genotype_component) {
+      line_component <- trimws(as.character(line_component))
+      genotype_component <- toupper(trimws(as.character(genotype_component)))
+
+      if (line_component == "") {
+        return(NA_character_)
+      }
+
+      if (genotype_component == "" || genotype_component == "NA") {
+        return(line_component)
+      }
+
+      if (genotype_component %in% c("WT", "WTWT", "W/W", "WT/WT", "WW")) {
+        return(paste(line_component, "wt/wt"))
+      }
+
+      if (genotype_component %in% c("HE", "HET", "HEMI")) {
+        if (is_cre_line(line_component)) {
+          return(paste(line_component, "Cre/wt"))
+        }
+        return(paste0(line_component, "/wt"))
+      }
+
+      if (genotype_component %in% c("HO", "HOM")) {
+        if (is_cre_line(line_component)) {
+          return(paste(line_component, "Cre/Cre"))
+        }
+        return(paste0(line_component, "/", line_component))
+      }
+
+      if (genotype_component %in% c("WTHO", "HOWT")) {
+        return(paste0(line_component, "/wt:", line_component, "/", line_component))
+      }
+
+      if (grepl("/", genotype_component, fixed = TRUE) || grepl(":", genotype_component, fixed = TRUE)) {
+        return(paste(line_component, genotype_component))
+      }
+
+      paste(line_component, genotype_component)
+    }
+
+    line_parts <- split_components(line_text)
+    genotype_parts <- split_components(genotype_text)
+
+    if (length(line_parts) > 0 && length(genotype_parts) > 0) {
+      if (length(line_parts) == length(genotype_parts)) {
+        combined_parts <- vapply(seq_along(line_parts), function(idx) {
+          normalize_component_genotype(line_parts[idx], genotype_parts[idx])
+        }, character(1))
+        combined_parts <- combined_parts[!is.na(combined_parts) & combined_parts != ""]
+        if (length(combined_parts) > 0) {
+          return(paste(combined_parts, collapse = ":"))
+        }
+      }
+
+      if (length(line_parts) == 1 && length(genotype_parts) > 1) {
+        expanded_parts <- vapply(genotype_parts, function(component) {
+          normalize_component_genotype(line_parts[1], component)
+        }, character(1))
+        expanded_parts <- expanded_parts[!is.na(expanded_parts) & expanded_parts != ""]
+        if (length(expanded_parts) > 0) {
+          return(paste(expanded_parts, collapse = ":"))
+        }
+      }
+    }
+
+    if (line_text != "" && genotype_text != "") {
+      return(normalize_component_genotype(line_text, toupper(gsub("[^A-Za-z]", "", genotype_text))))
+    }
+
+    if (genotype_text != "") {
+      return(genotype_text)
+    }
+
+    line_text
+  }
+
+  build_plugging_mouse_label <- function(mouse_id, genotype, breeding_line, sex_label) {
+    descriptor <- expand_plugging_line_genotype_descriptor(breeding_line, genotype)
 
     if (is.na(descriptor)) {
       paste0("#", mouse_id, " (", sex_label, ")")

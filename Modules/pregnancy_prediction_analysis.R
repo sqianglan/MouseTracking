@@ -868,8 +868,9 @@ build_plugging_prediction_dataset <- function(db_path = DB_PATH, legacy_backfill
     female_age_weeks <- NA_real_
     female_dob <- safe_analysis_date(plugging_row$female_dob[1])
     pairing_start <- safe_analysis_date(plugging_row$pairing_start_date[1])
-    if (!is.na(female_dob) && !is.na(pairing_start)) {
-      female_age_weeks <- round(as.numeric(pairing_start - female_dob) / 7, 1)
+    event_anchor <- calculate_plugging_anchor(plugging_row)
+    if (!is.na(female_dob) && !is.na(event_anchor$date)) {
+      female_age_weeks <- round(as.numeric(event_anchor$date - female_dob) / 7, 1)
     }
 
     has_positive_final_report_signal <- !is.na(report_details$final_report_total_embryos) && report_details$final_report_total_embryos > 0
@@ -1272,7 +1273,8 @@ normalize_prediction_model_registry <- function(model_registry = NULL) {
         saved_at = NA_character_,
         breeding_line_mode = normalized_mode,
         current_breeding_line = NA_character_,
-        breeding_line_description = describe_prediction_breeding_line_mode(normalized_mode)
+        breeding_line_description = describe_prediction_breeding_line_mode(normalized_mode),
+        training_settings = NULL
       ),
       models = model_registry,
       training_summary = NULL
@@ -1291,6 +1293,9 @@ normalize_prediction_model_registry <- function(model_registry = NULL) {
   model_registry$metadata$breeding_line_mode <- normalized_mode
   model_registry$metadata$current_breeding_line <- current_breeding_line
   model_registry$metadata$breeding_line_description <- describe_prediction_breeding_line_mode(normalized_mode, current_breeding_line)
+  if (is.null(model_registry$metadata$training_settings) || !is.list(model_registry$metadata$training_settings)) {
+    model_registry$metadata$training_settings <- NULL
+  }
 
   if (is.null(model_registry$models) && !is.null(model_registry$model_bundle)) {
     model_registry$models <- model_registry$model_bundle
@@ -1305,6 +1310,7 @@ normalize_prediction_model_registry <- function(model_registry = NULL) {
 
 create_prediction_model_registry <- function(model_bundle, breeding_line_mode = "feature",
                                              current_breeding_line = NA_character_, training_summary = NULL,
+                                             training_settings = NULL,
                                              trained_at = Sys.time()) {
   normalized_mode <- normalize_prediction_breeding_line_mode(breeding_line_mode)
 
@@ -1314,7 +1320,8 @@ create_prediction_model_registry <- function(model_bundle, breeding_line_mode = 
       saved_at = format(trained_at, "%Y-%m-%d %H:%M:%S"),
       breeding_line_mode = normalized_mode,
       current_breeding_line = current_breeding_line,
-      breeding_line_description = describe_prediction_breeding_line_mode(normalized_mode, current_breeding_line)
+      breeding_line_description = describe_prediction_breeding_line_mode(normalized_mode, current_breeding_line),
+      training_settings = training_settings
     ),
     models = model_bundle,
     training_summary = training_summary
@@ -1465,19 +1472,35 @@ summarize_prediction_training_data <- function(prediction_dataset, breeding_line
 }
 
 calculate_plugging_anchor <- function(plugging_row) {
-  observed_plug <- safe_analysis_date(plugging_row$plug_observed_date[1])
-  if (!is.na(observed_plug)) {
-    return(list(date = observed_plug, type = "Observed Plug"))
-  }
-
   pairing_start <- safe_analysis_date(plugging_row$pairing_start_date[1])
-  if (!is.na(pairing_start)) {
-    return(list(date = pairing_start + 1, type = "Presumed Plug"))
+  pairing_end <- safe_analysis_date(plugging_row$pairing_end_date[1])
+  observed_plug <- safe_analysis_date(plugging_row$plug_observed_date[1])
+
+  clamp_to_pairing_window <- function(anchor_date) {
+    if (is.na(anchor_date)) {
+      return(anchor_date)
+    }
+
+    if (!is.na(pairing_start) && anchor_date < pairing_start) {
+      anchor_date <- pairing_start
+    }
+    if (!is.na(pairing_end) && anchor_date > pairing_end) {
+      anchor_date <- pairing_end
+    }
+
+    anchor_date
   }
 
-  pairing_end <- safe_analysis_date(plugging_row$pairing_end_date[1])
+  if (!is.na(observed_plug)) {
+    return(list(date = clamp_to_pairing_window(observed_plug), type = "Observed Plug"))
+  }
+
   if (!is.na(pairing_end)) {
-    return(list(date = pairing_end, type = "Presumed Plug"))
+    return(list(date = clamp_to_pairing_window(pairing_end), type = "Presumed Plug"))
+  }
+
+  if (!is.na(pairing_start)) {
+    return(list(date = clamp_to_pairing_window(pairing_start), type = "Presumed Plug"))
   }
 
   list(date = as.Date(NA), type = "Unknown Anchor")

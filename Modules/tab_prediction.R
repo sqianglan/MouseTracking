@@ -137,6 +137,73 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
     if (length(unique_lines) == 1) unique_lines[[1]] else NA_character_
   })
 
+  extract_active_model_training_settings <- function(registry) {
+    metadata <- if (!is.null(registry) && is.list(registry)) registry$metadata else NULL
+    settings <- if (!is.null(metadata) && is.list(metadata$training_settings)) metadata$training_settings else NULL
+    if (is.null(settings)) {
+      return(NULL)
+    }
+
+    age_range <- suppressWarnings(as.numeric(unlist(settings$age_range)))
+    if (length(age_range) >= 2 && all(is.finite(age_range[1:2]))) {
+      age_range <- age_range[1:2]
+    } else {
+      age_range <- NULL
+    }
+
+    breeding_lines <- if (!is.null(settings$breeding_lines)) {
+      unique(stats::na.omit(as.character(unlist(settings$breeding_lines))))
+    } else {
+      character(0)
+    }
+
+    list(
+      age_range = age_range,
+      breeding_lines = breeding_lines,
+      breeding_line_mode = if (!is.null(metadata$breeding_line_mode)) as.character(metadata$breeding_line_mode)[1] else "feature",
+      current_breeding_line = if (!is.null(metadata$current_breeding_line)) as.character(metadata$current_breeding_line)[1] else NA_character_
+    )
+  }
+
+  apply_active_model_training_settings <- function(registry) {
+    settings <- extract_active_model_training_settings(registry)
+    if (is.null(settings)) {
+      return(invisible(FALSE))
+    }
+
+    if (!is.null(settings$age_range) && length(settings$age_range) == 2) {
+      updateSliderInput(session, "prediction_age_range", value = settings$age_range)
+    }
+
+    if (!is.null(settings$breeding_line_mode) && nzchar(settings$breeding_line_mode)) {
+      updateSelectInput(session, "prediction_breeding_line_mode", selected = settings$breeding_line_mode)
+    }
+
+    dataset <- prediction_dataset()
+    available_lines <- sort(unique(stats::na.omit(dataset$female_breeding_line)))
+    selected_lines <- settings$breeding_lines
+    if (length(selected_lines) == 0 || any(selected_lines %in% c("All", ""))) {
+      selected_lines <- "All"
+    } else {
+      selected_lines <- intersect(selected_lines, available_lines)
+      if (length(selected_lines) == 0 && !is.na(settings$current_breeding_line) && nzchar(trimws(settings$current_breeding_line))) {
+        selected_lines <- intersect(settings$current_breeding_line, available_lines)
+      }
+      if (length(selected_lines) == 0) {
+        selected_lines <- "All"
+      }
+    }
+
+    updateCheckboxGroupInput(
+      session,
+      "prediction_breeding_lines",
+      choices = c("All", available_lines),
+      selected = selected_lines
+    )
+
+    invisible(TRUE)
+  }
+
   output$prediction_breeding_line_filter_ui <- renderUI({
     dataset <- prediction_dataset()
     lines <- sort(unique(stats::na.omit(dataset$female_breeding_line)))
@@ -158,12 +225,30 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
       ))
     }
 
+    active_settings <- extract_active_model_training_settings(registry)
+    age_range_label <- if (!is.null(active_settings) && !is.null(active_settings$age_range) && length(active_settings$age_range) == 2) {
+      paste0(active_settings$age_range[1], "-", active_settings$age_range[2], " weeks")
+    } else {
+      "Current UI setting"
+    }
+    breeding_lines_label <- if (!is.null(active_settings) && length(active_settings$breeding_lines) > 0) {
+      if (any(active_settings$breeding_lines %in% c("All", ""))) "All" else paste(active_settings$breeding_lines, collapse = ", ")
+    } else {
+      "Current UI setting"
+    }
+
     div(
       style = "color: #475569; font-size: 0.9em; line-height: 1.4;",
       div(strong("Saved model: "), registry$metadata$breeding_line_description),
-      div(strong("Saved at: "), ifelse(is.null(registry$metadata$saved_at) || is.na(registry$metadata$saved_at) || registry$metadata$saved_at == "", "Unknown", registry$metadata$saved_at))
+      div(strong("Saved at: "), ifelse(is.null(registry$metadata$saved_at) || is.na(registry$metadata$saved_at) || registry$metadata$saved_at == "", "Unknown", registry$metadata$saved_at)),
+      div(strong("Active age range: "), age_range_label),
+      div(strong("Active training lines: "), breeding_lines_label)
     )
   })
+
+  observeEvent(saved_model_status(), {
+    apply_active_model_training_settings(saved_model_status())
+  }, ignoreInit = FALSE)
 
   available_saved_model_choices <- reactive({
     saved_model_choices_version()
@@ -389,6 +474,10 @@ prediction_tab_server <- function(input, output, session, shared_plugging_state 
         pregnant_events = summary_info$pregnant_events,
         not_pregnant_events = summary_info$not_pregnant_events,
         unique_females = summary_info$unique_females
+      ),
+      training_settings = list(
+        age_range = input$prediction_age_range,
+        breeding_lines = if (is.null(input$prediction_breeding_lines) || length(input$prediction_breeding_lines) == 0) "All" else input$prediction_breeding_lines
       )
     )
 
