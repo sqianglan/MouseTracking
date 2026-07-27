@@ -95,6 +95,16 @@
     }
   };
 
+  window.clearDataTableState = function(tableId) {
+    var table = getDataTableApi(tableId);
+    if (table) {
+      table.page(0).draw('page');
+    }
+    if (window.savedDataTableStates[tableId]) {
+      delete window.savedDataTableStates[tableId];
+    }
+  };
+
   if (window.Shiny && typeof window.Shiny.addCustomMessageHandler === 'function') {
     window.Shiny.addCustomMessageHandler('eval', function(message) {
       try {

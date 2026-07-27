@@ -9,6 +9,7 @@ suppressPackageStartupMessages({
   library(ggsci)
   library(dplyr)
   library(lubridate)
+  library(plotly)
 })
 
 # Source body weight modal functions
@@ -558,8 +559,8 @@ plugging_calendar_modal_ui <- function(id) {
         .modal-dialog.modal-lg,
         .modal.show .modal-dialog,
         .modal-dialog {
-          max-width: 85% !important;
-          width: 85% !important;
+          max-width: 70% !important;
+          width: 70% !important;
         }
         
         /* Force modal container to use full width */
@@ -590,6 +591,244 @@ plugging_calendar_modal_ui <- function(id) {
 # Server logic for the plugging calendar modal
 plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_plugging_state = NULL) {
   moduleServer(id, function(input, output, session) {
+    empty_calendar_prediction_result <- function() {
+      list(
+        likelihood = "Unavailable",
+        confidence = "Low",
+        estimated_age_range = "Unknown",
+        conclusion = "Prediction is unavailable for this event.",
+        anchor = list(date = as.Date(NA), type = "Unknown Anchor"),
+        fitted_anchor = list(offset_days = 0, fitted_curve = data.frame(), anchor_label = "Unknown"),
+        fitted_curve = data.frame()
+      )
+    }
+
+    is_active_calendar_status <- function(status) {
+      status %in% c("Ongoing", "Plugged", "Plug Confirmed", "Not Observed (Waiting for confirmation)", "Surprising Plug!!")
+    }
+
+    can_mark_empty_calendar <- function(status) {
+      status %in% c("Plugged", "Plug Confirmed")
+    }
+
+    calendar_prediction_training_dataset_cache <- reactiveVal(NULL)
+    calendar_embryo_count_autofill_in_progress <- reactiveVal(FALSE)
+    calendar_embryo_autofill_enabled <- reactiveVal(TRUE)
+    calendar_other_age_row_count <- reactiveVal(1)
+    calendar_other_age_rows_seed <- reactiveVal(data.frame(stage = "", count = NA_integer_, stringsAsFactors = FALSE))
+
+    parse_calendar_other_age_rows_from_json <- function(age_groups_json, primary_age_text = "") {
+      default_rows <- data.frame(stage = "", count = NA_integer_, stringsAsFactors = FALSE)
+      if (is.null(age_groups_json) || is.na(age_groups_json) || trimws(as.character(age_groups_json)) == "") {
+        return(default_rows)
+      }
+
+      age_groups <- tryCatch(jsonlite::fromJSON(age_groups_json), error = function(e) NULL)
+      if (is.null(age_groups) || NROW(age_groups) == 0) {
+        return(default_rows)
+      }
+
+      age_df <- as.data.frame(age_groups, stringsAsFactors = FALSE)
+      if (!("age_label" %in% names(age_df))) {
+        return(default_rows)
+      }
+
+      primary_label <- normalize_embryo_age_input(primary_age_text)$label
+      parsed_rows <- lapply(seq_len(nrow(age_df)), function(idx) {
+        stage_value <- trimws(as.character(age_df$age_label[idx]))
+        if (stage_value == "") {
+          return(NULL)
+        }
+
+        if (!is.na(primary_label) && identical(toupper(stage_value), toupper(primary_label))) {
+          return(NULL)
+        }
+
+        count_value <- NA_integer_
+        if ("count" %in% names(age_df)) {
+          count_value <- suppressWarnings(as.integer(age_df$count[idx]))
+        }
+
+        data.frame(stage = stage_value, count = count_value, stringsAsFactors = FALSE)
+      })
+
+      parsed_rows <- Filter(Negate(is.null), parsed_rows)
+      if (length(parsed_rows) == 0) {
+        return(default_rows)
+      }
+
+      do.call(rbind, parsed_rows)
+    }
+
+    collect_calendar_other_age_rows <- function(row_count, seed_rows) {
+      count <- max(1, suppressWarnings(as.integer(row_count)))
+      rows <- vector("list", count)
+
+      for (idx in seq_len(count)) {
+        stage_id <- paste0("calendar_other_age_stage_", idx)
+        count_id <- paste0("calendar_other_age_count_", idx)
+
+        stage_value <- ""
+        count_value <- NA_integer_
+
+        if (!is.null(input[[stage_id]])) {
+          stage_value <- trimws(as.character(input[[stage_id]]))
+        } else if (idx <= nrow(seed_rows)) {
+          stage_value <- trimws(as.character(seed_rows$stage[idx]))
+        }
+
+        if (!is.null(input[[count_id]])) {
+          count_value <- suppressWarnings(as.integer(input[[count_id]]))
+        } else if (idx <= nrow(seed_rows)) {
+          count_value <- suppressWarnings(as.integer(seed_rows$count[idx]))
+        }
+
+        rows[[idx]] <- data.frame(stage = stage_value, count = count_value, stringsAsFactors = FALSE)
+      }
+
+      do.call(rbind, rows)
+    }
+
+    build_calendar_age_groups_text_from_rows <- function(rows_df) {
+      if (is.null(rows_df) || nrow(rows_df) == 0) {
+        return("")
+      }
+
+      valid_rows <- rows_df[
+        trimws(as.character(rows_df$stage)) != "" & !is.na(suppressWarnings(as.integer(rows_df$count))),
+        , drop = FALSE
+      ]
+      if (nrow(valid_rows) == 0) {
+        return("")
+      }
+
+      valid_rows$count <- suppressWarnings(as.integer(valid_rows$count))
+      valid_rows <- valid_rows[!is.na(valid_rows$count) & valid_rows$count >= 0, , drop = FALSE]
+      if (nrow(valid_rows) == 0) {
+        return("")
+      }
+
+      paste(apply(valid_rows, 1, function(row_value) {
+        paste0(trimws(as.character(row_value[["stage"]])), " x", as.integer(row_value[["count"]]))
+      }), collapse = "; ")
+    }
+
+    render_calendar_other_age_rows_ui <- function(row_count, seed_rows) {
+      count <- max(1, suppressWarnings(as.integer(row_count)))
+      rows <- seed_rows
+      if (nrow(rows) < count) {
+        rows <- rbind(rows, data.frame(stage = rep("", count - nrow(rows)), count = rep(NA_integer_, count - nrow(rows)), stringsAsFactors = FALSE))
+      }
+
+      tagList(lapply(seq_len(count), function(idx) {
+        is_last <- idx == count
+        div(
+          style = "display: flex; align-items: center; gap: 6px; margin-bottom: 2px;",
+          div(style = "flex: 3; min-width: 0;",
+            textInput(
+              ns(paste0("calendar_other_age_stage_", idx)),
+              if (idx == 1) "Stage" else NULL,
+              value = as.character(rows$stage[idx]),
+              placeholder = "E15.5"
+            )
+          ),
+          div(style = "flex: 1.5; min-width: 0;",
+            numericInput(
+              ns(paste0("calendar_other_age_count_", idx)),
+              if (idx == 1) "Number" else NULL,
+              value = if (is.na(rows$count[idx])) NA else suppressWarnings(as.integer(rows$count[idx])),
+              min = 0,
+              step = 1
+            )
+          ),
+          div(style = "flex: 0 0 40px; display: flex; justify-content: center;",
+            if (is_last) {
+              actionButton(ns("calendar_add_other_age_row_btn"), "+", class = "btn btn-default btn-sm", style = "min-width: 34px; padding: 2px 8px;")
+            } else {
+              tags$span(style = "display: inline-block; width: 34px;")
+            }
+          ),
+          div(style = "flex: 0 0 40px; display: flex; justify-content: center;",
+            if (is_last) {
+              actionButton(ns("calendar_remove_other_age_row_btn"), "-", class = "btn btn-default btn-sm", style = "min-width: 34px; padding: 2px 8px;")
+            } else {
+              tags$span(style = "display: inline-block; width: 34px;")
+            }
+          )
+        )
+      }))
+    }
+
+    initialize_calendar_other_age_rows <- function(report_defaults) {
+      seed_rows <- parse_calendar_other_age_rows_from_json(
+        report_defaults$final_report_age_groups_json,
+        report_defaults$final_report_primary_age
+      )
+      calendar_other_age_rows_seed(seed_rows)
+      calendar_other_age_row_count(max(1, nrow(seed_rows)))
+    }
+
+    apply_calendar_embryo_count_autofill <- function(input_values) {
+      normalized_counts <- normalize_final_report_embryo_counts(
+        total_embryos = input_values$total,
+        male_embryos = input_values$male,
+        female_embryos = input_values$female,
+        unknown_embryos = input_values$unknown
+      )
+
+      if (!is.null(normalized_counts$validation_message) || length(normalized_counts$autofilled_fields) == 0) {
+        return(FALSE)
+      }
+
+      calendar_embryo_count_autofill_in_progress(TRUE)
+      on.exit(calendar_embryo_count_autofill_in_progress(FALSE), add = TRUE)
+
+      updated_any <- FALSE
+
+      if ("total" %in% normalized_counts$autofilled_fields && !identical(input_values$total, normalized_counts$final_report_total_embryos)) {
+        updateNumericInput(session, "calendar_euthanasia_total_embryos_input", value = normalized_counts$final_report_total_embryos)
+        updated_any <- TRUE
+      }
+      if ("male" %in% normalized_counts$autofilled_fields && !identical(input_values$male, normalized_counts$final_report_male_embryos)) {
+        updateNumericInput(session, "calendar_euthanasia_male_embryos_input", value = normalized_counts$final_report_male_embryos)
+        updated_any <- TRUE
+      }
+      if ("female" %in% normalized_counts$autofilled_fields && !identical(input_values$female, normalized_counts$final_report_female_embryos)) {
+        updateNumericInput(session, "calendar_euthanasia_female_embryos_input", value = normalized_counts$final_report_female_embryos)
+        updated_any <- TRUE
+      }
+      if ("unknown" %in% normalized_counts$autofilled_fields && !identical(input_values$unknown, normalized_counts$final_report_unknown_embryos)) {
+        updateNumericInput(session, "calendar_euthanasia_unknown_embryos_input", value = normalized_counts$final_report_unknown_embryos)
+        updated_any <- TRUE
+      }
+
+      updated_any
+    }
+
+    get_calendar_prediction_training_dataset <- function(force_refresh = FALSE) {
+      cached_dataset <- calendar_prediction_training_dataset_cache()
+      if (isTRUE(force_refresh) || is.null(cached_dataset)) {
+        cached_dataset <- tryCatch(build_plugging_prediction_dataset(db_path), error = function(e) data.frame())
+        calendar_prediction_training_dataset_cache(cached_dataset)
+      }
+
+      cached_dataset
+    }
+
+    invalidate_calendar_prediction_training_dataset <- function() {
+      calendar_prediction_training_dataset_cache(NULL)
+    }
+
+    refresh_calendar_linked_views <- function(female_id = NULL) {
+      invalidate_calendar_prediction_training_dataset()
+      if (!is.null(shared_plugging_state)) {
+        shared_plugging_state$reload <- Sys.time()
+      }
+      if (!is.null(female_id) && female_id != "") {
+        reopen_calendar_details_modal(female_id)
+      }
+    }
+
     reset_calendar_modal_state <- function() {
       view_mode("calendar")
       selected_mouse_data(NULL)
@@ -617,8 +856,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                   Shiny.setInputValue('", ns("calendar_modal_closed"), "', Date.now(), {priority: 'event'});
                 });
                 $modal.find('.modal-dialog').css({
-                  'max-width': '80%',
-                  'width': '80%'
+                  'max-width': '70%',
+                  'width': '70%'
                 });
               }, 50);
             });
@@ -1133,7 +1372,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
 
         selected_mouse_data(list(
           plugging = plugging[1, ],
-          body_weight_history = female_body_weight_history,
+          body_weight_history = build_event_weight_window(female_body_weight_history, plugging[1, , drop = FALSE], female_plugging_history),
           plugging_history = female_plugging_history
         ))
         view_mode("details")
@@ -1509,8 +1748,8 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
              removeClass = if(show_waiting()) "deselected" else "selected"))
     })
 
-    observeEvent(input$calendar_plot_dblclick, {
-      click_info <- input$calendar_plot_dblclick
+    observeEvent(input$calendar_plot_click, {
+      click_info <- input$calendar_plot_click
       req(click_info$x, click_info$y)
 
       event_strips <- current_month_event_strips()
@@ -1988,6 +2227,36 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
       open_calendar_details_for_mouse(asu_id)
     }
 
+    build_calendar_current_prediction <- function(data) {
+      if (is.null(data) || is.null(data$plugging)) {
+        return(empty_calendar_prediction_result())
+      }
+
+      training_dataset <- get_calendar_prediction_training_dataset()
+      current_prediction_mode <- if (!is.null(shared_plugging_state) && !is.null(shared_plugging_state$prediction_breeding_line_mode)) {
+        normalize_prediction_breeding_line_mode(shared_plugging_state$prediction_breeding_line_mode)
+      } else {
+        "feature"
+      }
+      tryCatch(
+        predict_plugging_event_outcome(
+          data$plugging,
+          data$body_weight_history,
+          training_dataset,
+          breeding_line_mode = current_prediction_mode
+        ),
+        error = function(e) empty_calendar_prediction_result()
+      )
+    }
+
+    current_calendar_prediction <- reactive({
+      if (view_mode() != "details") {
+        return(empty_calendar_prediction_result())
+      }
+
+      build_calendar_current_prediction(selected_mouse_data())
+    })
+
     observeEvent(input$calendar_body_weight_back_clicked, {
       asu_id <- input$calendar_body_weight_back_clicked
       req(asu_id)
@@ -2001,12 +2270,707 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
 
       reopen_calendar_details_modal(asu_id)
     }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_edit_expected_age_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      current_expected_age <- if (!is.null(row$expected_age_for_harvesting) && !is.na(row$expected_age_for_harvesting)) {
+        row$expected_age_for_harvesting
+      } else {
+        ""
+      }
+
+      showModal(modalDialog(
+        title = paste("Edit Expected Harvest Age (", row$female_id, ")"),
+        size = "s",
+        textInput(
+          ns("calendar_expected_age_edit_input"),
+          "Expected Age for Harvesting (Embryonic Days, e.g. 14)",
+          value = current_expected_age,
+          width = "100%"
+        ),
+        footer = tagList(
+          actionButton(ns("cancel_calendar_expected_age_btn"), "Cancel", class = "btn btn-default"),
+          actionButton(ns("save_calendar_expected_age_btn"), "Save", class = "btn-primary")
+        )
+      ))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$cancel_calendar_expected_age_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      reopen_calendar_details_modal(current_data$plugging$female_id[1])
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$save_calendar_expected_age_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      plugging_id <- row$id[1]
+      female_id <- row$female_id[1]
+      new_expected_age <- input$calendar_expected_age_edit_input
+
+      con <- NULL
+      tryCatch({
+        con <- dbConnect(SQLite(), db_path)
+        old_values <- dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+
+        if (nrow(old_values) == 0) {
+          showNotification("Plugging event not found", type = "error")
+          return()
+        }
+
+        old_expected_age <- if ("expected_age_for_harvesting" %in% colnames(old_values)) old_values$expected_age_for_harvesting[1] else NA
+        old_expected_age <- if (is.na(old_expected_age)) "" else trimws(as.character(old_expected_age))
+        new_expected_age_trimmed <- if (is.null(new_expected_age) || is.na(new_expected_age[1])) "" else trimws(as.character(new_expected_age[1]))
+
+        if (identical(old_expected_age, new_expected_age_trimmed)) {
+          showNotification("No changes detected. Nothing was saved.", type = "warning")
+          return()
+        }
+
+        result <- dbExecute(
+          con,
+          "UPDATE plugging_history SET expected_age_for_harvesting = ?, updated_at = DATETIME('now') WHERE id = ?",
+          params = list(new_expected_age_trimmed, plugging_id)
+        )
+
+        if (result > 0) {
+          log_audit_trail(
+            "plugging_history",
+            plugging_id,
+            "UPDATE",
+            old_values[1, , drop = FALSE],
+            list(expected_age_for_harvesting = new_expected_age_trimmed)
+          )
+          showNotification("Expected harvest age updated", type = "message")
+          refresh_calendar_linked_views(female_id)
+        } else {
+          showNotification("Failed to update expected harvest age", type = "error")
+        }
+      }, error = function(e) {
+        showNotification(paste("Error updating expected harvest age:", e$message), type = "error")
+      }, finally = {
+        if (!is.null(con)) dbDisconnect(con)
+      })
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_mark_plug_observed_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      current_notes <- if (!is.na(row$notes[1]) && row$notes[1] != "") row$notes[1] else ""
+      current_expected_age <- if (!is.na(row$expected_age_for_harvesting[1]) && row$expected_age_for_harvesting[1] != "") row$expected_age_for_harvesting[1] else ""
+      current_plug_observed <- if (!is.na(row$plug_observed_date[1]) && row$plug_observed_date[1] != "" && row$plug_observed_date[1] != "Unknown") row$plug_observed_date[1] else as.character(Sys.Date())
+      plug_observed_type_default <- if (!is.na(row$plug_observed_date[1]) && row$plug_observed_date[1] != "" && row$plug_observed_date[1] != "Unknown") "date" else "unknown"
+
+      showModal(modalDialog(
+        title = "Mark Plug as Observed",
+        size = "m",
+        tagList(
+          radioButtons(ns("calendar_plug_observed_type"), "Plug Observed Date Type", choices = c("Specific Date" = "date", "Unknown" = "unknown"), selected = plug_observed_type_default),
+          conditionalPanel(
+            condition = paste0("input['", ns("calendar_plug_observed_type"), "'] == 'date'"),
+            dateInput(ns("calendar_plug_observed_date_input"), "Plug Observed Date", value = as.Date(current_plug_observed), width = "100%")
+          ),
+          textInput(ns("calendar_expected_age_for_harvesting_input"), "Expected Age for Harvesting (Embryonic Days, e.g. 14)", value = current_expected_age, width = "100%"),
+          textAreaInput(ns("calendar_plug_observed_notes_input"), "Plugging History Notes", value = current_notes, rows = 4, width = "100%")
+        ),
+        footer = tagList(
+          actionButton(ns("calendar_cancel_plug_observed_btn"), "Cancel", class = "btn btn-default"),
+          actionButton(ns("calendar_confirm_plug_observed_btn"), "Confirm", class = "btn-success")
+        )
+      ))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_cancel_plug_observed_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+      reopen_calendar_details_modal(current_data$plugging$female_id[1])
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_confirm_plug_observed_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      plugging_id <- row$id[1]
+      female_id <- row$female_id[1]
+      plug_observed_date_value <- if (identical(input$calendar_plug_observed_type, "unknown")) "Unknown" else as.character(input$calendar_plug_observed_date_input)
+
+      con <- NULL
+      tryCatch({
+        con <- dbConnect(SQLite(), db_path)
+        old_values <- dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+        if (nrow(old_values) == 0) {
+          showNotification("Plugging event not found", type = "error")
+          return()
+        }
+
+        result <- dbExecute(
+          con,
+          "UPDATE plugging_history SET plug_observed_date = ?, pairing_end_date = ?, plugging_status = 'Plugged', expected_age_for_harvesting = ?, notes = ?, updated_at = DATETIME('now') WHERE id = ?",
+          params = list(
+            plug_observed_date_value,
+            plug_observed_date_value,
+            input$calendar_expected_age_for_harvesting_input,
+            strip_plugging_status_audit_notes(input$calendar_plug_observed_notes_input),
+            plugging_id
+          )
+        )
+
+        if (result > 0) {
+          log_audit_trail(
+            "plugging_history",
+            plugging_id,
+            "UPDATE",
+            old_values[1, , drop = FALSE],
+            list(
+              plug_observed_date = plug_observed_date_value,
+              pairing_end_date = plug_observed_date_value,
+              plugging_status = "Plugged",
+              expected_age_for_harvesting = input$calendar_expected_age_for_harvesting_input,
+              notes = input$calendar_plug_observed_notes_input
+            )
+          )
+          showNotification("Plug marked as observed successfully!", type = "message")
+          refresh_calendar_linked_views(female_id)
+        } else {
+          showNotification("Failed to update plugging event", type = "error")
+        }
+      }, error = function(e) {
+        showNotification(paste("Error updating plugging event:", e$message), type = "error")
+      }, finally = {
+        if (!is.null(con)) dbDisconnect(con)
+      })
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_mark_surprising_plug_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      current_notes <- if (!is.na(row$notes[1]) && row$notes[1] != "") row$notes[1] else ""
+
+      showModal(modalDialog(
+        title = "Mark as Surprising Plug!!",
+        size = "m",
+        tagList(
+          textInput(ns("calendar_expected_age_surprising_input"), "Expected Age for Harvesting (Embryonic Days, e.g. 14)", value = "", width = "100%"),
+          textAreaInput(ns("calendar_surprising_plug_notes_input"), "Plugging History Notes", value = current_notes, rows = 4, width = "100%")
+        ),
+        footer = tagList(
+          actionButton(ns("calendar_cancel_surprising_plug_btn"), "Cancel", class = "btn btn-default"),
+          actionButton(ns("calendar_confirm_surprising_plug_btn"), "Confirm Surprising Plug!!", class = "btn-success")
+        )
+      ))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_cancel_surprising_plug_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+      reopen_calendar_details_modal(current_data$plugging$female_id[1])
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_confirm_surprising_plug_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      plugging_id <- row$id[1]
+      female_id <- row$female_id[1]
+
+      con <- NULL
+      tryCatch({
+        con <- dbConnect(SQLite(), db_path)
+        old_values <- dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+        if (nrow(old_values) == 0) {
+          showNotification("Plugging event not found", type = "error")
+          return()
+        }
+
+        result <- dbExecute(
+          con,
+          "UPDATE plugging_history SET plug_observed_date = 'Unknown', plugging_status = 'Surprising Plug!!', expected_age_for_harvesting = ?, notes = ?, updated_at = DATETIME('now') WHERE id = ?",
+          params = list(
+            input$calendar_expected_age_surprising_input,
+            strip_plugging_status_audit_notes(input$calendar_surprising_plug_notes_input),
+            plugging_id
+          )
+        )
+
+        if (result > 0) {
+          log_audit_trail(
+            "plugging_history",
+            plugging_id,
+            "UPDATE",
+            old_values[1, , drop = FALSE],
+            list(
+              plug_observed_date = "Unknown",
+              plugging_status = "Surprising Plug!!",
+              expected_age_for_harvesting = input$calendar_expected_age_surprising_input,
+              notes = input$calendar_surprising_plug_notes_input
+            )
+          )
+          showNotification("Marked as Surprising Plug!! successfully!", type = "message")
+          refresh_calendar_linked_views(female_id)
+        } else {
+          showNotification("Failed to update plugging event", type = "error")
+        }
+      }, error = function(e) {
+        showNotification(paste("Error updating plugging event:", e$message), type = "error")
+      }, finally = {
+        if (!is.null(con)) dbDisconnect(con)
+      })
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_set_status_empty_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      current_notes <- if (!is.na(row$notes[1]) && row$notes[1] != "") row$notes[1] else ""
+
+      showModal(modalDialog(
+        title = "Set Status to Empty Plug (Alive)",
+        size = "m",
+        tagList(
+          dateInput(ns("calendar_set_status_empty_date_input"), "Confirmation Date", value = Sys.Date(), width = "100%"),
+          textAreaInput(ns("calendar_set_status_empty_notes_input"), "Plugging History Notes", value = current_notes, rows = 4, width = "100%")
+        ),
+        footer = tagList(
+          actionButton(ns("calendar_cancel_set_status_empty_btn"), "Cancel", class = "btn btn-default"),
+          actionButton(ns("calendar_confirm_set_status_empty_btn"), "Confirm", class = "btn-info")
+        )
+      ))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_cancel_set_status_empty_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+      reopen_calendar_details_modal(current_data$plugging$female_id[1])
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_confirm_set_status_empty_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      plugging_id <- row$id[1]
+      female_id <- row$female_id[1]
+
+      con <- NULL
+      tryCatch({
+        con <- dbConnect(SQLite(), db_path)
+        old_values <- dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+        if (nrow(old_values) == 0) {
+          showNotification("Plugging event not found", type = "error")
+          return()
+        }
+
+        result <- dbExecute(
+          con,
+          "UPDATE plugging_history SET plugging_status = 'Empty', notes = ?, updated_at = DATETIME('now') WHERE id = ?",
+          params = list(strip_plugging_status_audit_notes(input$calendar_set_status_empty_notes_input), plugging_id)
+        )
+
+        if (result > 0) {
+          log_audit_trail(
+            "plugging_history",
+            plugging_id,
+            "UPDATE",
+            old_values[1, , drop = FALSE],
+            list(
+              plugging_status = "Empty",
+              confirmation_date = as.character(input$calendar_set_status_empty_date_input),
+              notes = input$calendar_set_status_empty_notes_input
+            )
+          )
+          showNotification("Plugging status set to Empty!", type = "message")
+          refresh_calendar_linked_views(female_id)
+        } else {
+          showNotification("Failed to update plugging status", type = "error")
+        }
+      }, error = function(e) {
+        showNotification(paste("Error updating plugging status:", e$message), type = "error")
+      }, finally = {
+        if (!is.null(con)) dbDisconnect(con)
+      })
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_euthanize_mice_btn, {
+      calendar_embryo_autofill_enabled(TRUE)
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      report_defaults <- extract_plugging_final_report(data.frame(row, stringsAsFactors = FALSE))
+      collection_date_default <- safe_analysis_date(report_defaults$final_report_date)
+      if (is.na(collection_date_default) && "female_date_of_death" %in% names(row)) {
+        collection_date_default <- safe_analysis_date(row$female_date_of_death[1])
+      }
+      if (is.na(collection_date_default)) {
+        collection_date_default <- Sys.Date()
+      }
+
+      female_age_at_collection <- NA
+      if (!is.na(row$female_dob[1])) {
+        female_dob <- safe_analysis_date(row$female_dob[1])
+        if (!is.na(female_dob) && !is.na(collection_date_default)) {
+          female_age_at_collection <- round(as.numeric(collection_date_default - female_dob) / 7, 1)
+        }
+      }
+      initialize_calendar_other_age_rows(report_defaults)
+
+
+
+      showModal(modalDialog(
+        title = "Confirm Plug Status for Euthanasia",
+        size = "l",
+        tagList(
+          tags$style(HTML("\
+            .euthanasia-layout-row { display: flex; align-items: stretch; }\
+            .euthanasia-left-col, .euthanasia-right-col { display: flex; flex-direction: column; }\
+            .euthanasia-left-col { gap: 12px; }\
+            .euthanasia-right-col .euthanasia-card { height: 100%; }\
+            .euthanasia-card .form-group { margin-bottom: 10px; }\
+            .euthanasia-collection-row { margin-bottom: 2px; }\
+          ")),
+          div(
+            style = "background: #f8fafc; border: 1px solid #dbeafe; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; color: #1e3a5f;",
+            tags$div(style = "font-weight: 600; margin-bottom: 4px;", "Female Mouse Summary"),
+            tags$div(
+              style = "display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: 0.95em;",
+              span(tags$b("ASU ID:"), row$female_id[1]),
+              span(tags$b("Age at Collection/Death:"), ifelse(is.na(female_age_at_collection), "N/A", paste0(female_age_at_collection, " weeks"))),
+              span(tags$b("Line:"), ifelse(is.na(row$female_breeding_line[1]) || row$female_breeding_line[1] == "", "N/A", row$female_breeding_line[1])),
+              span(tags$b("Genotype:"), ifelse(is.na(row$female_genotype[1]) || row$female_genotype[1] == "", "N/A", row$female_genotype[1]))
+            )
+          ),
+          fluidRow(
+            class = "euthanasia-layout-row",
+            column(5,
+              class = "euthanasia-left-col",
+              div(
+                class = "euthanasia-card",
+                style = "background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 12px; flex: 1;",
+                tags$div(style = "font-weight: 600; color: #9a3412; margin-bottom: 8px;", "Status Update"),
+                dateInput(ns("calendar_euthanasia_date_input"), "Date of Death", value = collection_date_default),
+                radioButtons(ns("calendar_euthanasia_status_choice"), "Plugging Status after Euthanasia:", choices = c("Empty" = "Empty", "Sample Collected" = "Collected"), selected = "Collected")
+              ),
+              div(
+                class = "euthanasia-card",
+                style = "background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; flex: 1;",
+                tags$div(style = "font-weight: 600; color: #334155; margin-bottom: 8px;", "Plugging History Notes"),
+                textAreaInput(ns("calendar_euthanasia_notes_input"), NULL, value = ifelse(is.na(row$notes[1]) || row$notes[1] == "", "", row$notes[1]), rows = 3, width = "100%")
+              )
+            ),
+            column(7,
+              class = "euthanasia-right-col",
+              conditionalPanel(
+                condition = paste0("input['", ns("calendar_euthanasia_status_choice"), "'] == 'Collected'"),
+                div(
+                  class = "euthanasia-card",
+                  style = "background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px;",
+                  tags$div(style = "font-weight: 600; color: #166534; margin-bottom: 8px;", "Sample Collection Report"),
+                  div(
+                    class = "euthanasia-collection-row",
+                    fluidRow(
+                      column(4,
+                        numericInput(
+                          ns("calendar_euthanasia_total_embryos_input"),
+                          "Total Embryos",
+                          value = ifelse(is.na(report_defaults$final_report_total_embryos), NA, report_defaults$final_report_total_embryos),
+                          min = 0,
+                          step = 1
+                        )
+                      ),
+                      column(8,
+                        textInput(
+                          ns("calendar_euthanasia_primary_age_input"),
+                          "Primary Embryo Stage",
+                          value = ifelse(is.na(report_defaults$final_report_primary_age), "", report_defaults$final_report_primary_age),
+                          placeholder = "E16 or E16.5"
+                        )
+                      )
+                    )
+                  ),
+                  div(
+                    class = "euthanasia-collection-row",
+                    checkboxInput(
+                      ns("calendar_euthanasia_mixed_age_input"),
+                      "Mixed embryo ages in this collection",
+                      value = isTRUE(report_defaults$final_report_mixed_age)
+                    )
+                  ),
+                  div(
+                    class = "euthanasia-collection-row",
+                    tags$div(style = "border-top: 1px solid #cbd5e1; margin: 8px 0 6px 0;"),
+                    tags$div(style = "font-weight: 600; color: #334155; margin-bottom: 4px;", "Other Embryo Ages and Number"),
+                    uiOutput(ns("calendar_euthanasia_other_age_rows_ui")),
+                    div(
+                      style = "display: none;",
+                      textAreaInput(
+                        ns("calendar_euthanasia_age_groups_input"),
+                        "Age Group Details",
+                        value = "",
+                        rows = 2,
+                        width = "100%",
+                        placeholder = "E15.5 x 1; E16.5 x 7"
+                      )
+                    )
+                  ),
+                  tags$div(style = "border-top: 1px solid #cbd5e1; margin: 8px 0 10px 0;"),
+                  fluidRow(
+                    column(4, numericInput(ns("calendar_euthanasia_male_embryos_input"), "Male", value = ifelse(is.na(report_defaults$final_report_male_embryos), NA, report_defaults$final_report_male_embryos), min = 0, step = 1)),
+                    column(4, numericInput(ns("calendar_euthanasia_female_embryos_input"), "Female", value = ifelse(is.na(report_defaults$final_report_female_embryos), NA, report_defaults$final_report_female_embryos), min = 0, step = 1)),
+                    column(4, numericInput(ns("calendar_euthanasia_unknown_embryos_input"), "Unknown", value = ifelse(is.na(report_defaults$final_report_unknown_embryos), NA, report_defaults$final_report_unknown_embryos), min = 0, step = 1))
+                  ),
+                  textAreaInput(ns("calendar_euthanasia_collection_notes_input"), "Sample Collection Notes", value = if (!is.null(report_defaults$final_report_notes) && !is.na(report_defaults$final_report_notes)) report_defaults$final_report_notes else "", rows = 3, width = "100%")
+                )
+              ),
+              conditionalPanel(
+                condition = paste0("input['", ns("calendar_euthanasia_status_choice"), "'] == 'Empty'"),
+                div(
+                  class = "euthanasia-card",
+                  style = "background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px; color: #475569;",
+                  "No collection report is needed when the final status is Empty."
+                )
+              )
+            )
+          )
+        ),
+        footer = tagList(
+          actionButton(ns("calendar_cancel_euthanasia_btn"), "Cancel", class = "btn btn-default"),
+          actionButton(ns("calendar_confirm_euthanasia_btn"), "Confirm", class = "btn-danger")
+        )
+      ))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_cancel_euthanasia_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+      reopen_calendar_details_modal(current_data$plugging$female_id[1])
+    }, ignoreInit = TRUE)
+
+    observeEvent(
+      list(
+        input$calendar_euthanasia_total_embryos_input,
+        input$calendar_euthanasia_male_embryos_input,
+        input$calendar_euthanasia_female_embryos_input,
+        input$calendar_euthanasia_unknown_embryos_input,
+        input$calendar_euthanasia_status_choice
+      ),
+      {
+        if (isTRUE(calendar_embryo_count_autofill_in_progress()) || !identical(input$calendar_euthanasia_status_choice, "Collected") || !isTRUE(calendar_embryo_autofill_enabled())) {
+          return()
+        }
+
+        input_values <- list(
+          total = input$calendar_euthanasia_total_embryos_input,
+          male = input$calendar_euthanasia_male_embryos_input,
+          female = input$calendar_euthanasia_female_embryos_input,
+          unknown = input$calendar_euthanasia_unknown_embryos_input
+        )
+
+        if (all(vapply(input_values, is.null, logical(1)))) {
+          return()
+        }
+
+        did_autofill <- apply_calendar_embryo_count_autofill(input_values)
+        if (isTRUE(did_autofill)) {
+          calendar_embryo_autofill_enabled(FALSE)
+        }
+      },
+      ignoreInit = TRUE
+    )
+
+    output$calendar_euthanasia_other_age_rows_ui <- renderUI({
+      render_calendar_other_age_rows_ui(calendar_other_age_row_count(), calendar_other_age_rows_seed())
+    })
+
+    observeEvent(input$calendar_add_other_age_row_btn, {
+      current_rows <- collect_calendar_other_age_rows(calendar_other_age_row_count(), calendar_other_age_rows_seed())
+      calendar_other_age_rows_seed(rbind(current_rows, data.frame(stage = "", count = NA_integer_, stringsAsFactors = FALSE)))
+      calendar_other_age_row_count(calendar_other_age_row_count() + 1)
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$calendar_remove_other_age_row_btn, {
+      current_count <- calendar_other_age_row_count()
+      if (current_count <= 1) {
+        return()
+      }
+
+      current_rows <- collect_calendar_other_age_rows(current_count, calendar_other_age_rows_seed())
+      calendar_other_age_rows_seed(current_rows[seq_len(current_count - 1), , drop = FALSE])
+      calendar_other_age_row_count(current_count - 1)
+    }, ignoreInit = TRUE)
+
+    observe({
+      req(calendar_other_age_row_count() >= 1)
+      rows_df <- collect_calendar_other_age_rows(calendar_other_age_row_count(), calendar_other_age_rows_seed())
+      age_groups_text <- build_calendar_age_groups_text_from_rows(rows_df)
+      updateTextAreaInput(session, "calendar_euthanasia_age_groups_input", value = age_groups_text)
+
+      if (age_groups_text != "" && !isTRUE(input$calendar_euthanasia_mixed_age_input)) {
+        updateCheckboxInput(session, "calendar_euthanasia_mixed_age_input", value = TRUE)
+      }
+    })
+
+    observeEvent(input$calendar_confirm_euthanasia_btn, {
+      current_data <- selected_mouse_data()
+      req(current_data, current_data$plugging)
+
+      row <- current_data$plugging
+      plugging_id <- row$id[1]
+      female_id <- row$female_id[1]
+      selected_status <- input$calendar_euthanasia_status_choice
+      collection_notes_value <- if (!is.null(input$calendar_euthanasia_collection_notes_input) && !is.na(input$calendar_euthanasia_collection_notes_input[1])) trimws(as.character(input$calendar_euthanasia_collection_notes_input[1])) else ""
+
+      con <- NULL
+      tryCatch({
+        con <- dbConnect(SQLite(), db_path)
+        old_plug <- dbGetQuery(con, "SELECT * FROM plugging_history WHERE id = ?", params = list(plugging_id))
+        if (nrow(old_plug) == 0) {
+          showNotification("Plugging event not found", type = "error")
+          return()
+        }
+
+        dbExecute(
+          con,
+          "UPDATE mice_stock SET status = 'Deceased', date_of_death = ?, deceased_timestamp = DATETIME('now'), last_updated = DATETIME('now') WHERE asu_id = ?",
+          params = list(as.character(input$calendar_euthanasia_date_input), female_id)
+        )
+
+        if (identical(selected_status, "Collected")) {
+          primary_age_text <- if (!is.null(input$calendar_euthanasia_primary_age_input) && !is.na(input$calendar_euthanasia_primary_age_input[1])) trimws(as.character(input$calendar_euthanasia_primary_age_input[1])) else ""
+          normalized_primary_age <- normalize_embryo_age_input(primary_age_text)
+          primary_age_label <- if (is.na(normalized_primary_age$numeric)) {
+            if (primary_age_text == "") NA_character_ else primary_age_text
+          } else {
+            normalized_primary_age$label
+          }
+          mixed_age_text <- if (!is.null(input$calendar_euthanasia_age_groups_input) && !is.na(input$calendar_euthanasia_age_groups_input[1])) trimws(as.character(input$calendar_euthanasia_age_groups_input[1])) else ""
+          mixed_age_flag <- isTRUE(input$calendar_euthanasia_mixed_age_input)
+          age_groups_json <- NA_character_
+
+          normalized_counts <- normalize_final_report_embryo_counts(
+            total_embryos = input$calendar_euthanasia_total_embryos_input,
+            male_embryos = input$calendar_euthanasia_male_embryos_input,
+            female_embryos = input$calendar_euthanasia_female_embryos_input,
+            unknown_embryos = input$calendar_euthanasia_unknown_embryos_input
+          )
+          if (!is.null(normalized_counts$validation_message)) {
+            showNotification(normalized_counts$validation_message, type = "error")
+            return()
+          }
+
+          if (mixed_age_text != "") {
+            parsed_age_groups <- parse_age_groups_text(mixed_age_text)
+            parsed_age_groups <- complete_age_groups_with_primary(
+              parsed_age_groups,
+              normalized_counts$final_report_total_embryos,
+              primary_age_label = primary_age_label,
+              primary_age_value = normalized_primary_age$numeric
+            )
+            if (nrow(parsed_age_groups) > 0) {
+              age_groups_json <- jsonlite::toJSON(parsed_age_groups, auto_unbox = TRUE, dataframe = "rows", null = "null")
+              mixed_age_flag <- TRUE
+            }
+          } else if (isTRUE(mixed_age_flag) && "final_report_age_groups_json" %in% names(row) && !is.na(row$final_report_age_groups_json[1]) && row$final_report_age_groups_json[1] != "") {
+            age_groups_json <- row$final_report_age_groups_json[1]
+          }
+
+          dbExecute(
+            con,
+            "UPDATE plugging_history SET plugging_status = ?, notes = ?, final_report_date = ?, final_report_primary_age = ?, final_report_primary_age_value = ?, final_report_total_embryos = ?, final_report_male_embryos = ?, final_report_female_embryos = ?, final_report_unknown_embryos = ?, final_report_mixed_age = ?, final_report_age_groups_json = ?, final_report_notes = ?, updated_at = DATETIME('now') WHERE id = ?",
+            params = list(
+              selected_status,
+              strip_plugging_status_audit_notes(input$calendar_euthanasia_notes_input),
+              as.character(input$calendar_euthanasia_date_input),
+              primary_age_label,
+              if (is.na(normalized_primary_age$numeric)) NA_real_ else normalized_primary_age$numeric,
+              normalized_counts$final_report_total_embryos,
+              normalized_counts$final_report_male_embryos,
+              normalized_counts$final_report_female_embryos,
+              normalized_counts$final_report_unknown_embryos,
+              mixed_age_flag,
+              age_groups_json,
+              collection_notes_value,
+              plugging_id
+            )
+          )
+        } else {
+          dbExecute(
+            con,
+            "UPDATE plugging_history SET plugging_status = ?, notes = ?, updated_at = DATETIME('now') WHERE id = ?",
+            params = list(selected_status, strip_plugging_status_audit_notes(input$calendar_euthanasia_notes_input), plugging_id)
+          )
+        }
+
+        log_audit_trail(
+          "mice_stock",
+          female_id,
+          "UPDATE",
+          list(status = "Alive"),
+          list(
+            status = "Deceased",
+            date_of_death = as.character(input$calendar_euthanasia_date_input),
+            notes = input$calendar_euthanasia_notes_input,
+            source = "Calendar Tab",
+            source_event_id = plugging_id
+          )
+        )
+        log_audit_trail(
+          "plugging_history",
+          plugging_id,
+          "UPDATE",
+          old_plug[1, , drop = FALSE],
+          list(
+            plugging_status = selected_status,
+            completion_date = as.character(input$calendar_euthanasia_date_input),
+            notes = strip_plugging_status_audit_notes(input$calendar_euthanasia_notes_input),
+            final_report_date = if (identical(selected_status, "Collected")) as.character(input$calendar_euthanasia_date_input) else NULL,
+            final_report_primary_age = if (identical(selected_status, "Collected")) primary_age_label else NULL,
+            final_report_total_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_total_embryos else NULL,
+            final_report_male_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_male_embryos else NULL,
+            final_report_female_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_female_embryos else NULL,
+            final_report_unknown_embryos = if (identical(selected_status, "Collected")) normalized_counts$final_report_unknown_embryos else NULL,
+            final_report_mixed_age = if (identical(selected_status, "Collected")) mixed_age_flag else NULL,
+            final_report_age_groups_json = if (identical(selected_status, "Collected")) age_groups_json else NULL,
+            final_report_notes = if (identical(selected_status, "Collected")) collection_notes_value else NULL
+          )
+        )
+        showNotification("Female mouse marked as deceased and plugging status updated!", type = "message")
+        refresh_calendar_linked_views(female_id)
+      }, error = function(e) {
+        showNotification(paste("Error updating mouse status:", e$message), type = "error")
+      }, finally = {
+        if (!is.null(con)) dbDisconnect(con)
+      })
+    }, ignoreInit = TRUE)
     
     # Dynamic modal content based on view mode
     output$modal_content <- renderUI({
       if (view_mode() == "calendar") {
         # Original calendar view
         tagList(
+          tags$script(HTML(
+            "setTimeout(function() {
+              var modal = document.querySelectorAll('.modal-dialog');
+              var dialog = modal[modal.length - 1];
+              if (!dialog) {
+                return;
+              }
+              dialog.style.setProperty('width', '70%', 'important');
+              dialog.style.setProperty('max-width', '70%', 'important');
+            }, 0);"
+          )),
           # Statistics and legend
           div(class = "calendar-header",
             div(class = "calendar-controls",
@@ -2063,7 +3027,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             div(class = "calendar-plot-container",
               div(class = "calendar-body",
                 div(class = "calendar-plot",
-                  plotOutput(ns("calendar_plot"), height = "600px", dblclick = ns("calendar_plot_dblclick"))
+                  plotOutput(ns("calendar_plot"), height = "600px", click = ns("calendar_plot_click"))
                 )
               )
             ),
@@ -2086,11 +3050,44 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         row <- data$plugging
         female_body_weight_history <- data$body_weight_history
         female_plugging_history <- data$plugging_history
+        current_prediction <- current_calendar_prediction()
         
         # Calculate ages
         male_age <- if(!is.na(row$male_dob)) round(as.numeric(Sys.Date() - as.Date(row$male_dob)) / 7, 1) else NA
         female_age <- if(!is.na(row$female_dob)) round(as.numeric(Sys.Date() - as.Date(row$female_dob)) / 7, 1) else NA
+        calendar_quick_actions <- if (row$female_status != "Deceased" && row$plugging_status != "Deleted" && is_active_calendar_status(row$plugging_status)) {
+          div(
+            style = "margin-top: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; text-align: left;",
+            div(style = "font-weight: 600; color: #334155; margin-bottom: 8px;", "Quick Status Actions"),
+            div(
+              style = "display: flex; flex-wrap: wrap; gap: 6px;",
+              if (row$plugging_status == "Ongoing") {
+                actionButton(ns("calendar_mark_plug_observed_btn"), "Plugged", class = "btn-success btn-xs", style = "padding: 3px 8px; line-height: 1.2;")
+              },
+              if (row$plugging_status == "Not Observed (Waiting for confirmation)") {
+                actionButton(ns("calendar_mark_surprising_plug_btn"), "Surprising Plug!!😱", class = "btn-success btn-xs", style = "background-color: #ff6b6b; border-color: #ff6b6b; padding: 3px 8px; line-height: 1.2;")
+              },
+              actionButton(ns("calendar_euthanize_mice_btn"), "Euthanized", class = "btn-warning btn-xs", style = "padding: 3px 8px; line-height: 1.2;"),
+              if (can_mark_empty_calendar(row$plugging_status)) {
+                actionButton(ns("calendar_set_status_empty_btn"), "Empty Plug (Alive)", class = "btn-info btn-xs", style = "padding: 3px 8px; line-height: 1.2;")
+              }
+            )
+          )
+        } else {
+          NULL
+        }
         tagList(
+          tags$script(HTML(
+            "setTimeout(function() {
+              var modal = document.querySelectorAll('.modal-dialog');
+              var dialog = modal[modal.length - 1];
+              if (!dialog) {
+                return;
+              }
+              dialog.style.setProperty('width', '920px', 'important');
+              dialog.style.setProperty('max-width', '92vw', 'important');
+            }, 0);"
+          )),
           # Back button
           div(
             style = "margin-bottom: 20px; text-align: left;",
@@ -2101,31 +3098,32 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
           
           # Details content
           div(
-            style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;",
+            style = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 860px; margin: 0 auto;",
             
             h4(paste("🐭 Plugging Details:", row$female_id), 
                style = "text-align: center; color: #1e3a5f; margin-bottom: 20px;"),
             div(
-              style = "display: grid; grid-template-columns: 1fr 1fr; gap: 20px;",
+              style = "display: grid; grid-template-columns: minmax(250px, 1.15fr) minmax(410px, 2.85fr); gap: 16px; align-items: stretch;",
               div(
+                style = "display: flex; flex-direction: column; height: 100%;",
                 div(
                   style = "background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%); border-radius: 8px; padding: 12px; border-left: 4px solid #28a745; margin-bottom: 12px;",
                   h5("👫 Breeding Pair", style = "margin: 0 0 10px 0; color: #2c3e50;"),
                   div(
-                    div(
-                      strong("Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
-                      br(),
-                      "Line: ", ifelse(is.na(row$male_breeding_line), "Unknown", row$male_breeding_line),
-                      br(),
-                      "Genotype: ", ifelse(is.na(row$male_genotype), "Unknown", row$male_genotype)
-                    ),
-                    br(),
                     div(
                       strong("Female: "), paste0(row$female_id, " (", ifelse(is.na(female_age), "Unknown age", paste0(female_age, " wks")), ")"),
                       br(),
                       "Line: ", ifelse(is.na(row$female_breeding_line), "Unknown", row$female_breeding_line),
                       br(),
                       "Genotype: ", ifelse(is.na(row$female_genotype), "Unknown", row$female_genotype)
+                    ),
+                    br(),
+                    div(
+                      strong("Male: "), paste0(row$male_id, " (", ifelse(is.na(male_age), "Unknown age", paste0(male_age, " wks")), ")"),
+                      br(),
+                      "Line: ", ifelse(is.na(row$male_breeding_line), "Unknown", row$male_breeding_line),
+                      br(),
+                      "Genotype: ", ifelse(is.na(row$male_genotype), "Unknown", row$male_genotype)
                     )
                   )
                 ),
@@ -2141,21 +3139,53 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                   )
                 ),
                 div(
-                  style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #ffc107;",
-                  h5("📊 Status", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                  style = "background: rgba(255, 193, 7, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #ffc107; flex: 1;",
+                  div(
+                    style = "display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px;",
+                    h5("📊 Status", style = "margin: 0; color: #2c3e50;"),
+                    actionButton(
+                      ns("calendar_edit_expected_age_btn"),
+                      "Edit Harvest",
+                      class = "btn btn-default btn-xs",
+                      style = "padding: 2px 8px; line-height: 1.2;"
+                    )
+                  ),
                   div(
                     "Current Status: ", strong(row$plugging_status),
                     br(),
                     "Expected Harvest Age: ", strong(ifelse(is.na(row$expected_age_for_harvesting) || row$expected_age_for_harvesting == "", "Not specified", row$expected_age_for_harvesting)),
-                    if (!is.na(row$notes) && row$notes != "") {
-                      tagList(br(), "Notes: ", span(style = "font-style: italic;", row$notes))
+                    if (!is.na(strip_plugging_status_audit_notes(row$notes)) && strip_plugging_status_audit_notes(row$notes) != "") {
+                      tagList(br(), "Notes: ", span(style = "font-style: italic;", strip_plugging_status_audit_notes(row$notes)))
                     }
                   )
-                )
+                ),
+                tagList({
+                  summary_lines <- build_prediction_summary_lines(current_prediction)
+                  metadata_lines <- build_prediction_metadata_lines(current_prediction)
+
+                  if (length(c(summary_lines, metadata_lines)) > 0) {
+                    div(
+                      style = "background: rgba(245, 158, 11, 0.1); border-radius: 8px; padding: 12px; border-left: 4px solid #f59e0b; margin-top: 12px;",
+                      h5("🧪 Prediction Details", style = "margin: 0 0 8px 0; color: #2c3e50;"),
+                      if (length(summary_lines) > 0) {
+                        div(
+                          style = "color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                          tagList(lapply(summary_lines, function(line_text) div(line_text)))
+                        )
+                      },
+                      if (length(metadata_lines) > 0) {
+                        div(
+                          style = "margin-top: 8px; color: #a16207; font-size: 0.82em; line-height: 1.35;",
+                          tagList(lapply(metadata_lines, function(line_text) div(line_text)))
+                        )
+                      }
+                    )
+                  }
+                })
               ),
               if (nrow(female_body_weight_history) > 0) {
                 div(
-                  style = "border-radius: 8px; padding: 12px;",
+                  style = "border-radius: 8px; padding: 12px; display: flex; flex-direction: column; height: 100%;",
                   div(
                     style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
                     h5("📈 Female Body Weight Trend", style = "margin: 0; color: #2c3e50;"),
@@ -2167,24 +3197,73 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                     )
                   ),
                   div(
+                    style = "background: #fff8e1; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; margin-bottom: 12px;",
+                    h5("Pregnancy Fit", style = "margin: 0 0 8px 0; color: #b45309;"),
+                    div(
+                      style = "color: #92400e; font-weight: 600;",
+                      build_prediction_plot_label(current_prediction)
+                    ),
+                    {
+                      timing_lines <- build_prediction_timing_lines(current_prediction)
+                      tagList(
+                        if (length(timing_lines) > 0) {
+                          div(
+                            style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                            tagList(lapply(timing_lines, function(line_text) {
+                              div(
+                                style = "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;",
+                                line_text
+                              )
+                            }))
+                          )
+                        }
+                      )
+                    }
+                  ),
+                  div(
                     id = paste0(ns("calendar_body_weight_preview_plot_container")),
-                    style = "height: 400px;",
+                    style = "height: 400px; flex: 1;",
                     plotlyOutput(paste0(ns("calendar_body_weight_preview_plot_"), row$female_id))
-                  )
+                  ),
+                  calendar_quick_actions
                 )
               } else {
                 div(
-                  style = "border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: center; height: 400px;",
+                  style = "border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: center; height: 100%; min-height: 400px;",
                   div(
                     style = "text-align: center; color: #6c757d;",
                     h5("📈 No Body Weight Data", style = "margin-bottom: 10px;"),
                     p("No body weight records found for this mouse."),
+                    div(
+                      style = "background: #fff8e1; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; margin: 12px 0; text-align: left;",
+                      div(
+                        style = "color: #92400e; font-weight: 600;",
+                        build_prediction_plot_label(current_prediction)
+                      ),
+                      {
+                        timing_lines <- build_prediction_timing_lines(current_prediction)
+                        tagList(
+                          if (length(timing_lines) > 0) {
+                            div(
+                              style = "margin-top: 8px; color: #92400e; font-size: 0.92em; line-height: 1.4;",
+                              tagList(lapply(timing_lines, function(line_text) {
+                                div(
+                                  style = "margin-top: 6px; font-weight: 700; color: #7c2d12; background: rgba(245, 158, 11, 0.18); border-left: 3px solid #f59e0b; padding: 4px 8px; border-radius: 6px;",
+                                  line_text
+                                )
+                              }))
+                            )
+                          }
+                        )
+                      }
+                    ),
                     actionButton(
                       paste0(ns("add_body_weight_from_calendar_btn")),
                       label = "Add First Record",
                       class = "btn-success btn-sm",
                       onclick = paste0("Shiny.setInputValue('", ns("calendar_add_body_weight_clicked"), "', '", row$female_id, "', {priority: 'event'});")
-                    )
+                    ),
+                    calendar_quick_actions
                   )
                 )
               }
@@ -2202,6 +3281,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         row <- data$plugging
         female_body_weight_history <- data$body_weight_history
         female_plugging_history <- data$plugging_history
+        current_prediction <- current_calendar_prediction()
         
         if (nrow(female_body_weight_history) > 0) {
           # Use existing render function logic but with calendar-specific output ID
@@ -2227,15 +3307,38 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
               y = ~weight_grams,
               type = "scatter",
               mode = "lines+markers",
-              marker = list(size = 6, color = "#2196f3"),
               line = list(color = "#2196f3", width = 2),
+              marker = list(color = "#2196f3", size = 7),
               name = "Body Weight",
-              showlegend = FALSE,
+              showlegend = TRUE,
               hovertemplate = paste(
                 "<b>Date:</b> %{x}<br>",
                 "<b>Weight:</b> %{y} grams<br>",
                 "<extra></extra>"
               )
+            )
+
+            if (!is.na(current_prediction$anchor$date) && nrow(current_prediction$fitted_curve) > 0) {
+              fitted_curve_data <- current_prediction$fitted_curve[current_prediction$fitted_curve$day_since_anchor >= 0, , drop = FALSE]
+              fitted_curve_data$measurement_date <- as.POSIXct(current_prediction$anchor$date) + fitted_curve_data$day_since_anchor * 86400
+
+              p <- add_trace(
+                p,
+                data = fitted_curve_data,
+                x = ~measurement_date,
+                y = ~predicted_weight,
+                type = "scatter",
+                mode = "lines+markers",
+                name = "Pregnancy Date Curve",
+                line = list(color = "#f59e0b", width = 2, dash = "dash"),
+                marker = list(color = "#f59e0b", size = 6),
+                hovertemplate = "<b>Date:</b> %{x}<br><b>Curve:</b> %{y:.2f} grams<br><extra></extra>"
+              )
+            }
+
+            y_range <- build_body_weight_plot_y_range(
+              actual_weights = weight_data$weight_grams,
+              fitted_weights = if (exists("fitted_curve_data")) fitted_curve_data$predicted_weight else numeric(0)
             )
             
             # Initialize shapes list for layout
@@ -2354,14 +3457,15 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
                 title = "Weight (grams)",
                 showgrid = TRUE,
                 gridcolor = "#e0e0e0",
-                range = c(0, max(weight_data$weight_grams) * 1.1)
+                range = y_range
               ),
               shapes = shapes_list,
               hovermode = "closest",
               plot_bgcolor = "rgba(0,0,0,0)",
               paper_bgcolor = "rgba(0,0,0,0)",
               margin = list(t = 20, b = 30, l = 50, r = 20),
-              showlegend = FALSE
+              showlegend = TRUE,
+              legend = list(orientation = "h", y = -0.2)
             )
             
             return(p)
@@ -2395,8 +3499,8 @@ show_plugging_calendar_modal <- function(id = "plugging_calendar_modal", db_path
               Shiny.setInputValue('", paste0(id, "-calendar_modal_closed"), "', Date.now(), {priority: 'event'});
             });
             $modal.find('.modal-dialog').css({
-              'max-width': '80%',
-              'width': '80%'
+              'max-width': '70%',
+              'width': '70%'
             });
           }, 50);
         });

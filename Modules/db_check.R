@@ -249,6 +249,29 @@ add_breeding_status_column <- function() {
 # Add plugging_history table if not exists
 add_plugging_tables <- function() {
   con <- dbConnect(SQLite(), DEFAULT_DB_NAME)
+
+  ensure_plugging_history_final_report_columns <- function(connection) {
+    existing_columns <- dbListFields(connection, "plugging_history")
+    required_columns <- list(
+      final_report_date = "DATE",
+      final_report_primary_age = "TEXT",
+      final_report_primary_age_value = "REAL",
+      final_report_total_embryos = "INTEGER",
+      final_report_male_embryos = "INTEGER",
+      final_report_female_embryos = "INTEGER",
+      final_report_unknown_embryos = "INTEGER",
+      final_report_mixed_age = "INTEGER DEFAULT 0",
+      final_report_age_groups_json = "TEXT",
+      final_report_notes = "TEXT"
+    )
+
+    for (column_name in names(required_columns)) {
+      if (!(column_name %in% existing_columns)) {
+        dbExecute(connection, paste("ALTER TABLE plugging_history ADD COLUMN", column_name, required_columns[[column_name]]))
+      }
+    }
+  }
+
   # Plugging history table
   dbExecute(con, paste0(
     "CREATE TABLE IF NOT EXISTS plugging_history (",
@@ -263,7 +286,17 @@ add_plugging_tables <- function() {
     "notes TEXT,",
     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
     "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
-    "expected_age_for_harvesting TEXT"
+    "expected_age_for_harvesting TEXT,",
+    "final_report_date DATE,",
+    "final_report_primary_age TEXT,",
+    "final_report_primary_age_value REAL,",
+    "final_report_total_embryos INTEGER,",
+    "final_report_male_embryos INTEGER,",
+    "final_report_female_embryos INTEGER,",
+    "final_report_unknown_embryos INTEGER,",
+    "final_report_mixed_age INTEGER DEFAULT 0,",
+    "final_report_age_groups_json TEXT,",
+    "final_report_notes TEXT"
     ,")"
   ))
   
@@ -280,6 +313,7 @@ add_plugging_tables <- function() {
   if (!"pairing_end_date" %in% cols) {
     dbExecute(con, "ALTER TABLE plugging_history ADD COLUMN pairing_end_date DATE")
   }
+  ensure_plugging_history_final_report_columns(con)
   
   # Migrate old status values to new ones
   dbExecute(con, "UPDATE plugging_history SET plugging_status = 'Plugged' WHERE plugging_status = 'Plugged'")
@@ -309,7 +343,17 @@ add_plugging_tables <- function() {
       "notes TEXT,",
       "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
       "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,",
-      "expected_age_for_harvesting TEXT"
+      "expected_age_for_harvesting TEXT,",
+      "final_report_date DATE,",
+      "final_report_primary_age TEXT,",
+      "final_report_primary_age_value REAL,",
+      "final_report_total_embryos INTEGER,",
+      "final_report_male_embryos INTEGER,",
+      "final_report_female_embryos INTEGER,",
+      "final_report_unknown_embryos INTEGER,",
+      "final_report_mixed_age INTEGER DEFAULT 0,",
+      "final_report_age_groups_json TEXT,",
+      "final_report_notes TEXT"
       ,")"
     ))
     if (nrow(existing_data) > 0) {
@@ -318,6 +362,8 @@ add_plugging_tables <- function() {
   }, error = function(e) {
     cat("Error updating plugging history table:", e$message, "\n")
   })
+
+  ensure_plugging_history_final_report_columns(con)
   
   dbDisconnect(con)
 }

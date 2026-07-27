@@ -1,3 +1,71 @@
+# Version: beta 1.63 - Update Summary
+
+## 🎉 Latest Updates (beta 1.63)
+
+### 🤰 Pregnancy Prediction Window & Cycle Reliability
+- **Cycle-limited prediction inputs**: Event body-weight windows now stay strictly within the active plugging cycle instead of falling back to full historical weight records
+- **Baseline weight correction**: Prediction baseline now uses the most recent pre-event measurement, improving gain-feature stability for current-cycle inference
+- **Unknown plug-date support verified**: When plug observed date is `Unknown` or missing, prediction anchor behavior remains valid by using pairing dates when available
+- **Predicted pregnancy date constrained to pairing window**: Fitted pregnancy timing remains clamped between pairing start and pairing end dates in both candidate selection and final offset resolution
+
+---
+
+# Version: beta 1.62 - Update Summary
+
+## 🎉 Latest Updates (beta 1.62)
+
+### 🤰 Pregnancy Prediction Fixes & Accuracy Improvements
+- **Prediction anchor locked to pairing window**: Both training and live prediction now keep plug timing between pairing start and pairing end dates
+- **Prediction curve restored**: Fixed missing historical prediction curve by correcting the average daily gain calculation used for pregnant training cases
+- **Active model settings sync**: Prediction Setup now reflects the currently active saved model settings and reapplies them when models are activated or retrained
+- **Stale body-weight embryo count fix**: Embryo-count prediction now uses the age at the latest available post-plug body-weight measurement instead of drifting forward to today's date when no new weight has been recorded
+- **Cleaner timing behavior**: Fitted pregnancy timing remains constrained to the pairing window instead of shifting outside the recorded pairing period
+
+### 📋 Prediction Training Review Improvements
+- **Training Records page retention**: The prediction training table now keeps the current page and page length when records are edited or saved
+- **Pregnant-only review stability**: Training table state now survives filtering changes more reliably without dropping back to the first page
+- **Collected-row edit flow**: Double-click review of collected prediction training rows remains tied to the correct collection report editor
+
+### 🐭 Mouse History & Collected Report Reliability
+- **Deceased mouse history fix**: Resolved errors when opening deceased mice from All Mice by loading death-date fields consistently
+- **Legacy final-report compatibility**: Mouse history and collection report views now tolerate older final-report age-group JSON that does not include count fields
+- **Reasonable final-report display**: Latest Final Report details in mouse history are now shown only for deceased mice
+
+### 🧫 Collection & Euthanasia Report Age Handling
+- **Historical age display**: Review Sample Collected Report and related euthanasia dialogs now show age at collection/death instead of current age
+- **Clearer labels**: These report summaries now use `Age at Collection/Death:` for better context during review
+
+### 📌 Plugging Detail Summary Improvements
+- **Expanded copy summary labels**: Plugging detail copy-summary text now includes breeding line information together with expanded genotype descriptions
+- **Line-aware shorthand expansion**: Common shorthand such as `WT`, `HE/HET/HEMI`, `HO/HOM`, and paired line/genotype values now expand into more readable copy-ready text
+
+---
+
+# Version: beta 1.6 - Update Summary
+
+## 🎉 Previous Updates (beta 1.6)
+
+### 🤰 Pregnancy Prediction Workflow
+- **New prediction feature**: Added a pregnancy prediction workspace for reviewing historical training data and generating event-level pregnancy assessments
+- **Saved trainable prediction bundle**: One retrain action builds and saves a prediction bundle that contains a pregnancy classifier and, when enough collected data exists, an embryo-count model
+- **Ground-truth training data**: Prediction training uses completed plugging outcomes and collected embryo report fields instead of planned harvest targets
+- **Breeding line aware prediction**: Users can train pooled models, pooled models with breeding line as a predictor, or breeding-line-specific models for a selected line
+- **Saved-model reuse in event review**: Plugging and Calendar prediction cards can use a compatible saved model bundle and show whether the result came from a saved model or a live refit
+- **Event-scoped body weight analysis**: Prediction features are built from the active plugging event window rather than lifetime body weight history
+
+### 🧫 Sample Collected Report Improvements
+- **Structured collection report editor**: Collected plugging events now support embryo age, embryo counts, sex counts, mixed-age entries, and final report notes in a dedicated modal
+- **Mixed-age parsing support**: Free-text and structured mixed-age embryo groups are parsed into reusable prediction features
+- **Audit-friendly review flow**: Double-clicking collected training rows opens the Sample Collected Report editor directly for inspection and updates
+
+### 📌 Plugging & Calendar Detail Modal Improvements
+- **Pregnancy fit summary cards**: Plugging and Calendar details now show prediction label, estimated embryo age, estimated embryo number, and only show shifted pregnancy timing when it differs from the observed plug date
+- **Cleaner chart presentation**: Removed duplicate in-plot prediction text and auto-ranged event body weight charts for tighter review
+- **Faster modal return flows**: Saving or cancelling edit flows now returns to the same plugging event details card instead of dropping back to the parent tab
+- **Calendar workflow polish**: Calendar events now open on single click, the modal width is expanded to 70% of the screen, and expected harvest age can be edited from the calendar details card
+
+---
+
 # Version: beta 1.5 - Update Summary
 
 ## 🎉 Latest Updates (beta 1.5)

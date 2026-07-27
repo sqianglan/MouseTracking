@@ -888,10 +888,22 @@ handle_skip_duplicates_import <- function(import_data, DB_PATH) {
 
 # Main server module for animal modal functionality
 modal_add_animal_server <- function(input, output, session, import_data, all_mice_table, global_refresh_trigger, db_path, table_name) {
+  resolve_db_path <- function() {
+    if (is.function(db_path)) {
+      return(db_path())
+    }
+    db_path
+  }
+
+  session_is_active <- reactiveVal(TRUE)
+  session$onSessionEnded(function() {
+    session_is_active(FALSE)
+  })
   
   # Helper function to refresh all_mice_table
   refresh_all_mice_table <- function() {
-    con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+    current_db_path <- resolve_db_path()
+    con <- DBI::dbConnect(RSQLite::SQLite(), current_db_path)
     all_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", table_name, " ORDER BY asu_id"))
     DBI::dbDisconnect(con)
     all_mice_table(all_data)
@@ -976,9 +988,23 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
   
   # Handle ASU ID availability checking for dynamically created input IDs
   observe({
+    if (!isTRUE(session_is_active())) {
+      return()
+    }
+
     # Get all input names that start with check_asu_id_
-    input_names <- names(reactiveValuesToList(input))
+    input_names <- tryCatch(
+      names(reactiveValuesToList(input)),
+      error = function(e) NULL
+    )
+    if (!is.character(input_names) || length(input_names) == 0) {
+      return()
+    }
+
     check_asu_inputs <- input_names[grepl("^check_asu_id_", input_names)]
+    if (length(check_asu_inputs) == 0) {
+      return()
+    }
     
     # Process each check request
     for (input_name in check_asu_inputs) {
@@ -991,7 +1017,7 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
 
         # Check availability using the function from modal_add_animal.R
         availability <- check_asu_id_availability(asu_id, import_data, 
-                                                 db_path, table_name,
+                                                 resolve_db_path(), table_name,
                                                  source_row = source_row,
                                                  custom_asu_map = custom_asu_map)
 
@@ -1029,7 +1055,7 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     
     # Validate custom ASU IDs (check for duplicates with existing database and import)
     validation_errors <- c()
-    con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+    con <- DBI::dbConnect(RSQLite::SQLite(), resolve_db_path())
     existing_ids <- DBI::dbGetQuery(con, paste0("SELECT asu_id FROM ", table_name))$asu_id
     projected_ids <- build_projected_import_asu_ids(
       import_data$parsed_df,
@@ -1205,7 +1231,7 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
   # Handle Single Entry Submission
   observeEvent(input$submit_single_entry_btn, {
     # Use the module function to handle submission
-    result <- handle_single_entry_submission(input, db_path, table_name)
+    result <- handle_single_entry_submission(input, resolve_db_path(), table_name)
     
     # If successful, refresh the all_mice_table
     if (result) {
@@ -1262,7 +1288,7 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     
     # Check if ASU ID exists in database
     is_unique <- tryCatch({
-      con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+      con <- DBI::dbConnect(RSQLite::SQLite(), resolve_db_path())
       existing_count <- DBI::dbGetQuery(con, 
         paste0("SELECT COUNT(*) as count FROM ", table_name, " WHERE asu_id = ?"), 
         params = list(asu_id))$count
@@ -1292,7 +1318,7 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     
     # Check if ASU ID exists in database
     is_unique <- tryCatch({
-      con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+      con <- DBI::dbConnect(RSQLite::SQLite(), resolve_db_path())
       existing_count <- DBI::dbGetQuery(con, 
         paste0("SELECT COUNT(*) as count FROM ", table_name, " WHERE asu_id = ?"), 
         params = list(asu_id))$count
@@ -1333,6 +1359,6 @@ modal_add_animal_server <- function(input, output, session, import_data, all_mic
     
     removeModal()
     # Reshow the single entry form with preserved values
-    show_single_entry_form(db_path, table_name, current_values)
+    show_single_entry_form(resolve_db_path(), table_name, current_values)
   })
 }

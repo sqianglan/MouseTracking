@@ -24,6 +24,7 @@ Thumbs.db
 //*.db
 *.sqlite
 *.sqlite3
+/mice_colony.db
 
 # Excel files (often contain sensitive data)
 *.xls
@@ -50,6 +51,7 @@ Thumbs.db
 *_backup.*
 /.mousemanagement/backups/
 /.mousemanagement_DontRemove/backups/
+/prediction_models/
 
 # Data files (uncomment if you want to exclude data)
 # *.csv

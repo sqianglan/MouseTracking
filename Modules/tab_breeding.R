@@ -429,11 +429,31 @@ breeding_tab_server <- function(input, output, session) {
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
     # Get old values
     old_row <- DBI::dbGetQuery(con, "SELECT * FROM litter WHERE id = ?", params = list(lid))
+    if (nrow(old_row) == 0) {
+      DBI::dbDisconnect(con)
+      showNotification("Litter record not found.", type = "error")
+      return()
+    }
+
+    old_dob <- ifelse(is.na(old_row$dob[1]), "", as.character(old_row$dob[1]))
+    old_num_pups <- suppressWarnings(as.numeric(old_row$num_pups[1]))
+    old_notes <- ifelse(is.na(old_row$notes[1]), "", trimws(as.character(old_row$notes[1])))
+
+    new_dob <- as.character(input$edit_litter_dob)
+    new_num_pups <- suppressWarnings(as.numeric(input$edit_litter_num_pups))
+    new_notes <- ifelse(is.null(input$edit_litter_notes) || is.na(input$edit_litter_notes[1]), "", trimws(as.character(input$edit_litter_notes[1])))
+
+    if (identical(old_dob, new_dob) && identical(old_num_pups, new_num_pups) && identical(old_notes, new_notes)) {
+      DBI::dbDisconnect(con)
+      showNotification("No changes detected. Nothing was saved.", type = "warning")
+      return()
+    }
+
     DBI::dbExecute(con, "UPDATE litter SET dob = ?, num_pups = ?, notes = ? WHERE id = ?",
       params = list(
-        as.character(input$edit_litter_dob),
-        input$edit_litter_num_pups,
-        input$edit_litter_notes,
+        new_dob,
+        new_num_pups,
+        new_notes,
         lid
       )
     )
@@ -651,15 +671,35 @@ breeding_tab_server <- function(input, output, session) {
     con <- DBI::dbConnect(RSQLite::SQLite(), DB_PATH)
     # Get old values for audit
     old_row <- DBI::dbGetQuery(con, "SELECT * FROM breeding_history WHERE id = ?", params = list(id))
+    if (nrow(old_row) == 0) {
+      DBI::dbDisconnect(con)
+      showNotification("Breeding event not found.", type = "error")
+      return()
+    }
     # Defensive: get new values from modal inputs
     new_end_date <- input$edit_end_date
     new_status <- input$edit_breeding_status
     new_notes <- input$edit_notes
+
+    old_end_date <- ifelse(is.na(old_row$end_date[1]), "", as.character(old_row$end_date[1]))
+    old_status <- ifelse(is.na(old_row$breeding_status[1]), "", as.character(old_row$breeding_status[1]))
+    old_notes <- ifelse(is.na(old_row$notes[1]), "", trimws(as.character(old_row$notes[1])))
+
+    new_end_date_value <- as.character(new_end_date)
+    new_status_value <- ifelse(is.null(new_status) || is.na(new_status[1]), "", as.character(new_status[1]))
+    new_notes_value <- ifelse(is.null(new_notes) || is.na(new_notes[1]), "", trimws(as.character(new_notes[1])))
+
+    if (identical(old_end_date, new_end_date_value) && identical(old_status, new_status_value) && identical(old_notes, new_notes_value)) {
+      DBI::dbDisconnect(con)
+      showNotification("No changes detected. Nothing was saved.", type = "warning")
+      return()
+    }
+
     DBI::dbExecute(con, "UPDATE breeding_history SET end_date = ?, breeding_status = ?, notes = ? WHERE id = ?",
       params = list(
-        as.character(new_end_date),
-        new_status,
-        new_notes,
+        new_end_date_value,
+        new_status_value,
+        new_notes_value,
         id
       )
     )
