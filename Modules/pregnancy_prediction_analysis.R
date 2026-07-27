@@ -764,6 +764,7 @@ build_body_weight_features_for_event <- function(weight_history, plugging_row, r
   )
   weight_history$weight_grams <- suppressWarnings(as.numeric(weight_history$weight_grams))
   weight_history <- weight_history[!is.na(weight_history$measurement_date) & !is.na(weight_history$weight_grams), , drop = FALSE]
+  weight_history <- weight_history[order(weight_history$measurement_date), , drop = FALSE]
 
   if (nrow(weight_history) == 0) {
     return(empty_features)
@@ -785,7 +786,7 @@ build_body_weight_features_for_event <- function(weight_history, plugging_row, r
     baseline_candidates <- weight_history[weight_history$measurement_date <= pairing_start, , drop = FALSE]
   }
 
-  baseline_weight <- if (nrow(baseline_candidates) > 0) baseline_candidates$weight_grams[nrow(baseline_candidates)] else if (nrow(pre_weights) > 0) pre_weights$weight_grams[1] else NA_real_
+  baseline_weight <- if (nrow(baseline_candidates) > 0) baseline_candidates$weight_grams[nrow(baseline_candidates)] else if (nrow(pre_weights) > 0) pre_weights$weight_grams[nrow(pre_weights)] else NA_real_
   last_pre_plug <- if (nrow(pre_weights) > 0) pre_weights$weight_grams[nrow(pre_weights)] else NA_real_
   first_post_plug <- if (nrow(post_weights) > 0) post_weights$weight_grams[1] else NA_real_
   latest_post_plug <- if (nrow(post_weights) > 0) post_weights$weight_grams[nrow(post_weights)] else NA_real_
@@ -1506,6 +1507,23 @@ calculate_plugging_anchor <- function(plugging_row) {
   list(date = as.Date(NA), type = "Unknown Anchor")
 }
 
+constrain_anchor_offset_to_pairing_window <- function(anchor_date, offset_days, pairing_start = as.Date(NA), pairing_end = as.Date(NA)) {
+  if (is.na(anchor_date) || is.null(offset_days) || !is.finite(offset_days)) {
+    return(0)
+  }
+
+  resolved_date <- anchor_date + offset_days
+
+  if (!is.na(pairing_start) && resolved_date < pairing_start) {
+    resolved_date <- pairing_start
+  }
+  if (!is.na(pairing_end) && resolved_date > pairing_end) {
+    resolved_date <- pairing_end
+  }
+
+  as.numeric(resolved_date - anchor_date)
+}
+
 prepare_anchor_weight_series <- function(weight_history, anchor_date) {
   empty_result <- data.frame(
     measurement_date = as.Date(character(0)),
@@ -1548,6 +1566,11 @@ build_event_weight_window <- function(all_weights, plugging_row, female_plugging
   window_start <- if (!is.na(pairing_start)) pairing_start - pre_days else if (!is.na(event_anchor$date)) event_anchor$date - pre_days else as.Date(NA)
   window_end <- if (!is.na(final_report_date)) final_report_date + 3 else if (!is.na(event_anchor$date)) event_anchor$date + post_days else as.Date(NA)
 
+  # If the current cycle cannot be anchored, avoid mixing unrelated cycles.
+  if (is.na(window_start) && is.na(window_end)) {
+    return(data.frame())
+  }
+
   if (!is.null(female_plugging) && nrow(female_plugging) > 0 && !is.na(pairing_start)) {
     female_plugging$pairing_start_date <- unname(vapply(female_plugging$pairing_start_date, safe_analysis_date, as.Date(NA)))
     later_events <- female_plugging[
@@ -1575,9 +1598,7 @@ build_event_weight_window <- function(all_weights, plugging_row, female_plugging
   }
 
   if (nrow(filtered_weights) == 0) {
-    filtered_weights <- all_weights
-    filtered_weights$measurement_date <- unname(vapply(filtered_weights$measurement_date, safe_analysis_date, as.Date(NA)))
-    filtered_weights <- filtered_weights[!is.na(filtered_weights$measurement_date), , drop = FALSE]
+    return(filtered_weights)
   }
 
   filtered_weights[order(filtered_weights$measurement_date), , drop = FALSE]
@@ -1626,7 +1647,8 @@ build_actual_trend_line <- function(weight_series) {
 }
 
 estimate_potential_pregnancy_anchor <- function(anchor, weight_series, baseline_weight, training_dataset,
-                                                max_shift_days = 3, shift_step = 0.5) {
+                                                max_shift_days = 3, shift_step = 0.5,
+                                                pairing_start = as.Date(NA), pairing_end = as.Date(NA)) {
   empty_result <- list(
     offset_days = 0,
     fitted_curve = data.frame(day_since_anchor = numeric(0), predicted_weight = numeric(0), stringsAsFactors = FALSE),
@@ -1669,6 +1691,14 @@ estimate_potential_pregnancy_anchor <- function(anchor, weight_series, baseline_
   }
 
   shift_candidates <- seq(-max_shift_days, max_shift_days, by = shift_step)
+  shift_candidates <- shift_candidates[vapply(shift_candidates, function(offset_days) {
+    resolved_offset <- constrain_anchor_offset_to_pairing_window(anchor$date, offset_days, pairing_start, pairing_end)
+    is.finite(resolved_offset) && abs(resolved_offset - offset_days) < 1e-8
+  }, logical(1))]
+  if (length(shift_candidates) == 0) {
+    shift_candidates <- 0
+  }
+
   shift_scores <- vapply(shift_candidates, function(offset_days) {
     aligned_days <- pmax(post_anchor_series$day_since_anchor - offset_days, 0)
     predicted_weight <- baseline_weight + aligned_days * average_gain
@@ -1676,7 +1706,12 @@ estimate_potential_pregnancy_anchor <- function(anchor, weight_series, baseline_
   }, numeric(1))
 
   best_index <- which.min(shift_scores)
-  best_offset <- shift_candidates[best_index]
+  best_offset <- constrain_anchor_offset_to_pairing_window(
+    anchor$date,
+    shift_candidates[best_index],
+    pairing_start,
+    pairing_end
+  )
   fitted_days <- seq.int(
     floor(min(weight_series$day_since_anchor, na.rm = TRUE)),
     ceiling(max(weight_series$day_since_anchor, na.rm = TRUE)),
@@ -2277,16 +2312,24 @@ predict_plugging_event_outcome <- function(plugging_row, current_weight_history,
     current_breeding_line = current_breeding_line
   )
   current_female_dob <- if ("female_dob" %in% names(plugging_row)) safe_analysis_date(plugging_row$female_dob[1]) else as.Date(NA)
+  anchor <- calculate_plugging_anchor(plugging_row)
   current_pairing_start <- safe_analysis_date(plugging_row$pairing_start_date[1])
-  if (!is.na(current_female_dob) && !is.na(current_pairing_start)) {
-    current_age_weeks <- round(as.numeric(current_pairing_start - current_female_dob) / 7, 1)
+  current_pairing_end <- safe_analysis_date(plugging_row$pairing_end_date[1])
+  if (!is.na(current_female_dob) && !is.na(anchor$date)) {
+    current_age_weeks <- round(as.numeric(anchor$date - current_female_dob) / 7, 1)
   }
 
-  anchor <- calculate_plugging_anchor(plugging_row)
   weight_series <- prepare_anchor_weight_series(current_weight_history, anchor$date)
   trend_line <- build_actual_trend_line(weight_series)
   presumable_curve <- build_presumable_weight_curve(current_features$baseline_weight, filtered_training)
-  fitted_anchor <- estimate_potential_pregnancy_anchor(anchor, weight_series, current_features$baseline_weight, filtered_training)
+  fitted_anchor <- estimate_potential_pregnancy_anchor(
+    anchor,
+    weight_series,
+    current_features$baseline_weight,
+    filtered_training,
+    pairing_start = current_pairing_start,
+    pairing_end = current_pairing_end
+  )
   resolved_models <- resolve_prediction_model_bundle(
     filtered_training,
     current_breeding_line = current_breeding_line,
@@ -2393,6 +2436,7 @@ predict_plugging_event_outcome <- function(plugging_row, current_weight_history,
 
   estimated_age_range <- "Unknown"
   estimated_pregnancy_age_value <- NA_real_
+  model_pregnancy_age_value <- NA_real_
   if (!is.na(anchor$date)) {
     reference_date <- Sys.Date()
     age_days <- as.numeric(reference_date - anchor$date) - fitted_anchor$offset_days
@@ -2403,7 +2447,18 @@ predict_plugging_event_outcome <- function(plugging_row, current_weight_history,
     }
   }
 
-  current_features$estimated_pregnancy_age_value <- estimated_pregnancy_age_value
+  if (!is.na(current_features$recent_day_offset)) {
+    measured_age_days <- current_features$recent_day_offset - fitted_anchor$offset_days
+    if (!is.na(measured_age_days) && measured_age_days >= 0) {
+      model_pregnancy_age_value <- min(measured_age_days, 21)
+    }
+  }
+
+  if (is.na(model_pregnancy_age_value)) {
+    model_pregnancy_age_value <- estimated_pregnancy_age_value
+  }
+
+  current_features$estimated_pregnancy_age_value <- model_pregnancy_age_value
   ml_outputs <- predict_pregnancy_ml_outputs(model_bundle, current_features, current_age_weeks, current_breeding_line)
 
   litter_band <- "Unknown"

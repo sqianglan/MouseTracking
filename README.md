@@ -4,9 +4,13 @@ A comprehensive web-based application for tracking and managing mouse colony plu
 
 ## Current Version
 
-**Version beta 1.6**
+**Version beta 1.63**
 
 Recent highlights in this release:
+- Prediction windows are now strictly cycle-limited, preventing cross-cycle body-weight leakage into current-event predictions
+- Baseline body-weight selection for prediction features now uses the latest valid pre-event measurement for more stable gain calculations
+- Unknown or missing plug observed dates are handled safely by deriving prediction anchors from pairing dates when available
+- Predicted pregnancy timing is constrained to pairing start/end boundaries to avoid out-of-window date shifts
 - Pregnancy prediction workspace with trainable saved models, filtered historical training review, and event-level prediction summaries
 - Structured Sample Collected Report workflow with embryo age, embryo counts, mixed-age support, and audit logging
 - Plugging and Calendar detail cards with pregnancy fit summary, compact layouts, and event-scoped body weight plots
