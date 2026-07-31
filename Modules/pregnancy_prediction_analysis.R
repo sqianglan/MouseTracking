@@ -1554,17 +1554,37 @@ prepare_anchor_weight_series <- function(weight_history, anchor_date) {
 }
 
 build_event_weight_window <- function(all_weights, plugging_row, female_plugging = NULL,
-                                      pre_days = 3, post_days = 25) {
+                                      pre_days = 3, post_days = 25, window_scope = "life_history") {
   if (is.null(all_weights) || nrow(all_weights) == 0) {
     return(data.frame())
   }
 
+  all_weights$measurement_date <- unname(vapply(all_weights$measurement_date, safe_analysis_date, as.Date(NA)))
+
   event_anchor <- calculate_plugging_anchor(plugging_row)
   pairing_start <- safe_analysis_date(plugging_row$pairing_start_date[1])
+  pairing_end <- safe_analysis_date(plugging_row$pairing_end_date[1])
   final_report_date <- safe_analysis_date(plugging_row$final_report_date[1])
+  use_life_history <- identical(window_scope, "life_history")
 
-  window_start <- if (!is.na(pairing_start)) pairing_start - pre_days else if (!is.na(event_anchor$date)) event_anchor$date - pre_days else as.Date(NA)
-  window_end <- if (!is.na(final_report_date)) final_report_date + 3 else if (!is.na(event_anchor$date)) event_anchor$date + post_days else as.Date(NA)
+  window_start <- if (use_life_history && any(!is.na(all_weights$measurement_date))) {
+    min(all_weights$measurement_date, na.rm = TRUE)
+  } else if (!is.na(pairing_start)) {
+    pairing_start - pre_days
+  } else if (!is.na(event_anchor$date)) {
+    event_anchor$date - pre_days
+  } else {
+    as.Date(NA)
+  }
+  window_end <- if (!is.na(final_report_date)) {
+    final_report_date + 3
+  } else if (!is.na(event_anchor$date)) {
+    event_anchor$date + post_days
+  } else if (!is.na(pairing_end)) {
+    pairing_end
+  } else {
+    as.Date(NA)
+  }
 
   # If the current cycle cannot be anchored, avoid mixing unrelated cycles.
   if (is.na(window_start) && is.na(window_end)) {
@@ -1573,6 +1593,26 @@ build_event_weight_window <- function(all_weights, plugging_row, female_plugging
 
   if (!is.null(female_plugging) && nrow(female_plugging) > 0 && !is.na(pairing_start)) {
     female_plugging$pairing_start_date <- unname(vapply(female_plugging$pairing_start_date, safe_analysis_date, as.Date(NA)))
+
+    # In current-cycle scope, keep the window from bleeding into an earlier cycle too.
+    if (!use_life_history) {
+      earlier_events <- female_plugging[
+        female_plugging$id != plugging_row$id[1] & !is.na(female_plugging$pairing_start_date) & female_plugging$pairing_start_date < pairing_start,
+        ,
+        drop = FALSE
+      ]
+
+      if (nrow(earlier_events) > 0) {
+        earlier_events$pairing_end_date <- unname(vapply(earlier_events$pairing_end_date, safe_analysis_date, as.Date(NA)))
+        earlier_events$cycle_boundary <- ifelse(!is.na(earlier_events$pairing_end_date), earlier_events$pairing_end_date, earlier_events$pairing_start_date)
+        prev_cycle_boundary <- suppressWarnings(max(earlier_events$cycle_boundary, na.rm = TRUE))
+        if (is.finite(prev_cycle_boundary)) {
+          prev_cycle_boundary <- as.Date(prev_cycle_boundary, origin = "1970-01-01")
+          window_start <- max(window_start, prev_cycle_boundary + 1, na.rm = TRUE)
+        }
+      }
+    }
+
     later_events <- female_plugging[
       female_plugging$id != plugging_row$id[1] & !is.na(female_plugging$pairing_start_date) & female_plugging$pairing_start_date > pairing_start,
       ,
@@ -1587,7 +1627,6 @@ build_event_weight_window <- function(all_weights, plugging_row, female_plugging
     }
   }
 
-  all_weights$measurement_date <- unname(vapply(all_weights$measurement_date, safe_analysis_date, as.Date(NA)))
   filtered_weights <- all_weights[!is.na(all_weights$measurement_date), , drop = FALSE]
 
   if (!is.na(window_start)) {
@@ -1674,21 +1713,36 @@ estimate_potential_pregnancy_anchor <- function(anchor, weight_series, baseline_
   }
 
   post_anchor_series <- weight_series[weight_series$day_since_anchor >= 0, , drop = FALSE]
-  if (nrow(post_anchor_series) < 2) {
+  # Anchor the curve's start to the actual last pre-anchor measurement day (if any)
+  # so its first point matches the real recorded baseline weight exactly.
+  pre_anchor_days <- weight_series$day_since_anchor[weight_series$day_since_anchor <= 0]
+  baseline_day <- if (length(pre_anchor_days) > 0) max(pre_anchor_days, na.rm = TRUE) else 0
+  if (nrow(post_anchor_series) < 1) {
+    # No post-anchor weight measurement at all for this event, so there is no
+    # data to infer a corrected plugging date from - fall back to the
+    # population average gain, measured from baseline_day (consistent with how
+    # average_daily_gain is derived in build_body_weight_features_for_event(),
+    # i.e. from the baseline measurement's own day, not the anchor).
     fitted_days <- seq.int(
-      floor(min(weight_series$day_since_anchor, na.rm = TRUE)),
-      ceiling(max(weight_series$day_since_anchor, na.rm = TRUE)),
+      baseline_day,
+      max(baseline_day, ceiling(max(weight_series$day_since_anchor, na.rm = TRUE))),
       by = 1
     )
 
     empty_result$fitted_curve <- data.frame(
       day_since_anchor = fitted_days,
-      predicted_weight = baseline_weight + pmax(fitted_days, 0) * average_gain,
+      predicted_weight = baseline_weight + pmax(fitted_days - baseline_day, 0) * average_gain,
       stringsAsFactors = FALSE
     )
     empty_result$average_gain <- average_gain
     return(empty_result)
   }
+  # Even a single post-anchor weight measurement is enough to back-solve for a
+  # corrected plugging date: recorded plug dates can be missing (Unknown/plug
+  # not observed) or simply wrong relative to when conception actually
+  # occurred, so the shift-fitting below is used whenever there is at least
+  # one real post-anchor data point to check the growth trend against,
+  # instead of requiring two.
 
   shift_candidates <- seq(-max_shift_days, max_shift_days, by = shift_step)
   shift_candidates <- shift_candidates[vapply(shift_candidates, function(offset_days) {
@@ -1712,9 +1766,13 @@ estimate_potential_pregnancy_anchor <- function(anchor, weight_series, baseline_
     pairing_start,
     pairing_end
   )
+  # Start the line at the actual last pre-anchor measurement day (or best_offset,
+  # whichever is earlier) so the curve's first point coincides with the real
+  # recorded baseline weight instead of an arbitrary flat life-history segment.
+  fitted_start_day <- min(baseline_day, floor(best_offset))
   fitted_days <- seq.int(
-    floor(min(weight_series$day_since_anchor, na.rm = TRUE)),
-    ceiling(max(weight_series$day_since_anchor, na.rm = TRUE)),
+    fitted_start_day,
+    max(fitted_start_day, ceiling(max(weight_series$day_since_anchor, na.rm = TRUE))),
     by = 1
   )
 
@@ -1991,6 +2049,14 @@ build_body_weight_plot_y_range <- function(actual_weights, fitted_weights = nume
   c(lower_bound, upper_bound)
 }
 
+get_prediction_curve_preplug_days <- function() {
+  1
+}
+
+get_prediction_curve_day_since_anchor_min <- function() {
+  -get_prediction_curve_preplug_days()
+}
+
 build_prediction_gain_plot_data <- function(prediction) {
   empty_series <- data.frame(
     pregnancy_age = numeric(0),
@@ -2014,14 +2080,16 @@ build_prediction_gain_plot_data <- function(prediction) {
     fitted_offset <- prediction$fitted_anchor$offset_days
   }
 
+  min_day_since_anchor <- get_prediction_curve_day_since_anchor_min()
+
   actual_series <- empty_series
   if (!is.null(prediction$weight_series) && nrow(prediction$weight_series) > 0) {
-    actual_series <- prediction$weight_series[prediction$weight_series$day_since_anchor >= 0, c("measurement_date", "day_since_anchor", "weight_grams"), drop = FALSE]
+    actual_series <- prediction$weight_series[prediction$weight_series$day_since_anchor >= min_day_since_anchor, c("measurement_date", "day_since_anchor", "weight_grams"), drop = FALSE]
     if (nrow(actual_series) > 0) {
       if (is.na(baseline_weight)) {
         baseline_weight <- actual_series$weight_grams[1]
       }
-      actual_series$pregnancy_age <- pmax(actual_series$day_since_anchor - fitted_offset, 0)
+      actual_series$pregnancy_age <- actual_series$day_since_anchor - fitted_offset
       actual_series$weight_gain <- actual_series$weight_grams - baseline_weight
       actual_series <- actual_series[order(actual_series$pregnancy_age, actual_series$measurement_date), c("pregnancy_age", "weight_gain", "measurement_date"), drop = FALSE]
     }
@@ -2029,12 +2097,12 @@ build_prediction_gain_plot_data <- function(prediction) {
 
   fitted_series <- empty_series
   if (!is.null(prediction$fitted_curve) && nrow(prediction$fitted_curve) > 0) {
-    fitted_series <- prediction$fitted_curve[prediction$fitted_curve$day_since_anchor >= 0, c("day_since_anchor", "predicted_weight"), drop = FALSE]
+    fitted_series <- prediction$fitted_curve[prediction$fitted_curve$day_since_anchor >= min_day_since_anchor, c("day_since_anchor", "predicted_weight"), drop = FALSE]
     if (nrow(fitted_series) > 0) {
       if (is.na(baseline_weight)) {
         baseline_weight <- min(fitted_series$predicted_weight, na.rm = TRUE)
       }
-      fitted_series$pregnancy_age <- pmax(fitted_series$day_since_anchor - fitted_offset, 0)
+      fitted_series$pregnancy_age <- fitted_series$day_since_anchor - fitted_offset
       fitted_series$weight_gain <- fitted_series$predicted_weight - baseline_weight
       fitted_series$measurement_date <- as.Date(NA)
       fitted_series <- fitted_series[order(fitted_series$pregnancy_age), c("pregnancy_age", "weight_gain", "measurement_date"), drop = FALSE]
@@ -2298,7 +2366,6 @@ predict_plugging_event_outcome <- function(plugging_row, current_weight_history,
                                            breeding_lines = NULL, min_age_weeks = NA_real_, max_age_weeks = NA_real_,
                                            breeding_line_mode = "feature") {
   report_details <- extract_plugging_final_report(plugging_row)
-  current_features <- build_body_weight_features_for_event(current_weight_history, plugging_row, report_details)
   current_age_weeks <- NA_real_
   current_breeding_line <- if ("female_breeding_line" %in% names(plugging_row)) plugging_row$female_breeding_line[1] else NA_character_
   normalized_mode <- normalize_prediction_breeding_line_mode(breeding_line_mode)
@@ -2319,7 +2386,9 @@ predict_plugging_event_outcome <- function(plugging_row, current_weight_history,
     current_age_weeks <- round(as.numeric(anchor$date - current_female_dob) / 7, 1)
   }
 
-  weight_series <- prepare_anchor_weight_series(current_weight_history, anchor$date)
+  event_weight_history <- build_event_weight_window(current_weight_history, plugging_row)
+  current_features <- build_body_weight_features_for_event(event_weight_history, plugging_row, report_details)
+  weight_series <- prepare_anchor_weight_series(event_weight_history, anchor$date)
   trend_line <- build_actual_trend_line(weight_series)
   presumable_curve <- build_presumable_weight_curve(current_features$baseline_weight, filtered_training)
   fitted_anchor <- estimate_potential_pregnancy_anchor(

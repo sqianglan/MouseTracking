@@ -1373,6 +1373,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         selected_mouse_data(list(
           plugging = plugging[1, ],
           body_weight_history = build_event_weight_window(female_body_weight_history, plugging[1, , drop = FALSE], female_plugging_history),
+          display_body_weight_history = build_event_weight_window(female_body_weight_history, plugging[1, , drop = FALSE], female_plugging_history, window_scope = "current_cycle"),
           plugging_history = female_plugging_history
         ))
         view_mode("details")
@@ -3048,7 +3049,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         req(selected_mouse_data())
         data <- selected_mouse_data()
         row <- data$plugging
-        female_body_weight_history <- data$body_weight_history
+        female_body_weight_history <- data$display_body_weight_history
         female_plugging_history <- data$plugging_history
         current_prediction <- current_calendar_prediction()
         
@@ -3279,7 +3280,7 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
         req(selected_mouse_data())
         data <- selected_mouse_data()
         row <- data$plugging
-        female_body_weight_history <- data$body_weight_history
+        female_body_weight_history <- data$display_body_weight_history
         female_plugging_history <- data$plugging_history
         current_prediction <- current_calendar_prediction()
         
@@ -3319,7 +3320,10 @@ plugging_calendar_modal_server <- function(id, db_path = DB_PATH, shared_pluggin
             )
 
             if (!is.na(current_prediction$anchor$date) && nrow(current_prediction$fitted_curve) > 0) {
-              fitted_curve_data <- current_prediction$fitted_curve[current_prediction$fitted_curve$day_since_anchor >= 0, , drop = FALSE]
+              # Start the prediction curve at the same day-0 point as the actual body
+              # weight line so both curves run directly from day 0 to day x together.
+              min_day_since_anchor <- as.numeric(min(weight_data$measurement_date, na.rm = TRUE) - current_prediction$anchor$date)
+              fitted_curve_data <- current_prediction$fitted_curve[current_prediction$fitted_curve$day_since_anchor >= min_day_since_anchor, , drop = FALSE]
               fitted_curve_data$measurement_date <- as.POSIXct(current_prediction$anchor$date) + fitted_curve_data$day_since_anchor * 86400
 
               p <- add_trace(

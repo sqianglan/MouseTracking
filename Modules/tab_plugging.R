@@ -1397,6 +1397,7 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
       mixed_age_text <- format_age_groups_text_from_json(report_defaults$final_report_age_groups_json)
       report_details <- extract_plugging_final_report(plugging)
       event_body_weight_history <- build_event_weight_window(female_body_weight_history, plugging, female_plugging_history)
+      display_body_weight_history <- build_event_weight_window(female_body_weight_history, plugging, female_plugging_history, window_scope = "current_cycle")
       training_dataset <- details_prediction_training_dataset()
       current_prediction_mode <- normalize_prediction_breeding_line_mode(plugging_state$prediction_breeding_line_mode)
       current_prediction <- tryCatch(
@@ -1674,12 +1675,12 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
         )
       ))
       
-      # Render body weight chart if data exists
-      if (nrow(event_body_weight_history) > 0) {
+      # Render body weight chart if data exists (scoped to the current/last cycle only)
+      if (nrow(display_body_weight_history) > 0) {
         # Use custom output name for plugging modal to avoid conflicts
         output[[paste0("plugging_body_weight_preview_plot_", row$female_id)]] <- renderPlotly({
           # Create the base plotly chart
-          weight_data <- event_body_weight_history
+          weight_data <- display_body_weight_history
           
           # Robust date conversion - handle various date formats
           weight_data$measurement_date <- tryCatch({
@@ -1711,7 +1712,10 @@ plugging_tab_server <- function(input, output, session, is_system_locked = NULL,
           )
 
           if (!is.na(current_prediction$anchor$date) && nrow(current_prediction$fitted_curve) > 0) {
-            fitted_curve_data <- current_prediction$fitted_curve[current_prediction$fitted_curve$day_since_anchor >= 0, , drop = FALSE]
+            # Start the prediction curve at the same day-0 point as the actual body
+            # weight line so both curves run directly from day 0 to day x together.
+            min_day_since_anchor <- as.numeric(min(weight_data$measurement_date, na.rm = TRUE) - current_prediction$anchor$date)
+            fitted_curve_data <- current_prediction$fitted_curve[current_prediction$fitted_curve$day_since_anchor >= min_day_since_anchor, , drop = FALSE]
             fitted_curve_data$measurement_date <- as.POSIXct(current_prediction$anchor$date) + fitted_curve_data$day_since_anchor * 86400
 
             p <- add_trace(
